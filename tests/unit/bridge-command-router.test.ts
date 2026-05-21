@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import type { AiBackend } from "../../src/backend/metadata.js";
 import { ApprovalManager } from "../../src/approvals/approval-manager.js";
 import { BridgeCommandRouter, type BridgeCommandHandlers } from "../../src/bridge/command-router.js";
 import { BridgeDelivery } from "../../src/bridge/delivery.js";
@@ -44,6 +45,20 @@ test("BridgeCommandRouter rejects compact while route is busy", async () => {
   await fixture.router.handle(message(), target(), "compact", [], "/compact");
   assert.match(fixture.sent.at(-1) ?? "", /当前对话的 Codex 正在执行/);
   assert.equal(fixture.calls.compact, 0);
+});
+
+test("BridgeCommandRouter routes clear as a new-session command", async () => {
+  const fixture = routerFixture();
+  await fixture.router.handle(message(), target(), "clear", ["confirm"], "/clear confirm");
+  assert.equal(fixture.calls.createNewSession, 1);
+  assert.deepEqual(fixture.newSessionCall?.args, ["clear", "confirm"]);
+});
+
+test("BridgeCommandRouter rejects clear while route is busy", async () => {
+  const fixture = routerFixture({ busy: true });
+  await fixture.router.handle(message(), target(), "clear", ["confirm"], "/clear confirm");
+  assert.match(fixture.sent.at(-1) ?? "", /当前对话的 Codex 正在执行/);
+  assert.equal(fixture.calls.createNewSession, 0);
 });
 
 test("BridgeCommandRouter passes /new args and raw text to the handler", async () => {
@@ -106,7 +121,42 @@ test("BridgeCommandRouter honors disabled progress command policy", async () => 
   assert.equal(fixture.calls.progressMode, 0);
 });
 
+test("BridgeCommandRouter rejects unsupported Claude commands before handlers", async () => {
+  const fixture = routerFixture({ backend: "claude" });
+
+  await fixture.router.handle(message(), target(), "ok", [], "/OK");
+  assert.match(fixture.sent.at(-1) ?? "", /Claude Code.*\/ok/);
+  assert.equal(fixture.calls.approval, 0);
+});
+
+test("BridgeCommandRouter allows supported Claude command handlers", async () => {
+  const fixture = routerFixture({ backend: "claude" });
+
+  await fixture.router.handle(message(), target(), "model", ["sonnet"], "/model sonnet");
+  await fixture.router.handle(message(), target(), "plan", [], "/plan");
+  await fixture.router.handle(message(), target(), "permission", ["auto"], "/permission auto");
+  await fixture.router.handle(message(), target(), "compact", [], "/compact");
+
+  assert.equal(fixture.calls.model, 1);
+  assert.equal(fixture.calls.collaborationMode, 1);
+  assert.equal(fixture.calls.permission, 1);
+  assert.equal(fixture.calls.compact, 1);
+});
+
+test("BridgeCommandRouter allows supported Codex commands by default", async () => {
+  const fixture = routerFixture();
+
+  await fixture.router.handle(message(), target(), "model", ["gpt-next"], "/model gpt-next");
+  await fixture.router.handle(message(), target(), "compact", [], "/compact");
+  await fixture.router.handle(message(), target(), "ok", [], "/OK");
+
+  assert.equal(fixture.calls.model, 1);
+  assert.equal(fixture.calls.compact, 1);
+  assert.equal(fixture.calls.approval, 1);
+});
+
 function routerFixture(options: {
+  backend?: AiBackend;
   busy?: boolean;
   deliveryPolicyFor?: () => ReturnType<typeof normalizeChannelDeliveryPolicy>;
 } = {}) {
@@ -117,7 +167,10 @@ function routerFixture(options: {
     progressMode: 0,
     contextRefresh: 0,
     groupReceive: 0,
+    collaborationMode: 0,
+    permission: 0,
     compact: 0,
+    approval: 0,
   };
   let newSessionCall: { args: string[]; rawText: string } | undefined;
   let groupReceiveCall: { args: string[]; commandName: string } | undefined;
@@ -144,7 +197,9 @@ function routerFixture(options: {
     cancel: async () => undefined,
     whoami: () => "whoami",
     debug: async () => "debug",
-    collaborationMode: async () => undefined,
+    collaborationMode: async () => {
+      calls.collaborationMode += 1;
+    },
     goal: async () => undefined,
     progressMode: async () => {
       calls.progressMode += 1;
@@ -161,8 +216,12 @@ function routerFixture(options: {
     model: async () => {
       calls.model += 1;
     },
-    permission: async () => undefined,
-    approval: async () => undefined,
+    permission: async () => {
+      calls.permission += 1;
+    },
+    approval: async () => {
+      calls.approval += 1;
+    },
     stop: async () => undefined,
     compact: async () => {
       calls.compact += 1;
@@ -178,6 +237,7 @@ function routerFixture(options: {
       return groupReceiveCall;
     },
     router: new BridgeCommandRouter({
+      backend: options.backend,
       logger: new SilentLogger(),
       delivery,
       deliveryPolicyFor: options.deliveryPolicyFor ?? (() => DEFAULT_CHANNEL_DELIVERY_POLICY),

@@ -118,7 +118,7 @@ export class BridgeProgressDelivery {
       .map((text) => text.trim())
       .filter(Boolean)
       .join("\n\n");
-    return `Codex 进度:\n${truncateForChannel(body, this.maxProgressChars)}`;
+    return `任务进度:\n${truncateForChannel(body, this.maxProgressChars)}`;
   }
 
   private hasRecent(state: RouteProgressState, normalized: string): boolean {

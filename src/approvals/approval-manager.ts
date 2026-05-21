@@ -80,7 +80,7 @@ export class ApprovalManager {
 
   formatForChannel(pending: PendingApproval): string {
     const lines = [
-      "Codex 请求审批",
+      "AI 后端请求审批",
       `类型: ${pending.kind}`,
       `Session: ${shortId(pending.sessionId)}`,
       `Turn: ${shortId(pending.turnId)}`,

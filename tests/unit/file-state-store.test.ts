@@ -18,6 +18,65 @@ test("default state root uses fixed user directory", () => {
   assert.equal(defaultBridgeStateDir("/tmp/chat-codex-start", {}), path.join(os.homedir(), ".chat-codex", "state", "bridge"));
 });
 
+test("FileStateStore defaults old route and owner records to Codex backend", () => {
+  const rootDir = tempStateDir();
+  fs.writeFileSync(path.join(rootDir, "routes.json"), JSON.stringify({
+    schemaVersion: 1,
+    updatedAt: new Date().toISOString(),
+    routes: [{
+      routeKey: "feishu-main:default:direct:oc_user",
+      channelId: "feishu-main",
+      accountId: "default",
+      conversationKind: "direct",
+      conversationId: "oc_user",
+      activeSessionId: "legacy-session",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }],
+  }));
+  fs.writeFileSync(path.join(rootDir, "session-owners.json"), JSON.stringify({
+    schemaVersion: 1,
+    updatedAt: new Date().toISOString(),
+    owners: [{
+      sessionId: "legacy-session",
+      ownerRouteKey: "feishu-main:default:direct:oc_user",
+      claimedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }],
+  }));
+
+  const reloaded = new FileStateStore({ rootDir });
+
+  assert.equal(reloaded.getBinding("feishu-main:default:direct:oc_user")?.backend, "codex");
+  assert.equal(reloaded.getSessionOwner("legacy-session", "codex")?.ownerRouteKey, "feishu-main:default:direct:oc_user");
+});
+
+test("FileStateStore persists Claude owner backend metadata", () => {
+  const rootDir = tempStateDir();
+  const store = new FileStateStore({ rootDir });
+  const routeKey = "feishu-main:default:direct:oc_user";
+  store.recordRouteMessage(feishuMessage(routeKey));
+  store.bindSession(routeKey, {
+    ...codexSession("claude-local-1"),
+    backend: "claude",
+    backendSessionId: "actual-claude-session",
+  });
+
+  const owners = readJson<SessionOwnersDocument>(path.join(rootDir, "session-owners.json"));
+  assert.equal(owners.owners[0]?.backend, "claude");
+  assert.equal(owners.owners[0]?.backendSessionId, "actual-claude-session");
+});
+
+test("FileStateStore accepts backend-aware owner claims", () => {
+  const rootDir = tempStateDir();
+  const store = new FileStateStore({ rootDir });
+  const claim = store.claimSessionOwner("route-claude", "same-id", { backend: "claude", backendSessionId: "actual-claude" });
+
+  assert.equal(claim.ok, true);
+  assert.equal(store.getSessionOwner("same-id", "claude")?.ownerRouteKey, "route-claude");
+  assert.equal(store.getSessionOwner("same-id", "claude")?.backendSessionId, "actual-claude");
+});
+
 test("FileStateStore and ChannelConfigStore support CHAT_CODEX_STATE_DIR override", () => {
   const stateRoot = fs.mkdtempSync(path.join(os.tmpdir(), "chat-codex-state-root-"));
   const cwd = path.join(os.tmpdir(), "chat-codex-start");

@@ -15,6 +15,7 @@ export interface CompactCommandOptions {
   compactStateForRoute(routeKey: string): CompactState;
   setCompactState(routeKey: string, state: CompactState): void;
   clearCompactState(routeKey: string): void;
+  setSessionBackendSessionId?(sessionId: string, backend: "codex" | "claude", backendSessionId: string): void;
   isRouteExecutionBusy(routeKey: string): Promise<boolean>;
 }
 
@@ -27,15 +28,15 @@ export async function handleCompactCommand(
   const binding = options.state.getBinding(message.routeKey);
   if (!binding) {
     await options.delivery.sendText(target, [
-      "当前聊天还没有绑定 Codex session。",
+      "当前聊天还没有绑定会话。",
       "请先发送 /new 创建新会话，或发送 /resume 绑定已有会话。",
     ].join("\n"));
     return;
   }
   if (!options.codex.compactSession) {
     await options.delivery.sendText(target, [
-      "当前 Codex 接入方式不支持 /compact。",
-      "请升级 Codex，或切换到支持 thread/compact/start 的 app-server 接入。",
+      "当前后端不支持 /compact。",
+      "请切换到支持上下文压缩的后端或接入方式。",
     ].join("\n"));
     return;
   }
@@ -89,15 +90,18 @@ export async function handleCompactCommand(
     sessionId: binding.sessionId,
   });
   await options.delivery.sendTyping(target, true);
-  await options.delivery.sendText(target, "已开始压缩当前 Codex session 上下文。完成后会通知你。");
+  await options.delivery.sendText(target, "已开始压缩当前会话上下文。完成后会通知你。");
   try {
     const result = await options.codex.compactSession(binding.sessionId);
+    if (result.backend === "codex" || result.backend === "claude") {
+      if (result.backendSessionId) options.setSessionBackendSessionId?.(binding.sessionId, result.backend, result.backendSessionId);
+    }
     const status = await options.codex.getStatus(binding.sessionId).catch(() => undefined);
     options.logger.info("compact completed", {
       routeKey: message.routeKey,
       sessionId: binding.sessionId,
     });
-    await options.delivery.sendText(target, compactCompletedText(result.sessionId, status?.context, result.beforeTokens, result.afterTokens));
+    await options.delivery.sendText(target, compactCompletedText(result.sessionId, result.message, status?.context, result.beforeTokens, result.afterTokens));
   } catch (error) {
     const messageText = error instanceof Error ? error.message : String(error);
     options.logger.warn("compact failed", {
@@ -123,7 +127,7 @@ export function isCompactConfirm(args: string[]): boolean {
 
 export function compactConfirmationText(sessionId: string, context: CodexSessionContextUsage | undefined): string {
   return [
-    "即将压缩当前 Codex session 的历史上下文。",
+    "即将压缩当前会话的历史上下文。",
     "",
     `Session: ${sessionId}`,
     formatCompactContextLine("压缩前上下文", context),
@@ -136,6 +140,7 @@ export function compactConfirmationText(sessionId: string, context: CodexSession
 
 function compactCompletedText(
   sessionId: string,
+  message: string | undefined,
   context: CodexSessionContextUsage | undefined,
   beforeTokens: number | undefined,
   afterTokens: number | undefined,
@@ -144,7 +149,7 @@ function compactCompletedText(
     "上下文压缩完成。",
     "",
     `Session: ${sessionId}`,
-    "摘要已写回 Codex thread，后续消息会基于压缩后的上下文继续。",
+    message ?? "摘要已写回当前会话，后续消息会基于压缩后的上下文继续。",
     beforeTokens !== undefined ? `压缩前 token: ${beforeTokens}` : undefined,
     context ? formatCompactContextLine("压缩后上下文", context) : afterTokens !== undefined
       ? `压缩后上下文: \`${formatNumber(afterTokens)} token\``

@@ -24,7 +24,8 @@ export type FirstRouteBindingChoice =
 export type UnboundRoutePolicy = "auto_new" | "ask";
 
 export interface ServeCodexSummary {
-  adapterMode: "app-server" | "exec";
+  backend?: "codex" | "claude";
+  adapterMode?: "app-server" | "exec";
   permissionMode: CodexPermissionMode;
   cwd: string;
   progressMode?: ProgressDeliveryMode;
@@ -115,7 +116,7 @@ export function parseFirstRouteSetupChoice(input: string | undefined): FirstRout
 
 export function formatServeHomeSummary(summary: ServeHomeSummary): string {
   const lines = [
-    "Codex Chat Bridge",
+    "AI Chat Bridge",
     "当前位置：首页",
     "",
     "渠道",
@@ -161,7 +162,7 @@ export function formatServeHomeSummary(summary: ServeHomeSummary): string {
 
 export function formatChannelManagementMenu(channel: ServeChannelSummary): string {
   return [
-    "Codex Chat Bridge",
+    "AI Chat Bridge",
     "当前位置：首页 > 管理渠道",
     "",
     "渠道",
@@ -177,7 +178,7 @@ export function formatChannelManagementMenu(channel: ServeChannelSummary): strin
 
 export function formatRouteBindingMenu(routes: ServeRouteSummary): string {
   return [
-    "Codex Chat Bridge",
+    "AI Chat Bridge",
     "当前位置：首页 > 聊天绑定",
     "",
     "聊天记录",
@@ -197,7 +198,7 @@ export function formatRouteBindingMenu(routes: ServeRouteSummary): string {
 
 export function formatUnboundRoutePolicyMenu(current: UnboundRoutePolicy): string {
   return [
-    "Codex Chat Bridge",
+    "AI Chat Bridge",
     "当前位置：首页 > 聊天绑定 > 新聊天策略",
     "",
     `当前: ${formatUnboundRoutePolicyForUser(current)}`,
@@ -210,7 +211,7 @@ export function formatUnboundRoutePolicyMenu(current: UnboundRoutePolicy): strin
 
 export function formatFirstRouteBindingMenu(routes: ServeRouteSummary): string {
   return [
-    "Codex Chat Bridge",
+    "AI Chat Bridge",
     "当前位置：首页 > 聊天绑定 > 首个微信私聊",
     "",
     `当前: ${formatFirstRoutePresetForUser(routes.firstRouteBindingChoice, routes.initialSessionId, routes.initialSessionTitle)}`,
@@ -224,20 +225,20 @@ export function formatFirstRouteBindingMenu(routes: ServeRouteSummary): string {
 
 export function formatCodexSettingsMenu(input: ServeCodexSummary & { cwd: string }): string {
   return [
-    "Codex Chat Bridge",
+    "AI Chat Bridge",
     "当前位置：首页 > 权限设置",
     "",
     `当前: ${formatPermissionModeForUser(input.permissionMode)}`,
     "",
     "1. 审批模式（workspace-write 沙箱，推荐）",
-    "2. 完全权限（跳过审批和沙箱，高风险）",
+    "2. 完全权限（跳过审批或权限检查，高风险）",
     "0. 返回",
   ].join("\n");
 }
 
 export function formatWorkdirSettingsMenu(cwd: string): string {
   return [
-    "Codex Chat Bridge",
+    "AI Chat Bridge",
     "当前位置：首页 > 工作目录",
     "",
     "当前新 session 工作目录",
@@ -355,7 +356,7 @@ export function formatAdapterModeForUser(adapterMode: ServeCodexSummary["adapter
 }
 
 export function formatPermissionModeForUser(permissionMode: CodexPermissionMode): string {
-  if (permissionMode === "full") return "完全权限（跳过审批和沙箱，风险高）";
+  if (permissionMode === "full") return "完全权限（跳过审批或权限检查，风险高）";
   return "审批模式（workspace-write 沙箱，推荐）";
 }
 

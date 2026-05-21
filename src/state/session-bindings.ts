@@ -1,14 +1,19 @@
+import type { AiBackend } from "../backend/metadata.js";
 import type { CodexSession } from "../codex/types.js";
 
 export interface SessionBinding {
   routeKey: string;
   sessionId: string;
+  backend?: AiBackend;
+  backendSessionId?: string;
   createdAt: string;
   updatedAt: string;
 }
 
 export interface SessionOwner {
   sessionId: string;
+  backend?: AiBackend;
+  backendSessionId?: string;
   ownerRouteKey: string;
   claimedAt: string;
   updatedAt: string;
@@ -17,6 +22,11 @@ export interface SessionOwner {
 export interface SessionBindingsSnapshot {
   active: SessionBinding[];
   owners: SessionOwner[];
+}
+
+export interface SessionBindingOptions {
+  backend?: AiBackend;
+  backendSessionId?: string;
 }
 
 export type ClaimSessionResult =
@@ -42,71 +52,90 @@ export class SessionBindings {
 
   constructor(snapshot?: Partial<SessionBindingsSnapshot>) {
     for (const owner of snapshot?.owners ?? []) {
-      this.ownersBySession.set(owner.sessionId, { ...owner });
-      this.addRouteSession(owner.ownerRouteKey, owner.sessionId);
+      const normalized = normalizeOwner(owner);
+      const backend = normalized.backend ?? "codex";
+      this.ownersBySession.set(sessionOwnerKey(backend, normalized.sessionId), normalized);
+      this.addRouteSession(normalized.ownerRouteKey, normalized.sessionId, backend);
     }
     for (const binding of snapshot?.active ?? []) {
-      this.activeByRoute.set(binding.routeKey, { ...binding });
-      this.addRouteSession(binding.routeKey, binding.sessionId);
-      if (!this.ownersBySession.has(binding.sessionId)) {
-        this.ownersBySession.set(binding.sessionId, {
-          sessionId: binding.sessionId,
-          ownerRouteKey: binding.routeKey,
-          claimedAt: binding.createdAt,
-          updatedAt: binding.updatedAt,
+      const normalized = normalizeBinding(binding);
+      const backend = normalized.backend ?? "codex";
+      this.activeByRoute.set(normalized.routeKey, normalized);
+      this.addRouteSession(normalized.routeKey, normalized.sessionId, backend);
+      const key = sessionOwnerKey(backend, normalized.sessionId);
+      if (!this.ownersBySession.has(key)) {
+        this.ownersBySession.set(key, {
+          sessionId: normalized.sessionId,
+          backend,
+          backendSessionId: normalized.backendSessionId,
+          ownerRouteKey: normalized.routeKey,
+          claimedAt: normalized.createdAt,
+          updatedAt: normalized.updatedAt,
         });
       }
     }
   }
 
-  bindNewSession(routeKey: string, session: CodexSession): SessionBinding {
+  bindNewSession(routeKey: string, session: CodexSession, options: SessionBindingOptions = {}): SessionBinding {
     const now = new Date().toISOString();
-    const existingOwner = this.ownersBySession.get(session.id);
+    const backend = options.backend ?? session.backend ?? "codex";
+    const backendSessionId = options.backendSessionId ?? session.backendSessionId;
+    const key = sessionOwnerKey(backend, session.id);
+    const existingOwner = this.ownersBySession.get(key);
     if (existingOwner && existingOwner.ownerRouteKey !== routeKey) {
       throw new Error(`session ${session.id} is owned by another route`);
     }
     const owner: SessionOwner = {
       sessionId: session.id,
+      backend,
+      backendSessionId,
       ownerRouteKey: routeKey,
       claimedAt: existingOwner?.claimedAt ?? now,
       updatedAt: now,
     };
-    this.releaseReplacedActiveOwner(routeKey, session.id);
-    this.ownersBySession.set(session.id, owner);
-    return this.setActive(routeKey, session.id, now);
+    this.releaseReplacedActiveOwner(routeKey, session.id, backend);
+    this.ownersBySession.set(key, owner);
+    return this.setActive(routeKey, session.id, now, { backend, backendSessionId });
   }
 
-  claimSessionOwner(routeKey: string, sessionId: string): ClaimSessionResult {
+  claimSessionOwner(routeKey: string, sessionId: string, options: SessionBindingOptions = {}): ClaimSessionResult {
     const now = new Date().toISOString();
-    const existing = this.ownersBySession.get(sessionId);
+    const backend = options.backend ?? "codex";
+    const key = sessionOwnerKey(backend, sessionId);
+    const existing = this.ownersBySession.get(key);
     if (existing && existing.ownerRouteKey !== routeKey) {
       return { ok: false, reason: "owned_by_other_route", owner: existing };
     }
     if (existing) {
-      const owner = { ...existing, updatedAt: now };
-      this.ownersBySession.set(sessionId, owner);
+      const owner = { ...existing, backendSessionId: options.backendSessionId ?? existing.backendSessionId, updatedAt: now };
+      this.ownersBySession.set(key, owner);
       return { ok: true, owner, newlyClaimed: false };
     }
     const owner: SessionOwner = {
       sessionId,
+      backend,
+      backendSessionId: options.backendSessionId,
       ownerRouteKey: routeKey,
       claimedAt: now,
       updatedAt: now,
     };
-    this.ownersBySession.set(sessionId, owner);
+    this.ownersBySession.set(key, owner);
     return { ok: true, owner, newlyClaimed: true };
   }
 
-  activateOwnedSession(routeKey: string, session: CodexSession): ActivateSessionResult {
-    const owner = this.ownersBySession.get(session.id);
+  activateOwnedSession(routeKey: string, session: CodexSession, options: SessionBindingOptions = {}): ActivateSessionResult {
+    const backend = options.backend ?? session.backend ?? "codex";
+    const key = sessionOwnerKey(backend, session.id);
+    const owner = this.ownersBySession.get(key);
     if (!owner || owner.ownerRouteKey !== routeKey) {
       return { ok: false, reason: "not_owned_by_route", owner };
     }
-    this.releaseReplacedActiveOwner(routeKey, session.id);
+    const backendSessionId = options.backendSessionId ?? session.backendSessionId ?? owner.backendSessionId;
+    this.releaseReplacedActiveOwner(routeKey, session.id, backend);
     return {
       ok: true,
-      binding: this.setActive(routeKey, session.id),
-      owner: this.ownersBySession.get(session.id) ?? owner,
+      binding: this.setActive(routeKey, session.id, undefined, { backend, backendSessionId }),
+      owner: this.ownersBySession.get(key) ?? owner,
     };
   }
 
@@ -114,37 +143,43 @@ export class SessionBindings {
     const binding = this.activeByRoute.get(routeKey);
     if (!binding) return { ok: false, reason: "no_active_session" };
     this.activeByRoute.delete(routeKey);
-    const owner = this.ownersBySession.get(binding.sessionId);
+    const bindingBackend = binding.backend ?? "codex";
+    const key = sessionOwnerKey(bindingBackend, binding.sessionId);
+    const owner = this.ownersBySession.get(key);
     if (owner?.ownerRouteKey === routeKey) {
-      this.ownersBySession.delete(binding.sessionId);
+      this.ownersBySession.delete(key);
     }
-    this.routeSessions.get(routeKey)?.delete(binding.sessionId);
+    this.routeSessions.get(routeKey)?.delete(sessionOwnerKey(bindingBackend, binding.sessionId));
     return { ok: true, binding };
   }
 
-  rollbackClaim(routeKey: string, sessionId: string): void {
-    const owner = this.ownersBySession.get(sessionId);
+  rollbackClaim(routeKey: string, sessionId: string, options: SessionBindingOptions = {}): void {
+    const backend = options.backend ?? "codex";
+    const key = sessionOwnerKey(backend, sessionId);
+    const owner = this.ownersBySession.get(key);
     if (owner?.ownerRouteKey === routeKey) {
-      this.ownersBySession.delete(sessionId);
-      this.routeSessions.get(routeKey)?.delete(sessionId);
+      this.ownersBySession.delete(key);
+      this.routeSessions.get(routeKey)?.delete(key);
     }
   }
 
-  transferSessionOwner(fromRouteKey: string, toRouteKey: string, sessionId: string): TransferSessionOwnerResult {
-    const existing = this.ownersBySession.get(sessionId);
+  transferSessionOwner(fromRouteKey: string, toRouteKey: string, sessionId: string, options: SessionBindingOptions = {}): TransferSessionOwnerResult {
+    const backend = options.backend ?? "codex";
+    const key = sessionOwnerKey(backend, sessionId);
+    const existing = this.ownersBySession.get(key);
     if (!existing || existing.ownerRouteKey !== fromRouteKey) {
       return { ok: false, reason: "not_owned_by_source", owner: existing };
     }
     const now = new Date().toISOString();
     const owner: SessionOwner = {
-      sessionId,
+      ...existing,
       ownerRouteKey: toRouteKey,
-      claimedAt: existing.claimedAt,
+      backendSessionId: options.backendSessionId ?? existing.backendSessionId,
       updatedAt: now,
     };
-    this.ownersBySession.set(sessionId, owner);
-    this.routeSessions.get(fromRouteKey)?.delete(sessionId);
-    this.addRouteSession(toRouteKey, sessionId);
+    this.ownersBySession.set(key, owner);
+    this.routeSessions.get(fromRouteKey)?.delete(key);
+    this.addRouteSession(toRouteKey, sessionId, backend);
     return { ok: true, owner };
   }
 
@@ -152,17 +187,28 @@ export class SessionBindings {
     return this.activeByRoute.get(routeKey);
   }
 
-  getOwner(sessionId: string): SessionOwner | undefined {
-    return this.ownersBySession.get(sessionId);
+  getOwner(sessionId: string, options: SessionBindingOptions = {}): SessionOwner | undefined {
+    return this.ownersBySession.get(sessionOwnerKey(options.backend ?? "codex", sessionId));
   }
 
   listRouteSessions(routeKey: string): string[] {
-    return [...(this.routeSessions.get(routeKey) ?? [])];
+    return [...(this.routeSessions.get(routeKey) ?? [])].map(sessionIdFromOwnerKey);
   }
 
   listOwners(routeKey?: string): SessionOwner[] {
     const owners = [...this.ownersBySession.values()];
     return routeKey ? owners.filter((owner) => owner.ownerRouteKey === routeKey) : owners;
+  }
+
+  updateBackendSessionId(backend: AiBackend, sessionId: string, backendSessionId: string): void {
+    const key = sessionOwnerKey(backend, sessionId);
+    const owner = this.ownersBySession.get(key);
+    if (owner) this.ownersBySession.set(key, { ...owner, backendSessionId, updatedAt: new Date().toISOString() });
+    for (const [routeKey, binding] of this.activeByRoute.entries()) {
+      if ((binding.backend ?? "codex") === backend && binding.sessionId === sessionId) {
+        this.activeByRoute.set(routeKey, { ...binding, backendSessionId, updatedAt: new Date().toISOString() });
+      }
+    }
   }
 
   snapshot(): SessionBindingsSnapshot {
@@ -172,36 +218,60 @@ export class SessionBindings {
     };
   }
 
-  private setActive(routeKey: string, sessionId: string, now = new Date().toISOString()): SessionBinding {
+  private setActive(routeKey: string, sessionId: string, now = new Date().toISOString(), options: SessionBindingOptions = {}): SessionBinding {
     const existing = this.activeByRoute.get(routeKey);
+    const backend = options.backend ?? existing?.backend ?? "codex";
     const binding: SessionBinding = {
       routeKey,
       sessionId,
+      backend,
+      backendSessionId: options.backendSessionId,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     };
     this.activeByRoute.set(routeKey, binding);
-    this.addRouteSession(routeKey, sessionId);
-    const owner = this.ownersBySession.get(sessionId);
+    this.addRouteSession(routeKey, sessionId, backend);
+    const key = sessionOwnerKey(backend, sessionId);
+    const owner = this.ownersBySession.get(key);
     if (owner?.ownerRouteKey === routeKey) {
-      this.ownersBySession.set(sessionId, { ...owner, updatedAt: now });
+      this.ownersBySession.set(key, { ...owner, backendSessionId: options.backendSessionId ?? owner.backendSessionId, updatedAt: now });
     }
     return binding;
   }
 
-  private releaseReplacedActiveOwner(routeKey: string, nextSessionId: string): void {
+  private releaseReplacedActiveOwner(routeKey: string, nextSessionId: string, nextBackend: AiBackend): void {
     const previous = this.activeByRoute.get(routeKey);
-    if (!previous || previous.sessionId === nextSessionId) return;
-    const previousOwner = this.ownersBySession.get(previous.sessionId);
+    if (!previous) return;
+    const previousBackend = previous.backend ?? "codex";
+    if (previous.sessionId === nextSessionId && previousBackend === nextBackend) return;
+    const previousKey = sessionOwnerKey(previousBackend, previous.sessionId);
+    const previousOwner = this.ownersBySession.get(previousKey);
     if (previousOwner?.ownerRouteKey === routeKey) {
-      this.ownersBySession.delete(previous.sessionId);
-      this.routeSessions.get(routeKey)?.delete(previous.sessionId);
+      this.ownersBySession.delete(previousKey);
+      this.routeSessions.get(routeKey)?.delete(previousKey);
     }
   }
 
-  private addRouteSession(routeKey: string, sessionId: string): void {
+  private addRouteSession(routeKey: string, sessionId: string, backend: AiBackend): void {
     const routeSessions = this.routeSessions.get(routeKey) ?? new Set<string>();
-    routeSessions.add(sessionId);
+    routeSessions.add(sessionOwnerKey(backend, sessionId));
     this.routeSessions.set(routeKey, routeSessions);
   }
+}
+
+function normalizeBinding(binding: SessionBinding): SessionBinding {
+  return { ...binding, backend: binding.backend ?? "codex" };
+}
+
+function normalizeOwner(owner: SessionOwner): SessionOwner {
+  return { ...owner, backend: owner.backend ?? "codex" };
+}
+
+export function sessionOwnerKey(backend: AiBackend | undefined, sessionId: string): string {
+  return `${backend ?? "codex"}:${sessionId}`;
+}
+
+function sessionIdFromOwnerKey(key: string): string {
+  const index = key.indexOf(":");
+  return index >= 0 ? key.slice(index + 1) : key;
 }

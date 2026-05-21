@@ -1,4 +1,5 @@
 import path from "node:path";
+import type { AiBackend } from "../backend/metadata.js";
 import type { CodexRunPolicy } from "../codex/codex-cli.js";
 import type { CodexSession } from "../codex/types.js";
 import type { ChannelMessage, ConversationKind } from "../protocol/channel.js";
@@ -101,8 +102,8 @@ export class FileStateStore extends MemoryStateStore {
     return binding;
   }
 
-  override claimSessionOwner(routeKey: string, sessionId: string): ClaimSessionResult {
-    const result = super.claimSessionOwner(routeKey, sessionId);
+  override claimSessionOwner(routeKey: string, sessionId: string, options: { backend?: AiBackend; backendSessionId?: string } = {}): ClaimSessionResult {
+    const result = super.claimSessionOwner(routeKey, sessionId, options);
     if (result.ok) this.persist();
     return result;
   }
@@ -125,13 +126,13 @@ export class FileStateStore extends MemoryStateStore {
     return result;
   }
 
-  override rollbackSessionOwnerClaim(routeKey: string, sessionId: string): void {
-    super.rollbackSessionOwnerClaim(routeKey, sessionId);
+  override rollbackSessionOwnerClaim(routeKey: string, sessionId: string, options: { backend?: AiBackend } = {}): void {
+    super.rollbackSessionOwnerClaim(routeKey, sessionId, options);
     this.persist();
   }
 
-  override transferSessionOwner(fromRouteKey: string, toRouteKey: string, sessionId: string): ReturnType<MemoryStateStore["transferSessionOwner"]> {
-    const result = super.transferSessionOwner(fromRouteKey, toRouteKey, sessionId);
+  override transferSessionOwner(fromRouteKey: string, toRouteKey: string, sessionId: string, options: { backend?: AiBackend; backendSessionId?: string } = {}): ReturnType<MemoryStateStore["transferSessionOwner"]> {
+    const result = super.transferSessionOwner(fromRouteKey, toRouteKey, sessionId, options);
     if (result.ok) this.persist();
     return result;
   }
@@ -387,6 +388,7 @@ export class FileStateStore extends MemoryStateStore {
 
   private setRouteActiveSession(routeKey: string, sessionId: string | undefined): void {
     const existing = this.routes.get(routeKey);
+    const binding = sessionId ? this.sessionBindings.getActive(routeKey) : undefined;
     const now = new Date().toISOString();
     const parsed = parseRouteKey(routeKey);
     this.routes.set(routeKey, {
@@ -397,6 +399,7 @@ export class FileStateStore extends MemoryStateStore {
       conversationKind: existing?.conversationKind ?? parsed.conversationKind,
       conversationId: existing?.conversationId ?? parsed.conversationId,
       activeSessionId: sessionId,
+      activeBackend: binding?.backend ?? existing?.activeBackend,
       displayName: existing?.displayName,
       identity: existing?.identity,
       policy: existing?.policy,
@@ -428,6 +431,8 @@ export class FileStateStore extends MemoryStateStore {
     const owners = this.sessionBindings.listOwners()
       .map((owner): SessionOwnerRecord => ({
         sessionId: owner.sessionId,
+        backend: owner.backend ?? "codex",
+        backendSessionId: owner.backendSessionId,
         ownerRouteKey: owner.ownerRouteKey,
         claimedAt: owner.claimedAt,
         updatedAt: owner.updatedAt,
@@ -510,6 +515,7 @@ function loadFileState(options: FileStateStoreOptions): LoadedFileState {
     .map((route) => ({
       routeKey: route.routeKey,
       sessionId: route.activeSessionId,
+      backend: route.activeBackend ?? "codex",
       createdAt: route.createdAt,
       updatedAt: route.updatedAt,
     }));
@@ -667,11 +673,14 @@ function mergeOwnersWithActiveRoutes(
   active: SessionBindingsSnapshot["active"],
 ): SessionOwnerRecord[] {
   const merged = new Map<string, SessionOwnerRecord>();
-  for (const owner of owners) merged.set(owner.sessionId, owner);
+  for (const owner of owners) merged.set(`${owner.backend ?? "codex"}:${owner.sessionId}`, { ...owner, backend: owner.backend ?? "codex" });
   for (const binding of active) {
-    if (!merged.has(binding.sessionId)) {
-      merged.set(binding.sessionId, {
+    const key = `${binding.backend ?? "codex"}:${binding.sessionId}`;
+    if (!merged.has(key)) {
+      merged.set(key, {
         sessionId: binding.sessionId,
+        backend: binding.backend ?? "codex",
+        backendSessionId: binding.backendSessionId,
         ownerRouteKey: binding.routeKey,
         claimedAt: binding.createdAt,
         updatedAt: binding.updatedAt,
@@ -756,8 +765,15 @@ function stringOrUndefined(value: unknown): string | undefined {
 
 function isRunPolicy(value: unknown): value is CodexRunPolicy {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const policy = value as { permissionMode?: unknown; sandbox?: unknown };
+  const policy = value as { permissionMode?: unknown; sandbox?: unknown; claudePermissionMode?: unknown };
   if (policy.permissionMode !== "approval" && policy.permissionMode !== "full") return false;
+  if (policy.claudePermissionMode !== undefined
+    && policy.claudePermissionMode !== "acceptEdits"
+    && policy.claudePermissionMode !== "auto"
+    && policy.claudePermissionMode !== "bypassPermissions"
+    && policy.claudePermissionMode !== "default"
+    && policy.claudePermissionMode !== "dontAsk"
+    && policy.claudePermissionMode !== "plan") return false;
   return policy.sandbox === undefined
     || policy.sandbox === "read-only"
     || policy.sandbox === "workspace-write"

@@ -74,11 +74,11 @@ export async function configureAdapterMode(rl: Interface, startup: PreparedServe
 export async function configurePermissionMode(rl: Interface, startup: PreparedServeStartup): Promise<void> {
   console.log("");
   console.log([
-    "Codex 权限模式",
+    "后端权限模式",
     `当前: ${formatPolicyForCli(startup.policy)}`,
     "",
     "1. 审批模式（workspace-write 沙箱，推荐）",
-    "2. 完全权限（跳过审批和沙箱，高风险）",
+    "2. 完全权限（跳过审批或权限检查，高风险）",
     "0. 返回",
   ].join("\n"));
   const answer = normalizeText(await rl.question("请选择 [0 返回]: "));

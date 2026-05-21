@@ -1,3 +1,4 @@
+import type { AiBackend } from "../backend/metadata.js";
 import type { ConversationKind } from "../protocol/channel.js";
 import type { CodexRunPolicy } from "../codex/codex-cli.js";
 import type { CodexSessionContextFingerprint } from "../codex/session-context-fingerprint.js";
@@ -28,6 +29,7 @@ export interface RouteRecord {
   conversationKind: ConversationKind;
   conversationId: string;
   activeSessionId?: string;
+  activeBackend?: AiBackend;
   displayName?: string;
   identity?: RouteIdentityRecord;
   policy?: RoutePolicyRecord;
@@ -44,6 +46,8 @@ export interface RoutesDocument {
 
 export interface SessionOwnerRecord {
   sessionId: string;
+  backend?: AiBackend;
+  backendSessionId?: string;
   ownerRouteKey: string;
   claimedAt: string;
   updatedAt: string;
@@ -89,8 +93,8 @@ export interface SessionContextSnapshotsDocument {
 }
 
 export type PendingSessionBinding =
-  | { type: "existing"; sessionId: string }
-  | { type: "new" };
+  | { type: "existing"; sessionId: string; backend?: AiBackend; backendSessionId?: string }
+  | { type: "new"; backend?: AiBackend };
 
 export interface PendingBindingRecord {
   id: string;

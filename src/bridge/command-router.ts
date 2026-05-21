@@ -1,4 +1,5 @@
 import type { ApprovalDecision } from "../approvals/types.js";
+import { backendSupportsFeature, unsupportedCommandMessage, type AiBackend, type BackendCommandFeature } from "../backend/metadata.js";
 import type { Logger } from "../logging/logger.js";
 import type { ChannelMessage, ChannelTarget } from "../protocol/channel.js";
 import type { ChannelDeliveryPolicy, ChannelRefreshCommandPolicy } from "../protocol/delivery-policy.js";
@@ -38,6 +39,7 @@ export interface BridgeCommandHandlers {
 }
 
 export interface BridgeCommandRouterOptions {
+  backend?: AiBackend;
   logger: Logger;
   delivery: BridgeDelivery;
   deliveryPolicyFor(message: ChannelMessage | undefined): ChannelDeliveryPolicy;
@@ -46,6 +48,7 @@ export interface BridgeCommandRouterOptions {
 }
 
 export class BridgeCommandRouter {
+  private readonly backend?: AiBackend;
   private readonly logger: Logger;
   private readonly delivery: BridgeDelivery;
   private readonly deliveryPolicyFor: BridgeCommandRouterOptions["deliveryPolicyFor"];
@@ -53,6 +56,7 @@ export class BridgeCommandRouter {
   private readonly handlers: BridgeCommandHandlers;
 
   constructor(options: BridgeCommandRouterOptions) {
+    this.backend = options.backend;
     this.logger = options.logger;
     this.delivery = options.delivery;
     this.deliveryPolicyFor = options.deliveryPolicyFor;
@@ -91,6 +95,9 @@ export class BridgeCommandRouter {
       case "new":
         await this.handlers.createNewSession(message, target, args, rawText);
         return;
+      case "clear":
+        await this.handlers.createNewSession(message, target, ["clear", ...args], rawText);
+        return;
       case "status":
         await this.delivery.sendText(target, await this.handlers.status(message));
         return;
@@ -115,13 +122,16 @@ export class BridgeCommandRouter {
         await this.delivery.sendText(target, await this.handlers.debug(message));
         return;
       case "plan":
+        if (await this.rejectUnsupported(target, "plan", "collaborationMode", "计划模式")) return;
         await this.handlers.collaborationMode(message, target, "plan", rawText, name);
         return;
       case "code":
       case "default":
+        if (await this.rejectUnsupported(target, name, "collaborationMode", "协作模式切换")) return;
         await this.handlers.collaborationMode(message, target, "default", rawText, name);
         return;
       case "goal":
+        if (await this.rejectUnsupported(target, "goal", "goal", "长期目标")) return;
         await this.handlers.goal(message, target, rawText);
         return;
       case "progress":
@@ -146,46 +156,65 @@ export class BridgeCommandRouter {
         await this.handlers.groupName(message, target, args);
         return;
       case "sendfile":
+        if (await this.rejectUnsupported(target, "sendfile", "sendfile", "文件发送协议")) return;
         await this.handlers.sendFile(message, target, rawText);
         return;
       case "model":
+        if (await this.rejectUnsupported(target, "model", "model", "模型切换")) return;
         await this.handlers.model(message, target, args);
         return;
       case "permission":
       case "permissions":
       case "perm":
       case "policy":
+        if (await this.rejectUnsupported(target, name, "runtimePermissionSwitch", "运行时权限切换")) return;
         await this.handlers.permission(message, target, args);
         return;
       case "ok":
       case "yes":
+        if (await this.rejectUnsupported(target, name, "interactiveApprovals", "远程交互审批")) return;
         await this.handlers.approval(message, target, [], "approve");
         return;
       case "p":
       case "yes-session":
       case "ok-session":
       case "approve-session":
+        if (await this.rejectUnsupported(target, name, "interactiveApprovals", "远程交互审批")) return;
         await this.handlers.approval(message, target, args, "approve-session");
         return;
       case "no":
+        if (await this.rejectUnsupported(target, name, "interactiveApprovals", "远程交互审批")) return;
         await this.handlers.approval(message, target, [], "deny");
         return;
       case "approve":
+        if (await this.rejectUnsupported(target, name, "interactiveApprovals", "远程交互审批")) return;
         await this.handlers.approval(message, target, args, "approve");
         return;
       case "deny":
       case "reject":
+        if (await this.rejectUnsupported(target, name, "interactiveApprovals", "远程交互审批")) return;
         await this.handlers.approval(message, target, args, "deny");
         return;
       case "stop":
         await this.handlers.stop(message, target);
         return;
       case "compact":
+        if (await this.rejectUnsupported(target, "compact", "compact", "上下文压缩")) return;
         await this.handlers.compact(message, target, args);
         return;
       default:
         await this.delivery.sendText(target, `未知命令: /${name}\n发送 /help 查看可用命令。`);
     }
+  }
+  private async rejectUnsupported(
+    target: ChannelTarget,
+    command: string,
+    feature: BackendCommandFeature,
+    featureLabel: string,
+  ): Promise<boolean> {
+    if (backendSupportsFeature(this.backend, feature)) return false;
+    await this.delivery.sendText(target, unsupportedCommandMessage(this.backend, command, featureLabel));
+    return true;
   }
 }
 

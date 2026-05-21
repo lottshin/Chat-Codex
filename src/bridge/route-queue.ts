@@ -202,7 +202,7 @@ export class BridgeRouteQueue {
         const deliveryPolicy = this.deliveryPolicyFor(message);
         if (deliveryPolicy.taskStart === "send") {
           await this.delivery.sendText(target, [
-            "Codex 正在处理这条消息。",
+            "AI 后端正在处理这条消息。",
             "可发送 /status 查看状态，/stop 终止。",
             sendFile ? "本轮已启用 /sendfile，只会发送最终回复中明确声明的文件。" : undefined,
             remainingQueued > 0 ? `Queue: 后面还有 ${remainingQueued} 条` : undefined,

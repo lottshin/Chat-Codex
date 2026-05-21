@@ -1,4 +1,7 @@
 import type { Interface } from "node:readline/promises";
+import { backendDisplayName } from "../../backend/metadata.js";
+import { checkClaudeCli } from "../../claude/claude-cli.js";
+import { formatClaudeCommandSource, formatClaudePlatform } from "../../claude/claude-process.js";
 import { checkCodexCli, discoverCodexSessions, findCodexSessionById, formatCodexSessionTitleForDisplay, type CodexRunPolicy, type DiscoveredCodexSession } from "../../codex/codex-cli.js";
 import { formatCodexCommandSource, formatCodexPlatform } from "../../codex/codex-process.js";
 import { resolveNewSessionWorkdir } from "../../codex/workdir.js";
@@ -10,6 +13,9 @@ export async function prepareCodexServeStartup(
   rl?: Interface,
   display: { quiet?: boolean; allowUnavailableCodex?: boolean } = {},
 ): Promise<PreparedServeStartup> {
+  if (options.backend === "claude") {
+    return prepareClaudeServeStartup(options, rl, display);
+  }
   const status = await checkCodexCli();
   if (!status.available && !display.allowUnavailableCodex) {
     throw new Error(`Codex 不可用: ${status.error ?? "unknown error"}`);
@@ -27,17 +33,55 @@ export async function prepareCodexServeStartup(
   const cwd = await resolveStartupWorkdir(options, display);
   const permissionMode = options.permission ?? "approval";
   if (permissionMode === "full") {
-    await confirmFullPermission(rl, Boolean(options.yesDangerouslyFull));
+    await confirmFullPermission(rl, Boolean(options.yesDangerouslyFull), "codex");
   }
   const policy: CodexRunPolicy = {
     permissionMode,
     sandbox: permissionMode === "approval" ? "workspace-write" : undefined,
   };
   return {
+    backend: "codex",
     policy,
     adapterMode,
     cwd,
     codexStatus: status,
+    progressMode: options.progressMode,
+    maxConcurrentTurns: options.maxConcurrentTurns,
+  };
+}
+
+async function prepareClaudeServeStartup(
+  options: ServeStartupOptions,
+  rl?: Interface,
+  display: { quiet?: boolean; allowUnavailableCodex?: boolean } = {},
+): Promise<PreparedServeStartup> {
+  const status = await checkClaudeCli();
+  if (!status.available && !display.allowUnavailableCodex) {
+    throw new Error(`Claude Code 不可用: ${status.error ?? "unknown error"}`);
+  }
+  if (!display.quiet) {
+    console.log("");
+    console.log(status.available ? "Claude Code 已就绪" : "Claude Code 不可用");
+    console.log(`- 平台: ${formatClaudePlatform(status)}`);
+    console.log(`- CLI: ${status.available ? status.version ?? status.claudeBin : status.error ?? "unknown error"}`);
+    console.log(`- 路径: ${status.claudeBin}`);
+    console.log(`- 来源: ${formatClaudeCommandSource(status.claudeBinSource)}`);
+  }
+
+  const cwd = await resolveStartupWorkdir(options, display);
+  const permissionMode = options.permission ?? "approval";
+  if (permissionMode === "full") {
+    await confirmFullPermission(rl, Boolean(options.yesDangerouslyFull), "claude");
+  }
+  const policy: CodexRunPolicy = {
+    permissionMode,
+    sandbox: permissionMode === "approval" ? "workspace-write" : undefined,
+  };
+  return {
+    backend: "claude",
+    policy,
+    cwd,
+    claudeStatus: status,
     progressMode: options.progressMode,
     maxConcurrentTurns: options.maxConcurrentTurns,
   };
@@ -48,6 +92,14 @@ export function createInitialChannelPlan(_status: ChannelStatus, options: ServeS
     unboundRoutePolicy: "auto_new",
   };
   if (!options.session) return plan;
+  if (options.backend === "claude") {
+    if (options.session === "new") {
+      setFirstRouteNew(plan);
+      return plan;
+    }
+    setFirstRouteExisting(plan, options.session, undefined);
+    return plan;
+  }
   if (options.session === "new") {
     setFirstRouteNew(plan);
     return plan;
@@ -91,8 +143,8 @@ async function resolveStartupWorkdir(options: ServeStartupOptions, display: { qu
   return resolved.cwd;
 }
 
-export async function confirmFullPermission(rl: Interface | undefined, alreadyConfirmed: boolean): Promise<void> {
-  const warning = "警告：完全权限会让 Codex 跳过审批和沙箱，能够直接执行命令并修改文件。只有在你完全信任当前任务时才继续。";
+export async function confirmFullPermission(rl: Interface | undefined, alreadyConfirmed: boolean, backend?: "codex" | "claude"): Promise<void> {
+  const warning = `警告：完全权限会让 ${backendDisplayName(backend)} 跳过审批或权限检查，能够直接执行命令并修改文件。只有在你完全信任当前任务时才继续。`;
   console.log(warning);
   if (alreadyConfirmed) return;
   if (!rl) throw new Error("完全权限需要交互确认，或传入 --yes-dangerously-full");

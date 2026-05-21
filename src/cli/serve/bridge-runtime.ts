@@ -1,6 +1,7 @@
 import { Bridge } from "../../bridge/bridge.js";
 import { LimitedTurnScheduler } from "../../bridge/turn-scheduler.js";
 import { ChannelRegistry } from "../../channels/registry.js";
+import { ClaudeExecAdapter } from "../../claude/claude-exec-adapter.js";
 import { AppServerCodexAdapter } from "../../codex/app-server-codex-adapter.js";
 import { ExecCodexAdapter } from "../../codex/exec-codex-adapter.js";
 import type { CodexAdapter } from "../../codex/types.js";
@@ -15,7 +16,7 @@ import { RuntimeLogStore, RuntimeTuiLogger, RuntimeTuiTranscriptSink } from "../
 import { formatFirstRoutePresetForUser, formatUnboundRoutePolicyForUser } from "../serve-wizard.js";
 import { printRuntimeSummary } from "./formatters.js";
 import { waitForShutdownSignal } from "./prompts.js";
-import { formatCodexStatusForCli } from "./summary.js";
+import { formatClaudeStatusForCli, formatCodexStatusForCli } from "./summary.js";
 import { isChannelGroupReceiveEnabled } from "../actions/channel-actions.js";
 
 export async function startServeBridge(
@@ -36,6 +37,7 @@ export async function startServeBridge(
   const bridge = new Bridge({
     channels: new ChannelRegistry({ channels: adapters, logger }),
     codex,
+    backend: startup.backend,
     state: new FileStateStore(),
     logger,
     transcript: runtimeLogs ? new RuntimeTuiTranscriptSink(runtimeLogs) : new ConsoleTranscriptSink(),
@@ -60,8 +62,9 @@ export async function startServeBridge(
   await bridge.start();
   try {
     if (runtimeLogs) {
-      runtimeLogs.add("system", "Bridge", "多渠道 Codex 中间件已启动，正在等待微信 / 飞书消息。");
-      if (startup.codexStatus) runtimeLogs.add("system", "Codex", formatCodexStatusForCli(startup.codexStatus));
+      runtimeLogs.add("system", "Bridge", "多渠道 AI 中间件已启动，正在等待微信 / 飞书消息。");
+      if ((startup.backend ?? "codex") === "claude" && startup.claudeStatus) runtimeLogs.add("system", "Claude Code", formatClaudeStatusForCli(startup.claudeStatus));
+      if ((startup.backend ?? "codex") === "codex" && startup.codexStatus) runtimeLogs.add("system", "Codex", formatCodexStatusForCli(startup.codexStatus));
       runtimeLogs.add("system", "渠道", adapters.map((adapter) => adapter.id).join(", "));
       runtimeLogs.add("system", "退出", "按 Ctrl+C 停止服务。");
       await runRuntimeLogTui({
@@ -73,7 +76,7 @@ export async function startServeBridge(
         codexStatus: startup.codexStatus,
       }, runtimeLogs);
     } else {
-      printRuntimeSummary("多渠道 Codex 中间件", startup, { progressDisabled: true });
+      printRuntimeSummary("多渠道 AI 中间件", startup, { progressDisabled: true });
       console.log(`- 已启动渠道: ${adapters.map((adapter) => adapter.id).join(", ")}`);
       console.log(`- 新聊天策略: ${formatUnboundRoutePolicyForUser(plan.unboundRoutePolicy)}`);
       if (plan.firstRouteBindingChoice) {
@@ -87,6 +90,12 @@ export async function startServeBridge(
 }
 
 export function createRealCodexAdapter(startup: PreparedServeStartup): CodexAdapter {
+  if ((startup.backend ?? "codex") === "claude") {
+    if (startup.claudeStatus && !startup.claudeStatus.available) {
+      throw new Error(`Claude Code 不可用: ${startup.claudeStatus.error ?? "unknown error"}`);
+    }
+    return new ClaudeExecAdapter({ runPolicy: startup.policy, claudeCommand: startup.claudeStatus?.command });
+  }
   if (startup.codexStatus && !startup.codexStatus.available) {
     throw new Error(`Codex 不可用: ${startup.codexStatus.error ?? "unknown error"}`);
   }

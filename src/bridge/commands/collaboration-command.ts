@@ -20,7 +20,7 @@ export async function handleCollaborationModeCommand(
   commandName: string,
 ): Promise<void> {
   if (!options.codex.setCollaborationMode || !options.codex.getCollaborationMode) {
-    await options.delivery.sendText(target, "当前 Codex Adapter 不支持 Plan mode 切换。请使用 app-server adapter。");
+    await options.delivery.sendText(target, "当前后端不支持 Plan mode 切换。");
     return;
   }
   const prompt = commandBody(rawText, commandName);
@@ -31,7 +31,7 @@ export async function handleCollaborationModeCommand(
         "发送 /code 切回默认执行模式。",
       ]
     : [
-        "已切回默认执行模式。后续消息可按正常 Codex 行为执行。",
+        "已切回默认执行模式。后续消息可按当前后端默认行为执行。",
         "发送 /plan 切回计划模式。",
       ];
   await options.delivery.sendText(target, [

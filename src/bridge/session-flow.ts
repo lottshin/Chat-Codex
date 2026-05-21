@@ -1,3 +1,4 @@
+import type { AiBackend } from "../backend/metadata.js";
 import type { CodexAdapter, CodexCollaborationMode, CodexSession } from "../codex/types.js";
 import type { ChannelMessage, ChannelTarget } from "../protocol/channel.js";
 import { pendingBindingOwnerRouteKey } from "../state/memory-state-store.js";
@@ -31,6 +32,7 @@ import {
 
 export interface BridgeSessionFlowOptions {
   codex: CodexAdapter;
+  backend?: AiBackend;
   state: MemoryStateStore;
   delivery: BridgeDelivery;
   cwd: string;
@@ -51,6 +53,7 @@ export interface EnsureSessionOptions {
 
 export class BridgeSessionFlow {
   private readonly codex: CodexAdapter;
+  private readonly backend: AiBackend;
   private readonly state: MemoryStateStore;
   private readonly delivery: BridgeDelivery;
   private readonly cwd: string;
@@ -68,6 +71,7 @@ export class BridgeSessionFlow {
 
   constructor(options: BridgeSessionFlowOptions) {
     this.codex = options.codex;
+    this.backend = options.backend ?? "codex";
     this.state = options.state;
     this.delivery = options.delivery;
     this.cwd = options.cwd;
@@ -100,14 +104,14 @@ export class BridgeSessionFlow {
       cwd: this.cwd,
       title: `channel:${message.routeKey}`,
     });
-    this.state.bindSession(message.routeKey, session);
+    this.state.bindSession(message.routeKey, { ...session, backend: session.backend ?? this.backend });
     this.applyStoredSessionRunPolicy(session.id);
     this.selections.delete(message.routeKey);
     this.clearPendingInitialRouteBindingIfApplies(message);
     this.applyRouteCollaborationModeToSession(message.routeKey, session.id);
     await this.recordSnapshot(session.id, "bind");
     await this.delivery.sendText(target, [
-      "已创建新 Codex 会话",
+      "已创建新会话",
       `Session: ${session.id}`,
       `Cwd: ${session.cwd}`,
       "Status: idle",
@@ -127,7 +131,7 @@ export class BridgeSessionFlow {
       cwd: this.cwd,
       title,
     });
-    this.state.bindSession(message.routeKey, session);
+    this.state.bindSession(message.routeKey, { ...session, backend: session.backend ?? this.backend });
     this.applyStoredSessionRunPolicy(session.id);
     this.selections.delete(message.routeKey);
     this.clearPendingInitialRouteBindingIfApplies(message);
@@ -145,9 +149,11 @@ export class BridgeSessionFlow {
       const stored = this.state.getSession(binding.sessionId);
       if (stored) return stored.session;
       const session = await this.codex.resumeSession(binding.sessionId);
+      session.backend = session.backend ?? binding.backend ?? this.backend;
+      session.backendSessionId = session.backendSessionId ?? binding.backendSessionId;
       const activated = this.state.activateOwnedSession(message.routeKey, session);
       if (!activated.ok) {
-        throw new Error(`Codex session is owned by another route: ${activated.owner?.ownerRouteKey ?? "unknown"}`);
+        throw new Error(`session is owned by another route: ${activated.owner?.ownerRouteKey ?? "unknown"}`);
       }
       this.applyStoredSessionRunPolicy(session.id);
       if (options.recordResumeSnapshot ?? true) {
@@ -163,7 +169,7 @@ export class BridgeSessionFlow {
       cwd: this.cwd,
       title: `channel:${message.routeKey}`,
     });
-    this.state.bindSession(message.routeKey, session);
+    this.state.bindSession(message.routeKey, { ...session, backend: session.backend ?? this.backend });
     this.applyStoredSessionRunPolicy(session.id);
     this.applyRouteCollaborationModeToSession(message.routeKey, session.id);
     await this.recordSnapshot(session.id, "bind");
@@ -228,7 +234,7 @@ export class BridgeSessionFlow {
     const choiceIndex = pageNumberFromText(text);
     if (choiceIndex === undefined) {
       await this.delivery.sendText(target, [
-        "正在切换 Codex 会话。",
+        "正在切换会话。",
         "请直接回复当前页列表编号，例如 1；回复 `n` 下一页，`p` 上一页；回复“取消”退出。",
       ].join("\n"));
       return;
@@ -283,7 +289,7 @@ export class BridgeSessionFlow {
     target: ChannelTarget,
     sessionId: string,
   ): Promise<BindSessionResult> {
-    const claim = this.state.claimSessionOwner(message.routeKey, sessionId);
+    const claim = this.state.claimSessionOwner(message.routeKey, sessionId, { backend: this.backend });
     if (!claim.ok) {
       return { ok: false, reason: "owner_conflict", message: ownerConflictText(sessionId, claim.owner.ownerRouteKey) };
     }
@@ -291,7 +297,7 @@ export class BridgeSessionFlow {
       const session = await this.codex.resumeSession(sessionId);
       const activated = this.state.activateOwnedSession(message.routeKey, session);
       if (!activated.ok) {
-        if (claim.newlyClaimed) this.state.rollbackSessionOwnerClaim(message.routeKey, sessionId);
+        if (claim.newlyClaimed) this.state.rollbackSessionOwnerClaim(message.routeKey, sessionId, { backend: this.backend });
         return { ok: false, reason: "owner_conflict", message: ownerConflictText(sessionId, activated.owner?.ownerRouteKey ?? "unknown") };
       }
       const mode = this.syncRouteCollaborationModeFromSession(message.routeKey, session.id);
@@ -388,22 +394,25 @@ export class BridgeSessionFlow {
         cwd: this.cwd,
         title: `channel:${message.routeKey}`,
       });
-      this.state.bindSession(message.routeKey, session);
+      this.state.bindSession(message.routeKey, { ...session, backend: session.backend ?? this.backend });
       this.applyStoredSessionRunPolicy(session.id);
       this.applyRouteCollaborationModeToSession(message.routeKey, session.id);
       return session;
     }
 
     const sessionId = pending.sessionId;
+    const pendingBackendSessionId = backendSessionIdForPending(pending);
     const pendingOwnerRouteKey = persisted ? pendingBindingOwnerRouteKey(persisted.id) : undefined;
-    const existingOwner = this.state.getSessionOwner(sessionId);
+    const existingOwner = this.state.getSessionOwner(sessionId, this.backend);
     const claim = persisted && pendingOwnerRouteKey && existingOwner?.ownerRouteKey === pendingOwnerRouteKey
-      ? this.state.transferSessionOwner(pendingOwnerRouteKey, message.routeKey, sessionId)
-      : this.state.claimSessionOwner(message.routeKey, sessionId);
+      ? this.state.transferSessionOwner(pendingOwnerRouteKey, message.routeKey, sessionId, { backend: this.backend, backendSessionId: pendingBackendSessionId })
+      : this.state.claimSessionOwner(message.routeKey, sessionId, { backend: this.backend, backendSessionId: pendingBackendSessionId });
     if (!claim.ok) throw ownerConflictError(sessionId, claim.owner?.ownerRouteKey ?? "unknown");
     let session: CodexSession;
     try {
       session = await this.codex.resumeSession(sessionId);
+      session.backend = session.backend ?? this.backend;
+      session.backendSessionId = session.backendSessionId ?? pendingBackendSessionId;
     } catch (error) {
       if ("newlyClaimed" in claim && claim.newlyClaimed) this.state.rollbackSessionOwnerClaim(message.routeKey, sessionId);
       throw error;
@@ -491,4 +500,8 @@ export class BridgeSessionFlow {
       intro,
     });
   }
+}
+
+function backendSessionIdForPending(binding: { type: "existing"; sessionId: string } | { type: "new" } | { type: "existing"; sessionId: string; backendSessionId?: string }): string | undefined {
+  return binding.type === "existing" && "backendSessionId" in binding ? binding.backendSessionId : undefined;
 }

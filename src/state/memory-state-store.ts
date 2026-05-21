@@ -1,3 +1,4 @@
+import type { AiBackend } from "../backend/metadata.js";
 import type { CodexSession, CodexSessionStatus } from "../codex/types.js";
 import type { CodexRunPolicy } from "../codex/codex-cli.js";
 import type { ChannelMessage } from "../protocol/channel.js";
@@ -24,6 +25,8 @@ export interface StoredSession {
   routeKey?: string;
   ownerRouteKey?: string;
   status: CodexSessionStatus;
+  backend?: AiBackend;
+  backendSessionId?: string;
   runPolicy?: CodexRunPolicy;
   updatedAt: string;
   lastError?: string;
@@ -69,12 +72,15 @@ export class MemoryStateStore {
 
   bindSession(routeKey: string, session: CodexSession): SessionBinding {
     const now = new Date().toISOString();
-    const binding = this.sessionBindings.bindNewSession(routeKey, session);
+    const backend = session.backend ?? "codex";
+    const binding = this.sessionBindings.bindNewSession(routeKey, session, { backend, backendSessionId: session.backendSessionId });
     this.sessions.set(session.id, {
       session,
       routeKey,
       ownerRouteKey: routeKey,
       status: { type: "idle" },
+      backend,
+      backendSessionId: session.backendSessionId,
       runPolicy: this.getSessionRunPolicy(session.id),
       updatedAt: now,
     });
@@ -146,12 +152,13 @@ export class MemoryStateStore {
       .sort((left, right) => left.routeKey.localeCompare(right.routeKey));
   }
 
-  claimSessionOwner(routeKey: string, sessionId: string): ClaimSessionResult {
-    return this.sessionBindings.claimSessionOwner(routeKey, sessionId);
+  claimSessionOwner(routeKey: string, sessionId: string, options: { backend?: AiBackend; backendSessionId?: string } = {}): ClaimSessionResult {
+    return this.sessionBindings.claimSessionOwner(routeKey, sessionId, options);
   }
 
   activateOwnedSession(routeKey: string, session: CodexSession): ActivateSessionResult {
-    const result = this.sessionBindings.activateOwnedSession(routeKey, session);
+    const backend = session.backend ?? "codex";
+    const result = this.sessionBindings.activateOwnedSession(routeKey, session, { backend, backendSessionId: session.backendSessionId });
     if (!result.ok) return result;
     const existing = this.sessions.get(session.id);
     this.sessions.set(session.id, {
@@ -159,6 +166,8 @@ export class MemoryStateStore {
       routeKey,
       ownerRouteKey: routeKey,
       status: existing?.status ?? { type: "idle" },
+      backend,
+      backendSessionId: session.backendSessionId ?? existing?.backendSessionId,
       runPolicy: this.getSessionRunPolicy(session.id),
       updatedAt: new Date().toISOString(),
       lastError: existing?.lastError,
@@ -182,24 +191,43 @@ export class MemoryStateStore {
     return result;
   }
 
-  rollbackSessionOwnerClaim(routeKey: string, sessionId: string): void {
-    this.sessionBindings.rollbackClaim(routeKey, sessionId);
+  rollbackSessionOwnerClaim(routeKey: string, sessionId: string, options: { backend?: AiBackend } = {}): void {
+    this.sessionBindings.rollbackClaim(routeKey, sessionId, options);
   }
 
-  transferSessionOwner(fromRouteKey: string, toRouteKey: string, sessionId: string): TransferSessionOwnerResult {
-    return this.sessionBindings.transferSessionOwner(fromRouteKey, toRouteKey, sessionId);
+  transferSessionOwner(fromRouteKey: string, toRouteKey: string, sessionId: string, options: { backend?: AiBackend; backendSessionId?: string } = {}): TransferSessionOwnerResult {
+    return this.sessionBindings.transferSessionOwner(fromRouteKey, toRouteKey, sessionId, options);
   }
 
   getBinding(routeKey: string): SessionBinding | undefined {
     return this.sessionBindings.getActive(routeKey);
   }
 
-  getSessionOwner(sessionId: string): SessionOwner | undefined {
-    return this.sessionBindings.getOwner(sessionId);
+  getSessionOwner(sessionId: string, backend?: AiBackend): SessionOwner | undefined {
+    return this.sessionBindings.getOwner(sessionId, { backend });
   }
 
   getSession(sessionId: string): StoredSession | undefined {
     return this.sessions.get(sessionId);
+  }
+
+  getSessionBackendSessionId(sessionId: string): string | undefined {
+    return this.sessions.get(sessionId)?.backendSessionId ?? this.sessionBindings.getOwner(sessionId, { backend: this.sessions.get(sessionId)?.backend })?.backendSessionId;
+  }
+
+  setSessionBackendSessionId(sessionId: string, backend: AiBackend, backendSessionId: string): void {
+    const stored = this.sessions.get(sessionId);
+    if (stored) {
+      const session = { ...stored.session, backend, backendSessionId };
+      this.sessions.set(sessionId, {
+        ...stored,
+        session,
+        backend,
+        backendSessionId,
+        updatedAt: new Date().toISOString(),
+      });
+    }
+    this.sessionBindings.updateBackendSessionId(backend, sessionId, backendSessionId);
   }
 
   setSessionStatus(sessionId: string, status: CodexSessionStatus): void {

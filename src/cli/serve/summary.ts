@@ -1,4 +1,6 @@
 import { WeixinAdapter } from "../../channels/weixin/weixin-adapter.js";
+import type { ClaudeCliStatus } from "../../claude/claude-cli.js";
+import { formatClaudeCommandSource, formatClaudePlatform } from "../../claude/claude-process.js";
 import type { CodexCliStatus } from "../../codex/codex-cli.js";
 import { formatCodexCommandSource, formatCodexPlatform } from "../../codex/codex-process.js";
 import type { ChannelStatus } from "../../protocol/channel.js";
@@ -9,7 +11,8 @@ import type { ServeChannelSummary, ServeRouteSummary } from "../serve-wizard.js"
 
 export function codexSummary(startup: PreparedServeStartup) {
   return {
-    adapterMode: startup.adapterMode,
+    backend: startup.backend ?? "codex",
+    adapterMode: startup.adapterMode ?? "app-server",
     permissionMode: startup.policy.permissionMode,
     cwd: startup.cwd,
     progressMode: startup.progressMode,
@@ -28,6 +31,19 @@ export function formatCodexStatusForCli(status?: CodexCliStatus): string {
     `版本 ${version}`,
     `路径 ${status.codexBin}`,
     `来源 ${formatCodexCommandSource(status.codexBinSource)}`,
+  ].join("；");
+}
+
+export function formatClaudeStatusForCli(status?: ClaudeCliStatus): string {
+  if (!status) return `平台 ${formatClaudePlatform()}，Claude Code CLI 尚未检测`;
+  const state = status.available ? "已找到" : "不可用";
+  const version = status.available ? status.version ?? "版本未知" : status.error ?? "unknown error";
+  return [
+    `平台 ${formatClaudePlatform(status)}`,
+    `Claude Code CLI ${state}`,
+    `版本 ${version}`,
+    `路径 ${status.claudeBin}`,
+    `来源 ${formatClaudeCommandSource(status.claudeBinSource)}`,
   ].join("；");
 }
 

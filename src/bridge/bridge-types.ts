@@ -1,4 +1,5 @@
 import type { ApprovalManager } from "../approvals/approval-manager.js";
+import type { AiBackend } from "../backend/metadata.js";
 import type { CodexAdapter, CodexCollaborationMode, CodexPromptInput, CodexSessionStatus } from "../codex/types.js";
 import type { Logger } from "../logging/logger.js";
 import type { TranscriptSink } from "../logging/transcript.js";
@@ -15,6 +16,7 @@ export interface BridgeOptions {
   channel?: ChannelAdapter;
   channels?: ChannelRegistry;
   codex: CodexAdapter;
+  backend?: AiBackend;
   state?: MemoryStateStore;
   sessionBindings?: SessionBindings;
   approvals?: ApprovalManager;

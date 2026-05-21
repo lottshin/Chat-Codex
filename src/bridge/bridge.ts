@@ -164,6 +164,7 @@ export class Bridge {
     });
     this.sessionFlow = new BridgeSessionFlow({
       codex: this.codex,
+      backend: options.backend,
       state: this.state,
       delivery: this.delivery,
       cwd: this.cwd,
@@ -220,6 +221,7 @@ export class Bridge {
       enqueuePromptFallback: (items) => this.routeQueue.enqueuePromptFallback(items),
     });
     this.statusTextRenderer = new BridgeStatusText({
+      backend: options.backend,
       channels: this.channels,
       codex: this.codex,
       state: this.state,
@@ -238,6 +240,7 @@ export class Bridge {
       runPolicyStatus: (sessionId) => this.runPolicyStatus(sessionId),
     });
     this.commandRouter = new BridgeCommandRouter({
+      backend: options.backend,
       logger: this.logger,
       delivery: this.delivery,
       deliveryPolicyFor: (message) => this.deliveryPolicyFor(message),
@@ -248,6 +251,7 @@ export class Bridge {
           sessionFlow: this.sessionFlow,
           routeQueue: this.routeQueue,
           routeSteering: this.routeSteering,
+          delivery: this.delivery,
         }, message, target, args, rawText),
         status: (message) => this.statusTextRenderer.statusText(message),
         sessions: (message, args, commandName) => this.statusTextRenderer.sessionsText(message, args, commandName),
@@ -331,6 +335,7 @@ export class Bridge {
           compactStateForRoute: (routeKey) => this.compactStateForRoute(routeKey),
           setCompactState: (routeKey, state) => this.setCompactState(routeKey, state),
           clearCompactState: (routeKey) => this.clearCompactState(routeKey),
+          setSessionBackendSessionId: (sessionId, backend, backendSessionId) => this.state.setSessionBackendSessionId(sessionId, backend, backendSessionId),
           isRouteExecutionBusy: (routeKey) => this.isRouteExecutionBusyWithoutCompact(routeKey),
         }, message, target, args),
       },

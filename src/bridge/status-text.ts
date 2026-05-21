@@ -1,4 +1,5 @@
 import type { ApprovalManager } from "../approvals/approval-manager.js";
+import { backendSupportsFeature, type AiBackend, type BackendCommandFeature } from "../backend/metadata.js";
 import type { CodexRunPolicyStatus } from "../codex/codex-cli.js";
 import type {
   CodexAdapter,
@@ -48,6 +49,7 @@ import {
 } from "./session-list.js";
 
 export interface BridgeStatusTextOptions {
+  backend?: AiBackend;
   channels: ChannelRegistry;
   codex: CodexAdapter;
   state: MemoryStateStore;
@@ -67,6 +69,7 @@ export interface BridgeStatusTextOptions {
 }
 
 export class BridgeStatusText {
+  private readonly backend?: AiBackend;
   private readonly channels: ChannelRegistry;
   private readonly codex: CodexAdapter;
   private readonly state: MemoryStateStore;
@@ -86,6 +89,7 @@ export class BridgeStatusText {
   private readonly sessionListStates = new Map<string, SessionListState>();
 
   constructor(options: BridgeStatusTextOptions) {
+    this.backend = options.backend;
     this.channels = options.channels;
     this.codex = options.codex;
     this.state = options.state;
@@ -133,6 +137,8 @@ export class BridgeStatusText {
       : undefined;
     const sessionLines = [
       `- 当前会话: ${binding ? `\`${binding.sessionId}\`` : formatUnboundSessionForStatus(pendingInitialBinding)}`,
+      binding?.backend ? `- 后端: \`${binding.backend}\`` : undefined,
+      binding?.backend === "claude" && localSession?.backendSessionId ? `- Claude session: \`${localSession.backendSessionId}\`` : undefined,
       `- 运行状态: ${formatCodexStatus(sessionStatus)}`,
       `- 当前模型: ${formatModelInfoForStatus(sessionStatus.model)}`,
       ...formatContextUsageLines(sessionStatus.context),
@@ -163,7 +169,7 @@ export class BridgeStatusText {
       channelStatus.lastError ? `- 最近错误: ${channelStatus.lastError}` : undefined,
     ];
     return [
-      "**Codex 状态**",
+      "**后端状态**",
       "",
       ...formatStatusSection("会话", sessionLines),
       ...formatStatusSection("运行", runtimeLines),
@@ -199,11 +205,11 @@ export class BridgeStatusText {
       items,
     });
     return formatSessionListPage(page, {
-      title: "Codex 会话",
+      title: "会话",
       scopeLabel: request.scope === "all" ? "全部可发现" : "当前聊天",
       emptyText: request.scope === "all"
-        ? "未发现 Codex 历史会话。发送 `/new` 创建新会话。"
-        : "当前聊天暂无 Codex 会话。发送 `/new` 创建新会话，或发送 `/resume` 进入会话选择。",
+        ? "未发现历史会话。发送 `/new` 创建新会话。"
+        : "当前聊天暂无会话。发送 `/new` 创建新会话，或发送 `/resume` 进入会话选择。",
       pageCommand: request.scope === "all" ? "/sessions all" : "/sessions",
     });
   }
@@ -237,16 +243,17 @@ export class BridgeStatusText {
     const deliveryPolicy = this.deliveryPolicyFor(message);
     const commands: HelpCommand[] = [
       { command: "/help", description: "查看命令。" },
-      { command: "/new", description: "创建新 Codex 会话。" },
+      { command: "/new", description: "创建新会话。" },
+      { command: "/clear", description: "清空当前聊天上下文并创建新会话；需 `/clear confirm` 确认。" },
       { command: "/status", description: "查看状态、运行耗时、队列、审批和上下文 token 用量。" },
       {
         command: "/context-refresh [off|detect|reload|inherit]",
-        description: "设置当前聊天发送前是否检测本机 Codex session 上下文更新。",
+        description: "设置当前聊天发送前是否检测本机会话上下文更新。",
         details: [
           "`/context-refresh`: 查看当前聊天设置。",
           "`/context-refresh off`: 关闭发送前检测。",
-          "`/context-refresh detect`: 发现本机 session 外部更新时只提醒，本条消息继续发送。",
-          "`/context-refresh reload`: 发现本机 session 外部更新时先重新加载当前 session，再发送。",
+          "`/context-refresh detect`: 发现本机会话上下文外部更新时只提醒，本条消息继续发送。",
+          "`/context-refresh reload`: 发现本机会话上下文外部更新时先重新加载当前 session，再发送。",
           "`/context-refresh inherit`: 清除当前聊天覆盖，跟随全局默认。",
         ],
       },
@@ -272,19 +279,20 @@ export class BridgeStatusText {
             },
           ]
         : []),
-      { command: "/sessions", description: "列出当前聊天上下文拥有、绑定过或本地记录相关的 Codex 会话。" },
-      { command: "/sessions all", description: "列出本机全部可发现的 Codex 历史会话。" },
+      { command: "/sessions", description: "列出当前聊天上下文拥有、绑定过或本地记录相关的会话。" },
+      { command: "/sessions all", description: "列出本机全部可发现的历史会话。" },
       { command: "/resume [session|编号]", description: "恢复并绑定已有会话；不带参数时进入编号选择。" },
       { command: "/use [session|编号]", description: "切换到已有会话；不带参数时进入编号选择。" },
       ...(isFeishuGroupMessage(message) ? [] : [{ command: "/whoami", description: "查看当前通道身份。" }]),
       { command: "/debug", description: "查看调试状态。" },
-      { command: "/plan [任务]", description: "进入计划模式，或用计划模式处理任务。" },
-      { command: "/code [任务]", description: "切回默认执行模式，或用默认模式处理任务。" },
+      { command: "/plan [任务]", description: "进入计划模式，或用计划模式处理任务。", feature: "collaborationMode" },
+      { command: "/code [任务]", description: "切回默认执行模式，或用默认模式处理任务。", feature: "collaborationMode" },
       {
         command: "/goal [目标]",
         description: "查看或设置当前会话的实验 Goal 长期目标。",
+        feature: "goal",
         details: [
-          "`/goal pause`: 暂停 Goal，保留目标但暂时不让 Codex 按它持续推进。",
+          "`/goal pause`: 暂停 Goal，保留目标但暂时不让后端按它持续推进。",
           "`/goal resume`: 恢复 Goal，继续按已暂停的目标推进。",
           "`/goal clear`: 清除 Goal，退出当前会话的 Goal 追踪。",
         ],
@@ -299,23 +307,24 @@ export class BridgeStatusText {
           "`silent`: 不发送进度文本，只发送开始、审批和最终回复。",
         ],
       },
-      { command: "/sendfile <任务内容>", description: "让 Codex 本轮按内部协议声明最终要发送的文件。" },
+      { command: "/sendfile <任务内容>", description: "让当前后端本轮按内部协议声明最终要发送的文件。", feature: "sendfile" },
       {
         command: "/compact",
-        description: "压缩当前 Codex session 的历史上下文。",
+        description: "压缩当前会话的历史上下文。",
         details: ["`/compact confirm`: 确认并开始压缩。", "`/cancel`: 取消等待中的压缩确认。"],
+        feature: "compact",
       },
-      { command: "/model [模型|编号] [effort]", description: "查看可用模型，或切换当前 Codex session 后续任务的模型和思考程度。" },
-      { command: "/permission [approval|full confirm]", description: "查看或切换当前绑定 Codex session 的权限模式。" },
-      { command: "/OK", description: "批准当前审批。" },
-      { command: "/P", description: "按当前会话批准审批，后续同类操作尽量不再询问。" },
-      { command: "/NO", description: "拒绝当前审批。" },
-      { command: "/stop", description: "终止当前正在处理的 Codex 任务。" },
+      { command: "/model [模型|编号] [effort]", description: "查看可用模型，或切换当前会话后续任务的模型和思考程度。", feature: "model" },
+      { command: "/permission [approval|full confirm]", description: "查看或切换当前绑定会话的权限模式。", feature: "runtimePermissionSwitch" },
+      { command: "/OK", description: "批准当前审批。", feature: "interactiveApprovals" },
+      { command: "/P", description: "按当前会话批准审批，后续同类操作尽量不再询问。", feature: "interactiveApprovals" },
+      { command: "/NO", description: "拒绝当前审批。", feature: "interactiveApprovals" },
+      { command: "/stop", description: "终止当前正在处理的任务。" },
     ];
     const visibleCommands = [
       ...(deliveryPolicy.progressCommand === "disabled"
-        ? commands.filter((entry) => !entry.hideWhenProgressDisabled)
-        : commands),
+        ? commands.filter((entry) => !entry.hideWhenProgressDisabled && this.commandSupported(entry))
+        : commands.filter((entry) => this.commandSupported(entry))),
       ...deliveryPolicy.refreshCommands.map((command): HelpCommand => ({ command: `/${command.command}`, description: command.description })),
     ];
     return [
@@ -323,6 +332,10 @@ export class BridgeStatusText {
       "",
       ...visibleCommands.flatMap(formatHelpCommandLines),
     ].join("\n").trimEnd();
+  }
+
+  private commandSupported(entry: HelpCommand): boolean {
+    return !entry.feature || backendSupportsFeature(this.backend, entry.feature);
   }
 
   progressModeText(routeKey: string): string {
@@ -381,8 +394,8 @@ export class BridgeStatusText {
       `- 作用范围: ${sessionId ? `当前会话 \`${sessionId}\`` : "默认策略（后续新会话）"}`,
       `- 当前模式: \`${policy ? formatRunPolicy(policy) : "unknown"}\``,
       policyStatus ? `- 审批支持: ${formatApprovalSupport(policyStatus)}` : undefined,
-      "- `approval`: 使用 `workspace-write` sandbox；是否能在微信里弹审批取决于 Codex adapter。",
-      "- `full`: 完全权限，跳过审批和沙箱，风险很高。",
+      "- `approval`: 使用 `workspace-write` sandbox；是否能在聊天里弹审批取决于当前后端。",
+      "- `full`: 完全权限，跳过审批或权限检查，风险很高。",
       "- 切回安全沙箱模式: `/permission approval`",
       "- 切到完全权限: `/permission full confirm`",
       policyStatus?.note ? `- 说明: ${policyStatus.note}` : undefined,
@@ -428,6 +441,8 @@ interface HelpCommand {
   description: string;
   details?: string[];
   hideWhenProgressDisabled?: boolean;
+  feature?: BackendCommandFeature;
+  commandName?: string;
 }
 
 function formatHelpCommandLines(entry: HelpCommand): string[] {
