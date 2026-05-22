@@ -4,6 +4,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { writeFakeCodexBinSync } from "../helpers/fake-codex-bin.js";
 import { buildCodexRootArgs, checkCodexCli, discoverCodexSessions, displayCodexSessionTitle, findCodexSessionById, formatCodexSessionTitleForDisplay, parseSessionIndexLine, truncateDisplayText } from "../../src/codex/codex-cli.js";
 
 function tempDir(): string {
@@ -22,9 +23,14 @@ test("buildCodexRootArgs maps sandbox and full permission modes to Codex CLI fla
 
 test("checkCodexCli reports version and resolved command metadata", async () => {
   const root = tempDir();
-  const fakeBin = path.join(root, "fake-codex");
-  fs.writeFileSync(fakeBin, "#!/bin/sh\necho codex-cli 0.130.0\n");
-  fs.chmodSync(fakeBin, 0o755);
+  const fakeBin = writeFakeCodexBinSync({
+    root,
+    name: "fake-codex",
+    extension: process.platform === "win32" ? ".js" : ".sh",
+    source: process.platform === "win32"
+      ? "console.log('codex-cli 0.130.0');\n"
+      : "#!/bin/sh\necho codex-cli 0.130.0\n",
+  });
 
   const status = await checkCodexCli(fakeBin);
 

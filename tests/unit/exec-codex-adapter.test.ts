@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { ExecCodexAdapter, parseExecJsonLine } from "../../src/codex/exec-codex-adapter.js";
+import { writeFakeCodexBinSync } from "../helpers/fake-codex-bin.js";
 
 function tempDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "exec-codex-test-"));
@@ -237,17 +238,15 @@ test("ExecCodexAdapter scopes run policy per session", async () => {
 
 test("ExecCodexAdapter cancel terminates a running exec task", async () => {
   const root = tempDir();
-  const fakeScript = path.join(root, "fake-codex.js");
-  const fakeBin = path.join(root, "fake-codex");
-  fs.writeFileSync(fakeScript, [
-    "console.log(JSON.stringify({ type: 'thread.started', thread_id: 'thread-cancel' }));",
-    "setInterval(() => {}, 1000);",
-  ].join("\n"));
-  fs.writeFileSync(fakeBin, [
-    "#!/bin/sh",
-    `exec "${process.execPath}" "${fakeScript}" "$@"`,
-  ].join("\n"));
-  fs.chmodSync(fakeBin, 0o755);
+  const fakeBin = writeFakeCodexBinSync({
+    root,
+    name: "fake-codex",
+    extension: ".js",
+    source: [
+      "console.log(JSON.stringify({ type: 'thread.started', thread_id: 'thread-cancel' }));",
+      "setInterval(() => {}, 1000);",
+    ].join("\n"),
+  });
   const adapter = new ExecCodexAdapter({ codexBin: fakeBin });
   const session = await adapter.startSession({
     routeKey: "route-a",

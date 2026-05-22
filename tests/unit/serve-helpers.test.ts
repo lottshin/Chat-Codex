@@ -70,7 +70,7 @@ test("serve prompt helpers trim input and honor back shortcuts", async () => {
 
 test("serve formatters keep session and permission display stable", () => {
   assert.equal(formatPolicyForCli({ permissionMode: "approval", sandbox: "workspace-write" }), "审批模式（workspace-write 沙箱，推荐）");
-  assert.equal(formatPolicyForCli({ permissionMode: "full" }), "完全权限（跳过审批和沙箱，风险高）");
+  assert.equal(formatPolicyForCli({ permissionMode: "full" }), "完全权限（跳过审批或权限检查，风险高）");
   const rendered = formatSessionChoice(2, {
     id: "session-123",
     threadName: "A very useful title",
@@ -111,6 +111,7 @@ test("serve summary helpers map startup and channel records", () => {
     progressMode: "brief",
     maxConcurrentTurns: 2,
   }), {
+    backend: "codex",
     adapterMode: "app-server",
     permissionMode: "approval",
     cwd: "/repo",

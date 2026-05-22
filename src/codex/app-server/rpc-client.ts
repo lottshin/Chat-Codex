@@ -48,6 +48,10 @@ export class AppServerRpcClient {
     }
     this.pendingResponses.clear();
     this.stdoutLines?.close();
+    if (this.child?.stdin) {
+      this.child.stdin.removeAllListeners("error");
+      this.child.stdin.on("error", () => undefined);
+    }
     if (this.child && !this.child.killed) {
       this.child.kill("SIGTERM");
     }
