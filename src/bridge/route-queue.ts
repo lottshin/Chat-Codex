@@ -1,5 +1,6 @@
 import type { ApprovalManager } from "../approvals/approval-manager.js";
-import type { CodexAdapter, CodexCollaborationMode, CodexProgressKind, CodexPromptInput } from "../codex/types.js";
+import { backendDisplayName, type AiBackend } from "../backend/metadata.js";
+import type { CodexAdapter, CodexCollaborationMode, CodexProgressKind, CodexPromptInput, CodexRunApprovalContextRegistration } from "../codex/types.js";
 import { codexInputPlainText, codexInputText, withCodexInputText } from "../codex/input.js";
 import type { TranscriptSink } from "../logging/transcript.js";
 import type { ChannelMessage, ChannelTarget } from "../protocol/channel.js";
@@ -18,6 +19,8 @@ import {
   truncateForChannel,
   withSendFileInstruction,
 } from "./formatters.js";
+import { formatPlanWorkflowChoices } from "./plan-workflow.js";
+import type { PendingPlanWorkflow } from "./plan-workflow.js";
 
 export interface BridgeRouteQueueOptions {
   codex: CodexAdapter;
@@ -37,6 +40,8 @@ export interface BridgeRouteQueueOptions {
   ): boolean;
   progressDelivery?: BridgeProgressDelivery;
   contextRefresh?: SessionContextRefreshManager;
+  onPlanWorkflowReady?(workflow: PendingPlanWorkflow): void;
+  backend?: AiBackend;
 }
 
 export class BridgeRouteQueue {
@@ -51,6 +56,8 @@ export class BridgeRouteQueue {
   private readonly currentCollaborationMode: BridgeRouteQueueOptions["currentCollaborationMode"];
   private readonly deliveryPolicyFor: BridgeRouteQueueOptions["deliveryPolicyFor"];
   private readonly contextRefresh?: SessionContextRefreshManager;
+  private readonly onPlanWorkflowReady?: BridgeRouteQueueOptions["onPlanWorkflowReady"];
+  private readonly backendName: string;
   private readonly progressDelivery: BridgeProgressDelivery;
   private readonly queues = new Map<string, QueuedPrompt[]>();
   private readonly workers = new Map<string, Promise<void>>();
@@ -68,6 +75,8 @@ export class BridgeRouteQueue {
     this.currentCollaborationMode = options.currentCollaborationMode;
     this.deliveryPolicyFor = options.deliveryPolicyFor;
     this.contextRefresh = options.contextRefresh;
+    this.onPlanWorkflowReady = options.onPlanWorkflowReady;
+    this.backendName = backendDisplayName(options.backend);
     this.progressDelivery = options.progressDelivery ?? new BridgeProgressDelivery({
       delivery: this.delivery,
       transcript: this.transcript,
@@ -202,7 +211,7 @@ export class BridgeRouteQueue {
         const deliveryPolicy = this.deliveryPolicyFor(message);
         if (deliveryPolicy.taskStart === "send") {
           await this.delivery.sendText(target, [
-            "AI 后端正在处理这条消息。",
+            `${this.backendName} 正在处理这条消息。`,
             "可发送 /status 查看状态，/stop 终止。",
             sendFile ? "本轮已启用 /sendfile，只会发送最终回复中明确声明的文件。" : undefined,
             remainingQueued > 0 ? `Queue: 后面还有 ${remainingQueued} 条` : undefined,
@@ -212,57 +221,86 @@ export class BridgeRouteQueue {
           let finalText = "";
           let finalPlanText = "";
           let currentTurnStartedAt: string | undefined;
+          let approvalContextRegistration: CodexRunApprovalContextRegistration | undefined;
           const codexPrompt = sendFile
             ? typeof prompt === "string"
               ? withSendFileInstruction(prompt)
               : withCodexInputText(prompt, withSendFileInstruction(promptText))
             : prompt;
-          for await (const event of this.codex.run(session.id, codexPrompt, collaborationMode ? { collaborationMode } : undefined)) {
-            if (event.type === "turn.started") {
-              currentTurnStartedAt = event.startedAt ?? new Date().toISOString();
-              this.state.setSessionStatus(session.id, {
-                type: "running",
-                turnId: event.turnId,
-                task: truncateForChannel(promptText || codexInputPlainText(prompt), 120),
-                startedAt: currentTurnStartedAt,
-              });
-            } else if (event.type === "assistant.progress") {
-              await this.progressDelivery.handleProgress({
-                routeKey: message.routeKey,
-                target,
-                policy: deliveryPolicy,
-                text: event.text,
-                kind: event.kind,
-              });
-            } else if (event.type === "assistant.plan") {
-              finalPlanText = event.text;
-            } else if (event.type === "assistant.delta") {
-              finalText += event.text;
-            } else if (event.type === "assistant.completed") {
-              finalText = event.text;
-            } else if (event.type === "approval.requested") {
-              this.state.setSessionStatus(session.id, {
-                type: "waiting_approval",
-                detail: event.approval.reason ?? event.approval.kind,
-                startedAt: currentTurnStartedAt,
-              });
-              const pending = this.approvals.create(message.routeKey, message.sender.id, event.approval);
-              await this.delivery.sendApprovalTextUntilDelivered(message.routeKey, target, pending);
-            } else if (event.type === "turn.completed") {
-              this.state.setSessionStatus(session.id, { type: "idle" });
-            } else if (event.type === "turn.failed") {
-              this.state.setSessionStatus(session.id, { type: "failed", error: event.error });
-              await this.progressDelivery.flushRoute(message.routeKey);
-              await this.delivery.sendText(target, `Codex 执行失败: ${event.error}`);
+          try {
+            for await (const event of this.codex.run(session.id, codexPrompt, collaborationMode ? { collaborationMode } : undefined)) {
+              if (event.type === "turn.started") {
+                currentTurnStartedAt = event.startedAt ?? new Date().toISOString();
+                const registeredApprovalContext = this.codex.registerRunApprovalContext?.({
+                  routeKey: message.routeKey,
+                  requestedBy: message.sender.id,
+                  target,
+                  sessionId: session.id,
+                  turnId: event.turnId,
+                  cwd: session.cwd,
+                });
+                if (registeredApprovalContext) approvalContextRegistration = registeredApprovalContext;
+                this.state.setSessionStatus(session.id, {
+                  type: "running",
+                  turnId: event.turnId,
+                  task: truncateForChannel(promptText || codexInputPlainText(prompt), 120),
+                  startedAt: currentTurnStartedAt,
+                });
+              } else if (event.type === "assistant.progress") {
+                await this.progressDelivery.handleProgress({
+                  routeKey: message.routeKey,
+                  target,
+                  policy: deliveryPolicy,
+                  text: event.text,
+                  kind: event.kind,
+                });
+              } else if (event.type === "assistant.plan") {
+                finalPlanText = event.text;
+              } else if (event.type === "assistant.delta") {
+                finalText += event.text;
+              } else if (event.type === "assistant.completed") {
+                finalText = event.text;
+              } else if (event.type === "approval.requested") {
+                this.state.setSessionStatus(session.id, {
+                  type: "waiting_approval",
+                  detail: event.approval.reason ?? event.approval.kind,
+                  startedAt: currentTurnStartedAt,
+                });
+                const pending = this.approvals.create(message.routeKey, message.sender.id, event.approval);
+                await this.delivery.sendApprovalTextUntilDelivered(message.routeKey, target, pending);
+              } else if (event.type === "turn.completed") {
+                this.state.setSessionStatus(session.id, { type: "idle" });
+              } else if (event.type === "turn.failed") {
+                this.state.setSessionStatus(session.id, { type: "failed", error: event.error });
+                await this.progressDelivery.flushRoute(message.routeKey);
+                await this.delivery.sendText(target, `Codex 执行失败: ${event.error}`);
+              }
             }
+          } finally {
+            await approvalContextRegistration?.dispose();
           }
           await this.progressDelivery.flushRoute(message.routeKey);
           const composedFinalText = composeFinalAnswer(finalPlanText, finalText);
           if (composedFinalText) {
+            const isPlanTurn = collaborationMode === "plan";
             const visibleText = sendFile ? stripBridgeSendFileRefs(composedFinalText) : composedFinalText;
-            if (visibleText) await this.delivery.sendText(target, visibleText);
+            const deliveryText = isPlanTurn && visibleText
+              ? `${visibleText}\n\n${formatPlanWorkflowChoices()}`
+              : visibleText;
+            if (deliveryText) await this.delivery.sendText(target, deliveryText);
             if (sendFile) {
               await this.delivery.sendRequestedFiles(target, composedFinalText, session.cwd);
+            }
+            if (isPlanTurn && visibleText) {
+              this.onPlanWorkflowReady?.({
+                routeKey: message.routeKey,
+                message,
+                target,
+                originalPrompt: prompt,
+                planText: visibleText,
+                sessionId: session.id,
+                createdAt: new Date().toISOString(),
+              });
             }
           }
         });

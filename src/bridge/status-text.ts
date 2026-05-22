@@ -1,5 +1,5 @@
 import type { ApprovalManager } from "../approvals/approval-manager.js";
-import { backendSupportsFeature, type AiBackend, type BackendCommandFeature } from "../backend/metadata.js";
+import { backendDisplayName, backendSupportsFeature, type AiBackend, type BackendCommandFeature, type CommandNamespaceProfile } from "../backend/metadata.js";
 import type { CodexRunPolicyStatus } from "../codex/codex-cli.js";
 import type {
   CodexAdapter,
@@ -47,9 +47,19 @@ import {
   sessionListStateExpired,
   sessionPageAction,
 } from "./session-list.js";
+import type { PendingPlanWorkflow } from "./plan-workflow.js";
+import { formatPlanWorkflowChoices } from "./plan-workflow.js";
+
+function commandForProfile(commandProfile: CommandNamespaceProfile, command: string, bridgeRootExceptions: readonly string[] = ["/stop", "/OK", "/P", "/NO"]): string {
+  if (commandProfile !== "claude") return command;
+  if (bridgeRootExceptions.includes(command)) return command;
+  if (!command.startsWith("/")) return command;
+  return `/bridge-${command.slice(1)}`;
+}
 
 export interface BridgeStatusTextOptions {
   backend?: AiBackend;
+  commandProfile: CommandNamespaceProfile;
   channels: ChannelRegistry;
   codex: CodexAdapter;
   state: MemoryStateStore;
@@ -66,10 +76,12 @@ export interface BridgeStatusTextOptions {
   progressModeFor(routeKey: string): ProgressDeliveryMode;
   contextRefreshFor(routeKey: string): ContextRefreshEffectivePolicy;
   runPolicyStatus(sessionId?: string): CodexRunPolicyStatus | undefined;
+  planWorkflowForRoute(routeKey: string): PendingPlanWorkflow | undefined;
 }
 
 export class BridgeStatusText {
   private readonly backend?: AiBackend;
+  private readonly commandProfile: CommandNamespaceProfile;
   private readonly channels: ChannelRegistry;
   private readonly codex: CodexAdapter;
   private readonly state: MemoryStateStore;
@@ -86,10 +98,12 @@ export class BridgeStatusText {
   private readonly progressModeFor: BridgeStatusTextOptions["progressModeFor"];
   private readonly contextRefreshFor: BridgeStatusTextOptions["contextRefreshFor"];
   private readonly runPolicyStatus: BridgeStatusTextOptions["runPolicyStatus"];
+  private readonly planWorkflowForRoute: BridgeStatusTextOptions["planWorkflowForRoute"];
   private readonly sessionListStates = new Map<string, SessionListState>();
 
   constructor(options: BridgeStatusTextOptions) {
     this.backend = options.backend;
+    this.commandProfile = options.commandProfile;
     this.channels = options.channels;
     this.codex = options.codex;
     this.state = options.state;
@@ -106,6 +120,7 @@ export class BridgeStatusText {
     this.progressModeFor = options.progressModeFor;
     this.contextRefreshFor = options.contextRefreshFor;
     this.runPolicyStatus = options.runPolicyStatus;
+    this.planWorkflowForRoute = options.planWorkflowForRoute;
   }
 
   async statusText(message: ChannelMessage): Promise<string> {
@@ -125,6 +140,7 @@ export class BridgeStatusText {
       : adapterStatus;
     const sessionStatus = withLocalStartedAt(statusFromAdapterOrLocal, localSession?.status);
     const approvals = this.approvals.list(routeKey);
+    const planWorkflow = this.planWorkflowForRoute(routeKey);
     const compactState = this.compactStateForRoute(routeKey);
     const compactRunning = compactState.type === "running";
     const workerRunning = this.isRouteBusy(routeKey) || compactRunning;
@@ -150,12 +166,13 @@ export class BridgeStatusText {
       `- 排队消息: \`${this.routeQueueLength(routeKey)}\``,
       `- 待投递补充消息: \`${this.routeSteerPendingCount(routeKey)}\``,
       `- 待处理附件: \`${this.pendingMediaCount(routeKey)}\``,
-      ...formatCompactStatusLines(compactState),
+      ...formatCompactStatusLines(compactState, this.commandProfile),
       `- 协作模式: ${formatCollaborationModeForStatus(this.collaborationModeForRoute(routeKey, binding?.sessionId))}`,
       `- 上下文刷新: ${formatContextRefreshEffectivePolicyForUser(this.contextRefreshFor(routeKey))}`,
       ...formatGoalStatusLines(goal),
       `- 待审批: \`${approvals.length}\``,
       ...formatPendingApprovalStatus(approvals.at(-1)),
+      ...formatPendingPlanWorkflowStatus(planWorkflow),
       this.progressStatusLine(routeKey, deliveryPolicy),
       modelPolicy ? `- 模型覆盖: ${formatModelPolicyForStatus(modelPolicy)}` : undefined,
       policy ? `- 权限模式: ${formatRunPolicyForStatus(policy)}` : undefined,
@@ -169,7 +186,7 @@ export class BridgeStatusText {
       channelStatus.lastError ? `- 最近错误: ${channelStatus.lastError}` : undefined,
     ];
     return [
-      "**后端状态**",
+      `**${backendDisplayName(this.backend)} 状态**`,
       "",
       ...formatStatusSection("会话", sessionLines),
       ...formatStatusSection("运行", runtimeLines),
@@ -285,8 +302,12 @@ export class BridgeStatusText {
       { command: "/use [session|编号]", description: "切换到已有会话；不带参数时进入编号选择。" },
       ...(isFeishuGroupMessage(message) ? [] : [{ command: "/whoami", description: "查看当前通道身份。" }]),
       { command: "/debug", description: "查看调试状态。" },
-      { command: "/plan [任务]", description: "进入计划模式，或用计划模式处理任务。", feature: "collaborationMode" },
+      { command: "/plan [任务]", description: "进入 Chat-Codex 计划模式，或用计划模式处理任务；计划完成后会显示 Chat-Codex 快捷回复。", feature: "collaborationMode" },
       { command: "/code [任务]", description: "切回默认执行模式，或用默认模式处理任务。", feature: "collaborationMode" },
+      { command: "/plan-execute", description: "执行待处理计划，继续按当前权限/审批策略处理工具请求。", feature: "collaborationMode" },
+      { command: "/plan-edit", description: "执行待处理计划；如需 Claude acceptEdits，请先明确切换权限模式。", feature: "collaborationMode" },
+      { command: "/replan <补充>", description: "基于待处理计划继续规划，不执行代码修改。", feature: "collaborationMode" },
+      { command: "/plan-cancel", description: "取消待执行计划。", feature: "collaborationMode" },
       {
         command: "/goal [目标]",
         description: "查看或设置当前会话的实验 Goal 长期目标。",
@@ -326,12 +347,28 @@ export class BridgeStatusText {
         ? commands.filter((entry) => !entry.hideWhenProgressDisabled && this.commandSupported(entry))
         : commands.filter((entry) => this.commandSupported(entry))),
       ...deliveryPolicy.refreshCommands.map((command): HelpCommand => ({ command: `/${command.command}`, description: command.description })),
-    ];
+    ].map((entry) => ({
+      ...entry,
+      command: commandForProfile(this.commandProfile, entry.command),
+      details: entry.details?.map((detail) => this.commandProfile === "claude"
+        ? detail
+          .replaceAll("`/compact confirm`", "`/bridge-compact confirm`")
+          .replaceAll("`/context-refresh`", "`/bridge-context-refresh`")
+          .replaceAll("`/context-refresh off`", "`/bridge-context-refresh off`")
+          .replaceAll("`/context-refresh detect`", "`/bridge-context-refresh detect`")
+          .replaceAll("`/context-refresh reload`", "`/bridge-context-refresh reload`")
+          .replaceAll("`/context-refresh inherit`", "`/bridge-context-refresh inherit`")
+          .replaceAll("`/goal pause`", "`/bridge-goal pause`")
+          .replaceAll("`/goal resume`", "`/bridge-goal resume`")
+          .replaceAll("`/goal clear`", "`/bridge-goal clear`")
+        : detail),
+    }));
     return [
       "**可用命令**",
+      this.commandProfile === "claude" ? "Claude profile：根 `/...` 优先发给 Claude Code；桥接管理命令请使用 `/bridge-*`。" : undefined,
       "",
       ...visibleCommands.flatMap(formatHelpCommandLines),
-    ].join("\n").trimEnd();
+    ].filter(Boolean).join("\n").trimEnd();
   }
 
   private commandSupported(entry: HelpCommand): boolean {
@@ -516,13 +553,24 @@ function isSameActiveTurn(left: CodexSessionStatus, right: CodexSessionStatus): 
   return !leftTurnId || !rightTurnId || leftTurnId === rightTurnId;
 }
 
-function formatCompactStatusLines(state: CompactState): string[] {
+function formatPendingPlanWorkflowStatus(workflow: PendingPlanWorkflow | undefined): string[] {
+  if (!workflow) return [];
+  return [
+    "",
+    "**待处理计划**",
+    `- 生成时间: ${workflow.createdAt}`,
+    `- 会话: \`${workflow.sessionId}\``,
+    "```text\n" + formatPlanWorkflowChoices() + "\n```",
+  ];
+}
+
+function formatCompactStatusLines(state: CompactState, commandProfile: CommandNamespaceProfile): string[] {
   if (state.type === "none") return ["- 上下文压缩: 无"];
   if (state.type === "confirming") {
     return [
       "- 上下文压缩: 等待确认",
       `- 压缩会话: \`${state.sessionId}\``,
-      "- 可用操作: 发送 `/compact confirm` 开始，或发送 `/cancel` 取消",
+      `- 可用操作: ${commandProfile === "claude" ? "发送 `/bridge-compact confirm` 开始，或发送 `/cancel` 取消" : "发送 `/compact confirm` 开始，或发送 `/cancel` 取消"}`,
     ];
   }
   return [

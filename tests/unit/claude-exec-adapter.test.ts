@@ -19,6 +19,29 @@ test("parseClaudeJsonLine captures session id from system events", () => {
   });
 });
 
+test("parseClaudeJsonLine captures slash commands and skills from init events", () => {
+  const parsed = parseClaudeJsonLine(
+    JSON.stringify({
+      type: "system",
+      subtype: "init",
+      session_id: "claude-session",
+      slash_commands: ["/help", { name: "review" }, { command: "/security-review" }, { name: "" }],
+      skills: [{ name: "simplify" }, { name: "/claude-api" }, "frontend-design"],
+    }),
+    "local-session",
+    "turn-1",
+  );
+
+  assert.deepEqual(parsed?.promptSlashCommands, [
+    "claude-api",
+    "frontend-design",
+    "help",
+    "review",
+    "security-review",
+    "simplify",
+  ]);
+});
+
 test("parseClaudeJsonLine maps assistant text to delta", () => {
   const parsed = parseClaudeJsonLine(
     JSON.stringify({
@@ -153,6 +176,24 @@ test("ClaudeExecAdapter adds model and plan-mode args", async () => {
   assert.equal(args.at(args.indexOf("--permission-mode") + 1), "plan");
 });
 
+test("ClaudeExecAdapter uses per-turn collaboration mode for plan args", async () => {
+  const adapter = new ClaudeExecAdapter();
+  const session = await adapter.startSession({ routeKey: "route-1", cwd: process.cwd() });
+
+  const args = adapter.buildArgsForTest(session.id, "hello", { collaborationMode: "plan" });
+
+  assert.equal(args.at(args.indexOf("--permission-mode") + 1), "plan");
+});
+
+test("ClaudeExecAdapter preserves slash prompts in print args", async () => {
+  const adapter = new ClaudeExecAdapter();
+  const session = await adapter.startSession({ routeKey: "route-1", cwd: process.cwd() });
+
+  const args = adapter.buildArgsForTest(session.id, "/simplify Keep CASE");
+
+  assert.deepEqual(args.slice(0, 3), ["-p", "/simplify Keep CASE", "--output-format"]);
+});
+
 test("ClaudeExecAdapter exposes compact support", async () => {
   const adapter = new ClaudeExecAdapter();
   const session = await adapter.startSession({ routeKey: "route-1", cwd: process.cwd() });
@@ -170,4 +211,95 @@ test("ClaudeExecAdapter maps Claude permission mode args", async () => {
   const args = adapter.buildArgsForTest(session.id, "hello");
 
   assert.equal(args.at(args.indexOf("--permission-mode") + 1), "auto");
+});
+
+test("ClaudeExecAdapter adds permission prompt tool when configured", async () => {
+  const adapter = new ClaudeExecAdapter({ permissionPromptTool: "mcp__chat_codex__approval_prompt" });
+  const session = await adapter.startSession({ routeKey: "route-1", cwd: process.cwd() });
+
+  const args = adapter.buildArgsForTest(session.id, "hello");
+
+  assert.equal(args.at(args.indexOf("--permission-prompt-tool") + 1), "mcp__chat_codex__approval_prompt");
+});
+
+test("ClaudeExecAdapter omits permission prompt tool in full permission mode", async () => {
+  const adapter = new ClaudeExecAdapter({ permissionPromptTool: "mcp__chat_codex__approval_prompt" });
+  const session = await adapter.startSession({ routeKey: "route-1", cwd: process.cwd() });
+  adapter.setRunPolicy({ permissionMode: "full" }, session.id);
+
+  const args = adapter.buildArgsForTest(session.id, "hello");
+
+  assert.equal(args.includes("--permission-prompt-tool"), false);
+});
+
+test("ClaudeExecAdapter adds MCP config args when configured", async () => {
+  const adapter = new ClaudeExecAdapter({
+    permissionPromptTool: "mcp__chat_codex__approval_prompt",
+    mcpConfigPath: "D:/tmp/chat-codex-mcp.json",
+    strictMcpConfig: true,
+  });
+  const session = await adapter.startSession({ routeKey: "route-1", cwd: process.cwd() });
+
+  const args = adapter.buildArgsForTest(session.id, "hello");
+
+  assert.equal(args.at(args.indexOf("--mcp-config") + 1), "D:/tmp/chat-codex-mcp.json");
+  assert.equal(args.includes("--strict-mcp-config"), true);
+  assert.equal(args.at(args.indexOf("--permission-prompt-tool") + 1), "mcp__chat_codex__approval_prompt");
+});
+
+test("ClaudeExecAdapter omits MCP config args in full permission mode", async () => {
+  const adapter = new ClaudeExecAdapter({
+    permissionPromptTool: "mcp__chat_codex__approval_prompt",
+    mcpConfigPath: "D:/tmp/chat-codex-mcp.json",
+    strictMcpConfig: true,
+  });
+  const session = await adapter.startSession({ routeKey: "route-1", cwd: process.cwd() });
+  adapter.setRunPolicy({ permissionMode: "full" }, session.id);
+
+  const args = adapter.buildArgsForTest(session.id, "hello");
+
+  assert.equal(args.includes("--mcp-config"), false);
+  assert.equal(args.includes("--strict-mcp-config"), false);
+});
+
+test("ClaudeExecAdapter registers tokenized approval contexts", () => {
+  const adapter = new ClaudeExecAdapter();
+  const target = {
+    channelId: "mock",
+    routeKey: "route-1",
+    conversation: { id: "user", kind: "direct" as const },
+    recipient: { id: "user" },
+  };
+
+  const registration = adapter.registerRunApprovalContext({
+    routeKey: "route-1",
+    requestedBy: "user",
+    target,
+    sessionId: "session-1",
+    turnId: "turn-1",
+    cwd: "/repo",
+  });
+
+  assert.equal(typeof registration.token, "string");
+  assert.equal(adapter.activeApprovalContextCount(), 1);
+  assert.deepEqual(adapter.getOnlyActiveApprovalContext(), {
+    routeKey: "route-1",
+    requestedBy: "user",
+    target,
+    sessionId: "session-1",
+    turnId: "turn-1",
+    cwd: "/repo",
+  });
+  assert.deepEqual(adapter.getApprovalContext(registration.token ?? ""), {
+    routeKey: "route-1",
+    requestedBy: "user",
+    target,
+    sessionId: "session-1",
+    turnId: "turn-1",
+    cwd: "/repo",
+  });
+  registration.dispose();
+  assert.equal(adapter.activeApprovalContextCount(), 0);
+  assert.equal(adapter.getOnlyActiveApprovalContext(), undefined);
+  assert.equal(adapter.getApprovalContext(registration.token ?? ""), undefined);
 });

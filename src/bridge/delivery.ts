@@ -1,6 +1,7 @@
 import type { ApprovalManager } from "../approvals/approval-manager.js";
 import type { PendingApproval } from "../approvals/types.js";
 import type { Logger } from "../logging/logger.js";
+import { backendDisplayName, type AiBackend } from "../backend/metadata.js";
 import type { TranscriptSink } from "../logging/transcript.js";
 import type { ChannelRegistry } from "../channels/registry.js";
 import type { ChannelMedia, ChannelTarget } from "../protocol/channel.js";
@@ -14,6 +15,7 @@ export interface BridgeDeliveryOptions {
   logger: Logger;
   transcript?: TranscriptSink;
   approvalSendRetryDelayMs: number;
+  backend?: AiBackend;
 }
 
 export class BridgeDelivery {
@@ -22,6 +24,7 @@ export class BridgeDelivery {
   private readonly logger: Logger;
   private readonly transcript?: TranscriptSink;
   private readonly approvalSendRetryDelayMs: number;
+  private readonly backendName: string;
   private readonly progressSendSuppressedUntil = new Map<string, number>();
 
   constructor(options: BridgeDeliveryOptions) {
@@ -30,6 +33,7 @@ export class BridgeDelivery {
     this.logger = options.logger;
     this.transcript = options.transcript;
     this.approvalSendRetryDelayMs = options.approvalSendRetryDelayMs;
+    this.backendName = backendDisplayName(options.backend);
   }
 
   async sendText(target: ChannelTarget, text: string): Promise<void> {
@@ -49,7 +53,7 @@ export class BridgeDelivery {
   }
 
   async sendApprovalTextUntilDelivered(routeKey: string, target: ChannelTarget, pending: PendingApproval): Promise<void> {
-    const text = this.approvals.formatForChannel(pending);
+    const text = this.approvals.formatForChannel(pending, this.backendName);
     let failures = 0;
     while (this.isApprovalStillPending(routeKey, pending.approvalKey)) {
       try {

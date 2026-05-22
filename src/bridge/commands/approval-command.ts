@@ -1,3 +1,4 @@
+import { isApprovalDecisionAvailable, unavailableApprovalDecisionMessage } from "../../approvals/choices.js";
 import type { ApprovalDecision } from "../../approvals/types.js";
 import type { ApprovalManager } from "../../approvals/approval-manager.js";
 import type { CodexAdapter } from "../../codex/types.js";
@@ -25,6 +26,11 @@ export async function handleApprovalCommand(
     return;
   }
   try {
+    const selected = options.approvals.get(key);
+    if (selected?.routeKey === message.routeKey && !isApprovalDecisionAvailable(selected, decision)) {
+      await options.delivery.sendText(target, unavailableApprovalDecisionMessage(decision));
+      return;
+    }
     const pending = options.approvals.decide(key, message.routeKey, decision);
     await options.codex.resolveApproval?.(pending.adapterApprovalId ?? pending.approvalKey, decision);
     await options.delivery.sendText(target, `审批已处理: ${formatApprovalDecision(decision)}`);

@@ -23,6 +23,7 @@ test("BridgeStatusText shows Claude backend session id in status", async () => {
 
   const text = await new BridgeStatusText({
     backend: "claude",
+    commandProfile: "claude",
     channels: fakeChannels(),
     codex: fakeCodex({ type: "idle" }),
     state,
@@ -39,11 +40,41 @@ test("BridgeStatusText shows Claude backend session id in status", async () => {
     progressModeFor: () => "brief",
     contextRefreshFor: () => ({ policy: { mode: "off" }, source: "route" }),
     runPolicyStatus: () => undefined,
+    planWorkflowForRoute: () => undefined,
   }).statusText(message());
 
   assert.match(text, /当前会话: `claude-local-1`/);
   assert.match(text, /后端: `claude`/);
   assert.match(text, /Claude session: `claude-actual-123`/);
+});
+
+test("BridgeStatusText uses /bridge-* help commands in Claude profile", () => {
+  const text = new BridgeStatusText({
+    backend: "claude",
+    commandProfile: "claude",
+    channels: fakeChannels(),
+    codex: fakeCodex({ type: "idle" }),
+    state: new MemoryStateStore(),
+    approvals: new ApprovalManager(),
+    routeQueueLength: () => 0,
+    deliveryPolicyFor: () => DEFAULT_CHANNEL_DELIVERY_POLICY,
+    shouldConsumePendingInitialRouteBinding: () => false,
+    pendingInitialRouteBinding: () => undefined,
+    isRouteBusy: () => false,
+    routeSteerPendingCount: () => 0,
+    pendingMediaCount: () => 0,
+    compactStateForRoute: () => ({ type: "none" }),
+    collaborationModeForRoute: () => "default",
+    progressModeFor: () => "brief",
+    contextRefreshFor: () => ({ policy: { mode: "off" }, source: "route" }),
+    runPolicyStatus: () => undefined,
+    planWorkflowForRoute: () => undefined,
+  }).helpText(message());
+
+  assert.match(text, /\/bridge-help/);
+  assert.match(text, /\/bridge-status/);
+  assert.match(text, /\/bridge-compact/);
+  assert.match(text, /根 `\/\.\.\.` 优先发给 Claude Code/);
 });
 
 test("BridgeStatusText shows backend labels in sessions list", async () => {
@@ -59,6 +90,7 @@ test("BridgeStatusText shows backend labels in sessions list", async () => {
 
   const text = await new BridgeStatusText({
     backend: "claude",
+    commandProfile: "claude",
     channels: fakeChannels(),
     codex: fakeCodex({ type: "idle" }, [{
       id: "claude-local-1",
@@ -83,6 +115,7 @@ test("BridgeStatusText shows backend labels in sessions list", async () => {
     progressModeFor: () => "brief",
     contextRefreshFor: () => ({ policy: { mode: "off" }, source: "route" }),
     runPolicyStatus: () => undefined,
+    planWorkflowForRoute: () => undefined,
   }).sessionsText(message(), [], "sessions");
 
   assert.match(text, /Session: `claude-local-1`/);

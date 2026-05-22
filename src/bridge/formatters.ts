@@ -1,3 +1,4 @@
+import { approvalChoices } from "../approvals/choices.js";
 import type { ApprovalDecision, PendingApproval } from "../approvals/types.js";
 import type { CodexRunPolicy, CodexRunPolicyStatus } from "../codex/codex-cli.js";
 import { truncateDisplayText } from "../codex/codex-cli.js";
@@ -597,9 +598,7 @@ export function formatPendingApprovalStatus(approval: PendingApproval | undefine
     approval.reason ? `- 原因: ${approval.reason}` : undefined,
     approval.command ? "```shell\n" + approval.command + "\n```" : undefined,
     "快捷回复：",
-    "```text\n/OK\n```",
-    "```text\n/P\n```",
-    "```text\n/NO\n```",
+    ...approvalChoices(approval).map((choice) => `\`\`\`text\n${choice.command} 或 ${choice.numeric}\n\`\`\``),
   ];
 }
 

@@ -1,13 +1,56 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import type { ApprovalDecision } from "../../src/approvals/types.js";
+import type { PlanWorkflowChoice } from "../../src/bridge/plan-workflow.js";
 import type { AiBackend } from "../../src/backend/metadata.js";
 import { ApprovalManager } from "../../src/approvals/approval-manager.js";
-import { BridgeCommandRouter, type BridgeCommandHandlers } from "../../src/bridge/command-router.js";
+import { BridgeCommandRouter, isBridgeCommandName, type BridgeCommandHandlers } from "../../src/bridge/command-router.js";
 import { BridgeDelivery } from "../../src/bridge/delivery.js";
 import { SilentLogger } from "../../src/logging/logger.js";
 import type { ChannelRegistry } from "../../src/channels/registry.js";
 import type { ChannelMessage, ChannelTarget } from "../../src/protocol/channel.js";
 import { DEFAULT_CHANNEL_DELIVERY_POLICY, normalizeChannelDeliveryPolicy } from "../../src/protocol/delivery-policy.js";
+
+test("BridgeCommandRouter supports /bridge-* aliases in Claude profile", async () => {
+  const fixture = routerFixture({ backend: "claude", commandProfile: "claude" });
+
+  await fixture.router.handle(message(), target(), "bridge-status", [], "/bridge-status");
+  await fixture.router.handle(message(), target(), "bridge-compact", [], "/bridge-compact");
+  await fixture.router.handle(message(), target(), "stop", [], "/stop");
+
+  assert.equal(fixture.sent.includes("status"), true);
+  assert.equal(fixture.calls.compact, 1);
+  assert.equal(fixture.calls.model, 0);
+});
+
+test("BridgeCommandRouter leaves root bridge names to Claude profile unless they are active shortcuts", async () => {
+  const fixture = routerFixture({ backend: "claude", commandProfile: "claude" });
+
+  assert.equal(fixture.router.isBridgeCommand(message(), "help"), false);
+  assert.equal(fixture.router.isBridgeCommand(message(), "status"), false);
+  assert.equal(fixture.router.isBridgeCommand(message(), "compact"), false);
+  assert.equal(fixture.router.isBridgeCommand(message(), "plan"), false);
+  assert.equal(fixture.router.isBridgeCommand(message(), "ok"), false);
+  assert.equal(fixture.router.isBridgeCommand(message(), "1"), false);
+  assert.equal(fixture.router.isBridgeCommand(message(), "bridge-help"), true);
+  assert.equal(fixture.router.isBridgeCommand(message(), "stop"), true);
+
+  const approval = routerFixture({ backend: "claude", commandProfile: "claude", latestApprovalDecisions: ["approve", "deny"] });
+  assert.equal(approval.router.isBridgeCommand(message(), "ok"), true);
+  assert.equal(approval.router.isBridgeCommand(message(), "1"), true);
+
+  const plan = routerFixture({ backend: "claude", commandProfile: "claude", hasPlanWorkflow: true });
+  assert.equal(plan.router.isBridgeCommand(message(), "1"), true);
+  assert.equal(plan.router.isBridgeCommand(message(), "4"), true);
+});
+
+test("BridgeCommandRouter classifies bridge-owned command names", () => {
+  assert.equal(isBridgeCommandName("compact"), true);
+  assert.equal(isBridgeCommandName("plan"), true);
+  assert.equal(isBridgeCommandName("permission"), true);
+  assert.equal(isBridgeCommandName("simplify"), false);
+  assert.equal(isBridgeCommandName("claude-api"), false);
+});
 
 test("BridgeCommandRouter sends unknown command help text", async () => {
   const fixture = routerFixture();
@@ -124,9 +167,69 @@ test("BridgeCommandRouter honors disabled progress command policy", async () => 
 test("BridgeCommandRouter rejects unsupported Claude commands before handlers", async () => {
   const fixture = routerFixture({ backend: "claude" });
 
-  await fixture.router.handle(message(), target(), "ok", [], "/OK");
-  assert.match(fixture.sent.at(-1) ?? "", /Claude Code.*\/ok/);
+  await fixture.router.handle(message(), target(), "goal", [], "/goal");
+  assert.match(fixture.sent.at(-1) ?? "", /Claude Code.*\/goal/);
   assert.equal(fixture.calls.approval, 0);
+});
+
+test("BridgeCommandRouter allows numeric approval replies", async () => {
+  const fixture = routerFixture();
+
+  await fixture.router.handle(message(), target(), "1", [], "/1");
+  await fixture.router.handle(message(), target(), "2", [], "/2");
+  await fixture.router.handle(message(), target(), "3", [], "/3");
+
+  assert.deepEqual(fixture.approvalDecisions, ["approve", "approve-session", "deny"]);
+});
+
+test("BridgeCommandRouter maps numeric approval replies from latest approval choices", async () => {
+  const fixture = routerFixture({ latestApprovalDecisions: ["approve", "deny"] });
+
+  await fixture.router.handle(message(), target(), "1", [], "/1");
+  await fixture.router.handle(message(), target(), "2", [], "/2");
+
+  assert.deepEqual(fixture.approvalDecisions, ["approve", "deny"]);
+});
+
+test("BridgeCommandRouter routes plan workflow shortcuts when no approval is pending", async () => {
+  const fixture = routerFixture({ hasPlanWorkflow: true });
+
+  await fixture.router.handle(message(), target(), "1", [], "/1");
+  await fixture.router.handle(message(), target(), "2", [], "/2");
+  await fixture.router.handle(message(), target(), "3", ["more"], "/3 more");
+  await fixture.router.handle(message(), target(), "4", [], "/4");
+
+  assert.deepEqual(fixture.planWorkflowChoices, ["execute", "edit", "replan", "cancel"]);
+});
+
+test("BridgeCommandRouter keeps approval shortcuts ahead of plan workflow", async () => {
+  const fixture = routerFixture({ hasPlanWorkflow: true, latestApprovalDecisions: ["approve", "deny"] });
+
+  await fixture.router.handle(message(), target(), "1", [], "/1");
+  await fixture.router.handle(message(), target(), "2", [], "/2");
+
+  assert.deepEqual(fixture.approvalDecisions, ["approve", "deny"]);
+  assert.deepEqual(fixture.planWorkflowChoices, []);
+});
+
+test("BridgeCommandRouter routes explicit plan workflow commands", async () => {
+  const fixture = routerFixture();
+
+  await fixture.router.handle(message(), target(), "plan-execute", [], "/plan-execute");
+  await fixture.router.handle(message(), target(), "plan-edit", [], "/plan-edit");
+  await fixture.router.handle(message(), target(), "replan", ["more"], "/replan more");
+  await fixture.router.handle(message(), target(), "plan-cancel", [], "/plan-cancel");
+
+  assert.deepEqual(fixture.planWorkflowChoices, ["execute", "edit", "replan", "cancel"]);
+});
+
+test("BridgeCommandRouter keeps named approval aliases stable", async () => {
+  const fixture = routerFixture({ latestApprovalDecisions: ["approve", "deny"] });
+
+  await fixture.router.handle(message(), target(), "ok", [], "/OK");
+  await fixture.router.handle(message(), target(), "no", [], "/NO");
+
+  assert.deepEqual(fixture.approvalDecisions, ["approve", "deny"]);
 });
 
 test("BridgeCommandRouter allows supported Claude command handlers", async () => {
@@ -157,8 +260,11 @@ test("BridgeCommandRouter allows supported Codex commands by default", async () 
 
 function routerFixture(options: {
   backend?: AiBackend;
+  commandProfile?: "codex" | "claude";
   busy?: boolean;
   deliveryPolicyFor?: () => ReturnType<typeof normalizeChannelDeliveryPolicy>;
+  latestApprovalDecisions?: ApprovalDecision[];
+  hasPlanWorkflow?: boolean;
 } = {}) {
   const sent: string[] = [];
   const calls = {
@@ -171,9 +277,12 @@ function routerFixture(options: {
     permission: 0,
     compact: 0,
     approval: 0,
+    planWorkflow: 0,
   };
   let newSessionCall: { args: string[]; rawText: string } | undefined;
   let groupReceiveCall: { args: string[]; commandName: string } | undefined;
+  const approvalDecisions: string[] = [];
+  const planWorkflowChoices: PlanWorkflowChoice[] = [];
   const delivery = new BridgeDelivery({
     channels: {
       sendText: async (_target: ChannelTarget, text: string) => {
@@ -219,8 +328,15 @@ function routerFixture(options: {
     permission: async () => {
       calls.permission += 1;
     },
-    approval: async () => {
+    approval: async (_message, _target, _args, decision) => {
       calls.approval += 1;
+      approvalDecisions.push(decision);
+    },
+    latestApprovalDecisions: () => options.latestApprovalDecisions ? { availableDecisions: options.latestApprovalDecisions } : undefined,
+    hasPlanWorkflow: () => options.hasPlanWorkflow ?? false,
+    planWorkflow: async (_message, _target, choice) => {
+      calls.planWorkflow += 1;
+      planWorkflowChoices.push(choice);
     },
     stop: async () => undefined,
     compact: async () => {
@@ -236,8 +352,11 @@ function routerFixture(options: {
     get groupReceiveCall() {
       return groupReceiveCall;
     },
+    approvalDecisions,
+    planWorkflowChoices,
     router: new BridgeCommandRouter({
       backend: options.backend,
+      commandProfile: options.commandProfile ?? "codex",
       logger: new SilentLogger(),
       delivery,
       deliveryPolicyFor: options.deliveryPolicyFor ?? (() => DEFAULT_CHANNEL_DELIVERY_POLICY),

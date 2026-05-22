@@ -1,5 +1,5 @@
 import type { ApprovalManager } from "../approvals/approval-manager.js";
-import type { AiBackend } from "../backend/metadata.js";
+import type { AiBackend, CommandNamespaceProfile } from "../backend/metadata.js";
 import type { CodexAdapter, CodexCollaborationMode, CodexPromptInput, CodexSessionStatus } from "../codex/types.js";
 import type { Logger } from "../logging/logger.js";
 import type { TranscriptSink } from "../logging/transcript.js";
@@ -17,6 +17,7 @@ export interface BridgeOptions {
   channels?: ChannelRegistry;
   codex: CodexAdapter;
   backend?: AiBackend;
+  commandProfile?: CommandNamespaceProfile;
   state?: MemoryStateStore;
   sessionBindings?: SessionBindings;
   approvals?: ApprovalManager;

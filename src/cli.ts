@@ -1,13 +1,19 @@
 #!/usr/bin/env node
 import { stdin, stdout } from "node:process";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { createInterface, type Interface } from "node:readline/promises";
-import { backendDisplayName, type AiBackend } from "./backend/metadata.js";
+import { backendDisplayName, type AiBackend, type CommandNamespaceProfile } from "./backend/metadata.js";
 import { Bridge, parseProgressDeliveryMode, type ProgressDeliveryMode } from "./bridge/bridge.js";
+import { APPROVAL_SEND_RETRY_DELAY_MS } from "./bridge/bridge-types.js";
+import { ApprovalManager } from "./approvals/approval-manager.js";
 import { MockChannelAdapter } from "./channels/mock/mock-channel-adapter.js";
 import { TerminalChannelAdapter } from "./channels/terminal/terminal-channel-adapter.js";
+import { createSingleChannelRegistry } from "./channels/registry.js";
 import { WeixinAdapter } from "./channels/weixin/weixin-adapter.js";
 import { displayWeixinQrCode } from "./channels/weixin/weixin-qr-display.js";
 import { checkClaudeCli, type ClaudeCliStatus } from "./claude/claude-cli.js";
+import { createClaudeApprovalRuntime } from "./claude/approval-runtime.js";
 import { ClaudeExecAdapter } from "./claude/claude-exec-adapter.js";
 import { formatClaudeCommandSource, formatClaudePlatform } from "./claude/claude-process.js";
 import { checkCodexCli, discoverCodexSessions, displayCodexSessionTitle, findCodexSessionById, formatCodexSessionTitleForDisplay, truncateDisplayText, type CodexCliStatus, type CodexPermissionMode, type CodexRunPolicy, type DiscoveredCodexSession } from "./codex/codex-cli.js";
@@ -31,6 +37,7 @@ import { formatLocalDateTime } from "./time/display-time.js";
 
 interface StartupOptions {
   backend?: AiBackend;
+  commandProfile?: CommandNamespaceProfile;
   session?: string;
   permission?: CodexPermissionMode;
   codexAdapter?: RealCodexAdapterMode;
@@ -46,6 +53,7 @@ type RealCodexAdapterMode = "app-server" | "exec";
 
 interface PreparedCodexStartup {
   backend: AiBackend;
+  commandProfile: CommandNamespaceProfile;
   policy: CodexRunPolicy;
   adapterMode?: RealCodexAdapterMode;
   sessionId?: string;
@@ -55,10 +63,20 @@ interface PreparedCodexStartup {
   claudeStatus?: ClaudeCliStatus;
 }
 
-async function main(argv: string[]): Promise<void> {
+interface InvocationDefaults {
+  backend: AiBackend;
+  commandProfile: CommandNamespaceProfile;
+}
+
+interface CliRuntimeOptions {
+  invocation?: InvocationDefaults;
+}
+
+async function main(argv: string[], runtimeOptions: CliRuntimeOptions = {}): Promise<void> {
+  const invocation = runtimeOptions.invocation ?? invocationProfile();
   const [area, command, ...rest] = argv;
   if (!area) {
-    await runServe({});
+    await runServe({ backend: invocation.backend, commandProfile: invocation.commandProfile });
     return;
   }
 
@@ -78,7 +96,7 @@ async function main(argv: string[]): Promise<void> {
   }
 
   if (area.startsWith("--")) {
-    await runServe(parseStartupOptions(argv));
+    await runServe(parseStartupOptions(argv, invocation));
     return;
   }
 
@@ -88,7 +106,7 @@ async function main(argv: string[]): Promise<void> {
   }
 
   if (area === "terminal" && (command === "mock" || command === "codex" || command === "claude")) {
-    await runTerminalBridge(command, parseStartupOptions(rest));
+    await runTerminalBridge(command, parseStartupOptions(rest, invocation));
     return;
   }
 
@@ -117,11 +135,17 @@ async function main(argv: string[]): Promise<void> {
   }
 
   if (area === "start" || area === "mock") {
-    await runTerminalBridge("mock", parseStartupOptions(rest));
+    await runTerminalBridge("mock", parseStartupOptions(rest, invocation));
     return;
   }
 
   throw new Error(`未知命令: ${argv.join(" ")}`);
+}
+
+function invocationProfile(): { backend: AiBackend; commandProfile: CommandNamespaceProfile } {
+  const executable = path.basename(process.argv[1] ?? "").toLowerCase();
+  if (executable.startsWith("chat-claude")) return { backend: "claude", commandProfile: "claude" };
+  return { backend: "codex", commandProfile: "codex" };
 }
 
 async function askStdin(prompt: string): Promise<string> {
@@ -157,8 +181,8 @@ async function runMockCodexFlow(): Promise<void> {
   }
 }
 
-function parseStartupOptions(args: string[]): StartupOptions {
-  const options: StartupOptions = {};
+function parseStartupOptions(args: string[], defaults: { backend?: AiBackend; commandProfile?: CommandNamespaceProfile } = {}): StartupOptions {
+  const options: StartupOptions = { backend: defaults.backend, commandProfile: defaults.commandProfile };
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (arg === "--session") {
@@ -175,6 +199,12 @@ function parseStartupOptions(args: string[]): StartupOptions {
         throw new Error("--backend 只能是 codex 或 claude");
       }
       options.backend = value;
+    } else if (arg === "--command-profile") {
+      const value = args[++index];
+      if (value !== "codex" && value !== "claude") {
+        throw new Error("--command-profile 只能是 codex 或 claude");
+      }
+      options.commandProfile = value;
     } else if (arg === "--codex-adapter" || arg === "--adapter") {
       const value = args[++index];
       if (value !== "app-server" && value !== "exec") {
@@ -214,28 +244,49 @@ function parseStartupOptions(args: string[]): StartupOptions {
 async function runTerminalBridge(mode: "mock" | "codex" | "claude", options: StartupOptions = {}): Promise<void> {
   const channel = new TerminalChannelAdapter();
   const realBackend = mode === "claude" || options.backend === "claude" ? "claude" : "codex";
-  const startup = mode === "mock" ? { backend: "codex" as const, policy: undefined, adapterMode: undefined, sessionId: undefined, cwd: process.cwd() } : await prepareCodexStartup({ ...options, backend: realBackend });
-  const codex = mode === "mock" ? new MockCodexAdapter() : createRealCodexAdapter(startup);
+  const startup = mode === "mock"
+    ? { backend: "codex" as const, commandProfile: options.commandProfile ?? "codex" as const, policy: undefined, adapterMode: undefined, sessionId: undefined, cwd: process.cwd() }
+    : await prepareCodexStartup({ ...options, backend: realBackend });
+  const startupClaudeStatus = "claudeStatus" in startup ? startup.claudeStatus : undefined;
+  const logger = new ConsoleLogger(false);
+  const approvals = new ApprovalManager();
+  const claudeRuntime = mode !== "mock" && realBackend === "claude"
+    ? await createClaudeApprovalRuntime({
+        channels: createSingleChannelRegistry(channel, logger),
+        approvals,
+        logger,
+        approvalSendRetryDelayMs: APPROVAL_SEND_RETRY_DELAY_MS,
+        runPolicy: startup.policy,
+        claudeCommand: startupClaudeStatus?.command,
+      })
+    : undefined;
+  const codex = mode === "mock" ? new MockCodexAdapter() : claudeRuntime?.adapter ?? createRealCodexAdapter(startup);
   const bridge = new Bridge({
     channel,
     codex,
     backend: realBackend,
-    logger: new ConsoleLogger(false),
+    commandProfile: startup.commandProfile,
+    approvals,
+    logger,
     cwd: startup.cwd,
     progressMode: options.progressMode,
   });
 
-  await bridge.start();
-  if (mode !== "mock") {
-    printRuntimeSummary(realBackend === "claude" ? "终端 Claude Code 中间件" : "终端 Codex 中间件", startup, options.progressMode);
-    if (startup.sessionId) {
-      await channel.emitText(`/resume ${startup.sessionId}`);
-    } else {
-      await channel.emitText("/new");
+  try {
+    await bridge.start();
+    if (mode !== "mock") {
+      printRuntimeSummary(realBackend === "claude" ? "终端 Claude Code 中间件" : "终端 Codex 中间件", startup, options.progressMode);
+      if (startup.sessionId) {
+        await channel.emitText(`/bridge-resume ${startup.sessionId}`);
+      } else {
+        await channel.emitText("/bridge-new");
+      }
     }
+    await channel.waitUntilClosed();
+  } finally {
+    await bridge.stop();
+    await claudeRuntime?.stop();
   }
-  await channel.waitUntilClosed();
-  await bridge.stop();
 }
 
 async function prepareCodexStartup(
@@ -289,6 +340,7 @@ async function prepareCodexStartup(
     });
     return {
       backend: options.backend ?? "codex",
+      commandProfile: options.commandProfile ?? "codex",
       policy,
       adapterMode: options.backend === "claude" ? undefined : adapterMode,
       sessionId: sessionChoice.sessionId,
@@ -432,7 +484,7 @@ function printStartupSelection(params: {
 
 function printRuntimeSummary(
   title: string,
-  startup: PreparedCodexStartup | { backend?: AiBackend; policy?: CodexRunPolicy; adapterMode?: RealCodexAdapterMode; sessionId?: string; sessionTitle?: string; cwd: string; codexStatus?: CodexCliStatus; claudeStatus?: ClaudeCliStatus },
+  startup: PreparedCodexStartup | { backend?: AiBackend; commandProfile?: CommandNamespaceProfile; policy?: CodexRunPolicy; adapterMode?: RealCodexAdapterMode; sessionId?: string; sessionTitle?: string; cwd: string; codexStatus?: CodexCliStatus; claudeStatus?: ClaudeCliStatus },
   progressMode?: ProgressDeliveryMode,
   display: { progressDisabled?: boolean } = {},
 ): void {
@@ -453,6 +505,7 @@ function printRuntimeSummary(
   if ((startup.backend ?? "codex") === "claude") console.log("- Claude Code 接入: exec");
   if (startup.policy) console.log(`- 权限模式: ${formatPolicyForCli(startup.policy)}`);
   console.log(`- 阶段进度: ${formatProgressForCli(progressMode, display.progressDisabled)}`);
+  console.log(`- 命令空间: ${(startup.commandProfile ?? "codex") === "claude" ? "Claude Code root slash，桥命令 /bridge-*" : "Chat-Codex root slash"}`);
   console.log("- 退出: Ctrl+C");
 }
 
@@ -494,7 +547,8 @@ function printHelp(): void {
     chatCodexTitle(),
     "",
     "Commands:",
-    "  chat-codex                         启动统一交互入口（管理渠道并启动 AI 后端）",
+    "  chat-codex                         启动 Codex/Chat-Codex 命令空间",
+    "  chat-claude                        启动 Claude Code 命令空间（桥命令使用 /bridge-*）",
     "  chat-codex version                 查看 Chat-Codex 和 Node.js 版本",
     "  chat-codex test                    运行本地 mock Codex/Channel 流程",
     "  chat-codex terminal mock           启动本地终端通道 + MockCodex",
@@ -503,10 +557,11 @@ function printHelp(): void {
     "",
     "Options:",
     "    -v, --version                   输出版本号",
-    "    --backend codex|claude           选择 AI 后端；默认 codex",
+    "    --backend codex|claude           选择 AI 后端；默认取决于 chat-codex/chat-claude",
     "    --session new|last|<id>          设置启动时首个微信私聊预设；不会绑定整个微信账号",
     "    --cwd <dir>, --workdir <dir>     设置新会话工作目录；目录不存在会自动创建",
     "    --permission approval|full       设置安全沙箱或完全权限",
+    "    --command-profile codex|claude   选择命令空间；claude 下桥命令使用 /bridge-*",
     "    --codex-adapter app-server|exec  设置 Codex 接入方式；默认 app-server，支持微信审批",
     "    --yes-dangerously-full           非交互确认完全权限",
     "    --progress brief|detailed|silent 设置默认进度投递模式（微信渠道固定禁用）",
@@ -522,7 +577,13 @@ function printHelp(): void {
   ].join("\n"));
 }
 
-main(process.argv.slice(2)).catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
-});
+export async function runCli(argv: string[], runtimeOptions: CliRuntimeOptions = {}): Promise<void> {
+  await main(argv, runtimeOptions);
+}
+
+if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+  main(process.argv.slice(2)).catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  });
+}

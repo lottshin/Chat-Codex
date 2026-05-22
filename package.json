@@ -35,7 +35,8 @@
     "@larksuiteoapi/node-sdk"
   ],
   "bin": {
-    "chat-codex": "dist/src/cli.js"
+    "chat-codex": "dist/src/cli.js",
+    "chat-claude": "dist/src/cli-claude.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

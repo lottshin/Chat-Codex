@@ -10,12 +10,16 @@ import type {
   CodexCompactResult,
   CodexProgressKind,
   CodexPromptInput,
+  CodexRunOptions,
+  CodexRunApprovalContext,
+  CodexRunApprovalContextRegistration,
   CodexRunPolicyStatus,
   CodexSession,
   CodexSessionStatus,
   CodexSessionSummary,
   StartSessionInput,
 } from "../codex/types.js";
+import type { ClaudeApprovalContext } from "./approval-service.js";
 import type { CodexRunPolicy, ClaudePermissionMode } from "../codex/codex-cli.js";
 import { codexInputPlainText } from "../codex/input.js";
 import { resolveClaudeCommand, spawnClaude, type ClaudeCommandResolution } from "./claude-process.js";
@@ -24,6 +28,9 @@ export interface ClaudeExecAdapterOptions {
   claudeBin?: string;
   claudeCommand?: ClaudeCommandResolution;
   runPolicy?: CodexRunPolicy;
+  permissionPromptTool?: string;
+  mcpConfigPath?: string;
+  strictMcpConfig?: boolean;
 }
 
 interface ClaudeSessionRecord {
@@ -53,16 +60,50 @@ export class ClaudeExecAdapter implements CodexAdapter {
   private defaultRunPolicy: CodexRunPolicy;
   private defaultModelPolicy: CodexModelPolicy = {};
   private defaultCollaborationMode: CodexCollaborationMode = "default";
+  private readonly permissionPromptTool?: string;
+  private readonly mcpConfigPath?: string;
+  private readonly strictMcpConfig: boolean;
   private readonly sessionRunPolicies = new Map<string, CodexRunPolicy>();
   private readonly sessionModelPolicies = new Map<string, CodexModelPolicy>();
   private readonly sessionCollaborationModes = new Map<string, CodexCollaborationMode>();
   private readonly sessions = new Map<string, ClaudeSessionRecord>();
   private readonly runningProcesses = new Map<string, RunningClaudeProcess>();
+  private readonly promptSlashCommands = new Set<string>();
+  private promptSlashCommandRefresh: Promise<readonly string[]> | undefined;
+  private readonly approvalContexts = new Map<string, ClaudeApprovalContext>();
   private sessionSequence = 0;
+  private approvalContextSequence = 0;
 
   constructor(options: ClaudeExecAdapterOptions = {}) {
     this.claudeCommand = options.claudeCommand ?? resolveClaudeCommand({ claudeBin: options.claudeBin });
     this.defaultRunPolicy = cloneRunPolicy(options.runPolicy ?? { permissionMode: "approval", sandbox: "workspace-write" });
+    this.permissionPromptTool = normalizePermissionPromptTool(options.permissionPromptTool ?? process.env.CHAT_CLAUDE_PERMISSION_PROMPT_TOOL);
+    this.mcpConfigPath = normalizeOptionalString(options.mcpConfigPath ?? process.env.CHAT_CLAUDE_MCP_CONFIG);
+    this.strictMcpConfig = options.strictMcpConfig ?? process.env.CHAT_CLAUDE_STRICT_MCP_CONFIG === "1";
+  }
+
+  registerRunApprovalContext(context: CodexRunApprovalContext): CodexRunApprovalContextRegistration {
+    const token = `claude-approval-${Date.now()}-${++this.approvalContextSequence}`;
+    this.approvalContexts.set(token, context);
+    return {
+      token,
+      dispose: () => {
+        this.approvalContexts.delete(token);
+      },
+    };
+  }
+
+  getApprovalContext(token: string): ClaudeApprovalContext | undefined {
+    return this.approvalContexts.get(token);
+  }
+
+  getOnlyActiveApprovalContext(): ClaudeApprovalContext | undefined {
+    if (this.approvalContexts.size !== 1) return undefined;
+    return [...this.approvalContexts.values()][0];
+  }
+
+  activeApprovalContextCount(): number {
+    return this.approvalContexts.size;
   }
 
   async startSession(input: StartSessionInput): Promise<CodexSession> {
@@ -109,7 +150,7 @@ export class ClaudeExecAdapter implements CodexAdapter {
     return session;
   }
 
-  async *run(sessionId: string, prompt: CodexPromptInput): AsyncIterable<CodexEvent> {
+  async *run(sessionId: string, prompt: CodexPromptInput, options: CodexRunOptions = {}): AsyncIterable<CodexEvent> {
     const stored = this.sessions.get(sessionId);
     if (!stored) throw new Error(`claude session not found locally: ${sessionId}`);
     const promptText = codexInputPlainText(prompt);
@@ -119,7 +160,7 @@ export class ClaudeExecAdapter implements CodexAdapter {
     stored.updatedAt = new Date().toISOString();
     yield { type: "turn.started", sessionId, turnId, startedAt };
 
-    const child = spawnClaude(this.claudeCommand, this.buildArgs(stored, promptText), {
+    const child = spawnClaude(this.claudeCommand, this.buildArgs(stored, promptText, { collaborationMode: options.collaborationMode }), {
       cwd: stored.session.cwd,
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -148,6 +189,9 @@ export class ClaudeExecAdapter implements CodexAdapter {
           stored.actualSessionId = parsed.actualSessionId;
           stored.session.backendSessionId = parsed.actualSessionId;
           stored.updatedAt = new Date().toISOString();
+        }
+        if (parsed?.promptSlashCommands) {
+          for (const command of parsed.promptSlashCommands) this.promptSlashCommands.add(command);
         }
         if (parsed?.text) stdoutText += parsed.text;
         const event = parsed?.event;
@@ -237,11 +281,15 @@ export class ClaudeExecAdapter implements CodexAdapter {
 
   getRunPolicyStatus(sessionId?: string): CodexRunPolicyStatus {
     const policy = this.getRunPolicy(sessionId);
+    const permissionMode = claudePermissionModeForPolicy(policy, this.collaborationModeForSession(sessionId));
+    const remoteApprovalsEnabled = Boolean(this.permissionPromptTool && this.mcpConfigPath && permissionMode !== "bypassPermissions");
     return {
       policy,
-      interactiveApprovals: false,
-      effectiveApprovalPolicy: "never",
-      note: `Claude Code print 模式会通过 --permission-mode ${claudePermissionModeForPolicy(policy, this.collaborationModeForSession(sessionId))} 执行；暂不支持把交互审批回调给微信 / 飞书。`,
+      interactiveApprovals: remoteApprovalsEnabled,
+      effectiveApprovalPolicy: remoteApprovalsEnabled ? "on-request" : "never",
+      note: remoteApprovalsEnabled
+        ? `Claude Code 工具审批已通过 ${this.permissionPromptTool} 桥接到远程渠道；异常会 fail-closed 拒绝。`
+        : `Claude Code print 模式会通过 --permission-mode ${permissionMode} 执行；当前未启用远程审批 MCP transport。`,
     };
   }
 
@@ -312,10 +360,46 @@ export class ClaudeExecAdapter implements CodexAdapter {
     };
   }
 
-  buildArgsForTest(sessionId: string, prompt: string): string[] {
+  buildArgsForTest(sessionId: string, prompt: string, options: CodexRunOptions = {}): string[] {
     const stored = this.sessions.get(sessionId);
     if (!stored) throw new Error(`claude session not found locally: ${sessionId}`);
-    return this.buildArgs(stored, prompt);
+    return this.buildArgs(stored, prompt, { collaborationMode: options.collaborationMode });
+  }
+
+  listPromptSlashCommands(): readonly string[] {
+    return [...this.promptSlashCommands].sort();
+  }
+
+  async refreshPromptSlashCommands(): Promise<readonly string[]> {
+    if (this.promptSlashCommands.size > 0) return this.listPromptSlashCommands();
+    this.promptSlashCommandRefresh ??= this.probePromptSlashCommands().finally(() => {
+      this.promptSlashCommandRefresh = undefined;
+    });
+    return this.promptSlashCommandRefresh;
+  }
+
+  private async probePromptSlashCommands(): Promise<readonly string[]> {
+    const args = ["-p", "/context", "--output-format", "stream-json", "--verbose", "--permission-mode", "plan"];
+    const child = spawnClaude(this.claudeCommand, args, {
+      cwd: process.cwd(),
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    if (!child.stdout || !child.stderr) return this.listPromptSlashCommands();
+    const closePromise = new Promise<number | null>((resolve) => child.on("close", resolve));
+    child.stderr.resume();
+    const turnId = `claude-slash-probe-${Date.now()}`;
+    const lines = createInterface({ input: child.stdout });
+    for await (const line of lines) {
+      if (!line.trim()) continue;
+      const parsed = parseClaudeJsonLine(line, "claude-slash-probe", turnId);
+      if (parsed?.promptSlashCommands) {
+        for (const command of parsed.promptSlashCommands) this.promptSlashCommands.add(command);
+        child.kill("SIGTERM");
+        break;
+      }
+    }
+    await closePromise;
+    return this.listPromptSlashCommands();
   }
 
   private async runOneShot(stored: ClaudeSessionRecord, prompt: string, options: { resume: boolean; permissionMode?: ClaudePermissionMode } = { resume: true }): Promise<string> {
@@ -342,6 +426,9 @@ export class ClaudeExecAdapter implements CodexAdapter {
         stored.actualSessionId = parsed.actualSessionId;
         stored.session.backendSessionId = parsed.actualSessionId;
       }
+      if (parsed?.promptSlashCommands) {
+        for (const command of parsed.promptSlashCommands) this.promptSlashCommands.add(command);
+      }
       if (parsed?.text) text += parsed.text;
       if (parsed?.event?.type === "turn.failed") stderr += parsed.event.error;
     }
@@ -351,15 +438,23 @@ export class ClaudeExecAdapter implements CodexAdapter {
     return text.trim();
   }
 
-  private buildArgs(stored: ClaudeSessionRecord, prompt: string, overrides: { resume?: boolean; permissionMode?: ClaudePermissionMode } = {}): string[] {
+  private buildArgs(stored: ClaudeSessionRecord, prompt: string, overrides: { resume?: boolean; permissionMode?: ClaudePermissionMode; collaborationMode?: CodexCollaborationMode } = {}): string[] {
     const args = ["-p", prompt, "--output-format", "stream-json", "--verbose"];
     if (overrides.resume !== false && stored.actualSessionId) args.unshift("--resume", stored.actualSessionId);
     const modelPolicy = this.modelPolicyForSession(stored.session.id);
     if (modelPolicy.model) args.push("--model", modelPolicy.model);
     if (modelPolicy.claudeEffort) args.push("--effort", modelPolicy.claudeEffort);
     const runPolicy = this.runPolicyForSession(stored.session.id);
-    const collaborationMode = this.collaborationModeForSession(stored.session.id);
-    args.push("--permission-mode", overrides.permissionMode ?? claudePermissionModeForPolicy(runPolicy, collaborationMode));
+    const collaborationMode = overrides.collaborationMode ?? this.collaborationModeForSession(stored.session.id);
+    const permissionMode = overrides.permissionMode ?? claudePermissionModeForPolicy(runPolicy, collaborationMode);
+    args.push("--permission-mode", permissionMode);
+    if (this.mcpConfigPath && permissionMode !== "bypassPermissions") {
+      args.push("--mcp-config", this.mcpConfigPath);
+      if (this.strictMcpConfig) args.push("--strict-mcp-config");
+    }
+    if (this.permissionPromptTool && permissionMode !== "bypassPermissions") {
+      args.push("--permission-prompt-tool", this.permissionPromptTool);
+    }
     if (runPolicy.permissionMode === "full") {
       args.push("--allow-dangerously-skip-permissions");
     }
@@ -381,6 +476,15 @@ export class ClaudeExecAdapter implements CodexAdapter {
 
 function cloneRunPolicy(policy: CodexRunPolicy): CodexRunPolicy {
   return { ...policy };
+}
+
+function normalizePermissionPromptTool(value: string | undefined): string | undefined {
+  return normalizeOptionalString(value);
+}
+
+function normalizeOptionalString(value: string | undefined): string | undefined {
+  const normalized = value?.trim();
+  return normalized || undefined;
 }
 
 function cloneModelPolicy(policy: CodexModelPolicy): CodexModelPolicy {
@@ -433,6 +537,7 @@ export interface ParsedClaudeJsonLine {
   actualSessionId?: string;
   text?: string;
   event?: CodexEvent;
+  promptSlashCommands?: string[];
 }
 
 export function parseClaudeJsonLine(line: string, sessionId: string, turnId: string): ParsedClaudeJsonLine | undefined {
@@ -449,6 +554,8 @@ export function parseClaudeJsonLine(line: string, sessionId: string, turnId: str
       error?: string | { message?: string };
       tool_use?: { name?: string };
       name?: string;
+      slash_commands?: unknown;
+      skills?: unknown;
     };
     const actualSessionId = parsed.session_id;
     if (parsed.type === "assistant" && parsed.message?.content?.length) {
@@ -472,12 +579,49 @@ export function parseClaudeJsonLine(line: string, sessionId: string, turnId: str
       return { actualSessionId, event: { type: "turn.failed", sessionId, turnId, error: errorText(parsed.error) } };
     }
     if (parsed.type === "system" && parsed.subtype) {
-      return { actualSessionId, event: { type: "assistant.progress", sessionId, turnId, text: `Claude Code: ${parsed.subtype}`, kind: "other" } };
+      return {
+        actualSessionId,
+        event: { type: "assistant.progress", sessionId, turnId, text: `Claude Code: ${parsed.subtype}`, kind: "other" },
+        promptSlashCommands: parsed.subtype === "init" ? promptSlashCommandsFromInit(parsed.slash_commands, parsed.skills) : undefined,
+      };
     }
     return actualSessionId ? { actualSessionId } : undefined;
   } catch {
     return { text: line };
   }
+}
+
+function promptSlashCommandsFromInit(slashCommands: unknown, skills: unknown): string[] | undefined {
+  const commands = new Set<string>();
+  for (const value of [...valuesFromUnknown(slashCommands), ...valuesFromUnknown(skills)]) {
+    const normalized = normalizePromptSlashCommand(value);
+    if (normalized) commands.add(normalized);
+  }
+  return commands.size > 0 ? [...commands].sort() : undefined;
+}
+
+function valuesFromUnknown(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  return [];
+}
+
+function normalizePromptSlashCommand(value: unknown): string | undefined {
+  const raw = typeof value === "string"
+    ? value
+    : isObject(value)
+      ? stringField(value, "name") ?? stringField(value, "command")
+      : undefined;
+  const normalized = raw?.trim().replace(/^\/+/, "").toLowerCase();
+  return normalized || undefined;
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function stringField(value: Record<string, unknown>, key: string): string | undefined {
+  const field = value[key];
+  return typeof field === "string" ? field : undefined;
 }
 
 function errorText(error: string | { message?: string } | undefined): string {

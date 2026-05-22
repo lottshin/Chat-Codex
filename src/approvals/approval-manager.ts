@@ -1,11 +1,22 @@
 import type { ApprovalDecision, ApprovalRequest, PendingApproval } from "./types.js";
+import { approvalChoices, formatApprovalChoiceLine } from "./choices.js";
 
 export interface ApprovalManagerOptions {
   ttlMs?: number | null;
 }
 
+export interface ApprovalWaitOptions {
+  timeoutMs?: number | null;
+}
+
+interface ApprovalWaiter {
+  resolve(approval: PendingApproval): void;
+  timer?: NodeJS.Timeout;
+}
+
 export class ApprovalManager {
   private readonly approvals = new Map<string, PendingApproval>();
+  private readonly waiters = new Map<string, Set<ApprovalWaiter>>();
   private sequence = 0;
   private readonly ttlMs?: number;
 
@@ -46,6 +57,32 @@ export class ApprovalManager {
     return this.list(routeKey).at(-1);
   }
 
+  waitForDecision(approvalKey: string, options: ApprovalWaitOptions = {}): Promise<PendingApproval> {
+    this.expireOld();
+    const existing = this.approvals.get(approvalKey);
+    if (!existing) return Promise.reject(new Error(`未找到审批请求: ${approvalKey}`));
+    if (existing.status !== "pending") return Promise.resolve(existing);
+    return new Promise((resolve) => {
+      const waiter: ApprovalWaiter = { resolve };
+      const timeoutMs = typeof options.timeoutMs === "number" ? options.timeoutMs : undefined;
+      if (timeoutMs !== undefined) {
+        waiter.timer = setTimeout(() => {
+          const pending = this.approvals.get(approvalKey);
+          if (!pending || pending.status !== "pending") return;
+          pending.status = "resolved";
+          pending.decision = "cancel";
+          pending.decisionReason = "审批超时";
+          this.approvals.set(approvalKey, pending);
+          this.notifyWaiters(pending);
+        }, Math.max(timeoutMs, 0));
+        waiter.timer.unref?.();
+      }
+      const waiters = this.waiters.get(approvalKey) ?? new Set<ApprovalWaiter>();
+      waiters.add(waiter);
+      this.waiters.set(approvalKey, waiters);
+    });
+  }
+
   decide(approvalKey: string, routeKey: string, decision: ApprovalDecision): PendingApproval {
     this.expireOld();
     const pending = this.approvals.get(approvalKey);
@@ -61,6 +98,7 @@ export class ApprovalManager {
     pending.status = "resolved";
     pending.decision = decision;
     this.approvals.set(approvalKey, pending);
+    this.notifyWaiters(pending);
     return pending;
   }
 
@@ -73,14 +111,15 @@ export class ApprovalManager {
       pending.decision = "cancel";
       pending.decisionReason = reason?.trim() || undefined;
       this.approvals.set(pending.approvalKey, pending);
+      this.notifyWaiters(pending);
       cancelled.push(pending);
     }
     return cancelled;
   }
 
-  formatForChannel(pending: PendingApproval): string {
+  formatForChannel(pending: PendingApproval, backendName = "Codex"): string {
     const lines = [
-      "AI 后端请求审批",
+      `${backendName} 请求审批`,
       `类型: ${pending.kind}`,
       `Session: ${shortId(pending.sessionId)}`,
       `Turn: ${shortId(pending.turnId)}`,
@@ -92,9 +131,7 @@ export class ApprovalManager {
     lines.push(
       "",
       "快捷回复:",
-      "/OK 通过当前审批",
-      "/P 本会话通过，后续同类操作尽量不再询问",
-      "/NO 拒绝当前审批",
+      ...approvalChoices(pending).map(formatApprovalChoiceLine),
     );
     return lines.join("\n");
   }
@@ -106,7 +143,18 @@ export class ApprovalManager {
       if (approval.status === "pending" && approval.expiresAt && Date.parse(approval.expiresAt) <= now) {
         approval.status = "expired";
         this.approvals.set(approval.approvalKey, approval);
+        this.notifyWaiters(approval);
       }
+    }
+  }
+
+  private notifyWaiters(approval: PendingApproval): void {
+    const waiters = this.waiters.get(approval.approvalKey);
+    if (!waiters) return;
+    this.waiters.delete(approval.approvalKey);
+    for (const waiter of waiters) {
+      if (waiter.timer) clearTimeout(waiter.timer);
+      waiter.resolve(approval);
     }
   }
 

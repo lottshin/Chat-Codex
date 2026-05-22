@@ -1,3 +1,4 @@
+import type { CommandNamespaceProfile } from "../backend/metadata.js";
 import { ApprovalManager } from "../approvals/approval-manager.js";
 import type { ApprovalDecision } from "../approvals/types.js";
 import type { CodexRunPolicyStatus } from "../codex/codex-cli.js";
@@ -29,7 +30,7 @@ import {
 import type { TurnScheduler } from "./turn-scheduler.js";
 import { UnlimitedTurnScheduler } from "./turn-scheduler.js";
 import { BridgeBackgroundTurns } from "./background-turns.js";
-import { BridgeCommandRouter } from "./command-router.js";
+import { BridgeCommandRouter, canonicalBridgeCommandName, isBridgeAliasCommandName } from "./command-router.js";
 import { SessionContextRefreshManager } from "./context-refresh.js";
 import { BridgeDelivery } from "./delivery.js";
 import { BridgeProgressDelivery } from "./progress-delivery.js";
@@ -38,6 +39,7 @@ import { BridgeRouteSteering } from "./route-steering.js";
 import { RouteTrustGate } from "./route-trust-gate.js";
 import { BridgeSessionFlow } from "./session-flow.js";
 import { BridgeStatusText } from "./status-text.js";
+import { PlanWorkflowStore, planExecutionPrompt, planReplanPrompt, type PlanWorkflowChoice } from "./plan-workflow.js";
 import { handleApprovalCommand } from "./commands/approval-command.js";
 import { handleCancelCommand } from "./commands/cancel-command.js";
 import { handleCollaborationModeCommand } from "./commands/collaboration-command.js";
@@ -102,10 +104,12 @@ export class Bridge {
   private readonly commandRouter: BridgeCommandRouter;
   private readonly feishuGroupMembers: FeishuGroupMemberRegistry;
   private readonly groupAccess: GroupAccessService;
+  private readonly commandProfile: CommandNamespaceProfile;
   private readonly cwd: string;
   private readonly defaultProgressMode: ProgressDeliveryMode;
   private readonly routeProgressModes = new Map<string, ProgressDeliveryMode>();
   private readonly routeCollaborationModes = new Map<string, CodexCollaborationMode>();
+  private readonly planWorkflows = new PlanWorkflowStore();
   private readonly routeCompactStates = new Map<string, CompactState>();
   private readonly routeMessages = new Map<string, ChannelMessage>();
   private readonly routeTargets = new Map<string, ChannelTarget>();
@@ -126,6 +130,7 @@ export class Bridge {
     this.channels = options.channels ?? createSingleChannelRegistry(options.channel as ChannelAdapter, this.logger);
     this.turnScheduler = options.turnScheduler ?? new UnlimitedTurnScheduler();
     this.transcript = options.transcript;
+    this.commandProfile = options.commandProfile ?? "codex";
     this.cwd = options.cwd ?? process.cwd();
     this.feishuGroupMembers = new FeishuGroupMemberRegistry({
       stateRootDir: options.feishuGroupMemberStateRootDir,
@@ -138,6 +143,7 @@ export class Bridge {
       logger: this.logger,
       transcript: this.transcript,
       approvalSendRetryDelayMs: options.approvalSendRetryDelayMs ?? APPROVAL_SEND_RETRY_DELAY_MS,
+      backend: options.backend,
     });
     this.routeTrustGate = new RouteTrustGate({
       state: this.state,
@@ -193,6 +199,8 @@ export class Bridge {
       shouldDeliverProgressWithPolicy: (policy, routeKey, kind) => this.shouldDeliverProgressWithPolicy(policy, routeKey, kind),
       progressDelivery: this.progressDelivery,
       contextRefresh: this.contextRefresh,
+      onPlanWorkflowReady: (workflow) => this.planWorkflows.set(workflow),
+      backend: options.backend,
     });
     this.backgroundTurns = new BridgeBackgroundTurns({
       state: this.state,
@@ -238,24 +246,33 @@ export class Bridge {
       progressModeFor: (routeKey) => this.progressModeFor(routeKey),
       contextRefreshFor: (routeKey) => this.contextRefresh.effectivePolicy(routeKey),
       runPolicyStatus: (sessionId) => this.runPolicyStatus(sessionId),
+      planWorkflowForRoute: (routeKey) => this.planWorkflows.get(routeKey),
+      commandProfile: this.commandProfile,
     });
     this.commandRouter = new BridgeCommandRouter({
       backend: options.backend,
+      commandProfile: this.commandProfile,
       logger: this.logger,
       delivery: this.delivery,
       deliveryPolicyFor: (message) => this.deliveryPolicyFor(message),
       isRouteExecutionBusy: (routeKey) => this.isRouteExecutionBusy(routeKey),
       handlers: {
         help: (message) => this.statusTextRenderer.helpText(message),
-        createNewSession: (message, target, args, rawText) => handleNewSessionCommand({
-          sessionFlow: this.sessionFlow,
-          routeQueue: this.routeQueue,
-          routeSteering: this.routeSteering,
-          delivery: this.delivery,
-        }, message, target, args, rawText),
+        createNewSession: async (message, target, args, rawText) => {
+          this.planWorkflows.delete(message.routeKey);
+          await handleNewSessionCommand({
+            sessionFlow: this.sessionFlow,
+            routeQueue: this.routeQueue,
+            routeSteering: this.routeSteering,
+            delivery: this.delivery,
+          }, message, target, args, rawText);
+        },
         status: (message) => this.statusTextRenderer.statusText(message),
         sessions: (message, args, commandName) => this.statusTextRenderer.sessionsText(message, args, commandName),
-        resumeOrUseSession: (message, target, sessionRef) => this.sessionFlow.resumeOrUseSession(message, target, sessionRef),
+        resumeOrUseSession: async (message, target, sessionRef) => {
+          this.planWorkflows.delete(message.routeKey);
+          await this.sessionFlow.resumeOrUseSession(message, target, sessionRef);
+        },
         cancel: (message, target) => handleCancelCommand({
           sessionFlow: this.sessionFlow,
           pendingMedia: this.pendingMedia,
@@ -266,12 +283,15 @@ export class Bridge {
           ? formatFeishuGroupWhoami(message, this.feishuGroupMembers, this.state)
           : this.statusTextRenderer.whoamiText(message),
         debug: (message) => this.statusTextRenderer.debugText(message),
-        collaborationMode: (message, target, mode, rawText, commandName) => handleCollaborationModeCommand({
-          codex: this.codex,
-          delivery: this.delivery,
-          routeQueue: this.routeQueue,
-          setRouteCollaborationMode: (routeKey, nextMode) => this.setRouteCollaborationMode(routeKey, nextMode),
-        }, message, target, mode, rawText, commandName),
+        collaborationMode: async (message, target, mode, rawText, commandName) => {
+          if (mode === "default") this.planWorkflows.delete(message.routeKey);
+          await handleCollaborationModeCommand({
+            codex: this.codex,
+            delivery: this.delivery,
+            routeQueue: this.routeQueue,
+            setRouteCollaborationMode: (routeKey, nextMode) => this.setRouteCollaborationMode(routeKey, nextMode),
+          }, message, target, mode, rawText, commandName);
+        },
         goal: (message, target, rawText) => handleGoalCommand({
           codex: this.codex,
           state: this.state,
@@ -318,15 +338,21 @@ export class Bridge {
           runPolicyStatus: (sessionId) => this.runPolicyStatus(sessionId),
         }, message, target, args),
         approval: (message, target, args, decision) => this.handleApprovalCommand(message, target, args, decision),
-        stop: (message, target) => handleStopCommand({
-          state: this.state,
-          codex: this.codex,
-          approvals: this.approvals,
-          pendingMedia: this.pendingMedia,
-          delivery: this.delivery,
-          routeQueue: this.routeQueue,
-          routeSteering: this.routeSteering,
-        }, message, target),
+        latestApprovalDecisions: (routeKey) => this.approvals.latest(routeKey),
+        hasPlanWorkflow: (routeKey) => this.planWorkflows.has(routeKey),
+        planWorkflow: (message, target, choice, args) => this.handlePlanWorkflowCommand(message, target, choice, args),
+        stop: async (message, target) => {
+          this.planWorkflows.delete(message.routeKey);
+          await handleStopCommand({
+            state: this.state,
+            codex: this.codex,
+            approvals: this.approvals,
+            pendingMedia: this.pendingMedia,
+            delivery: this.delivery,
+            routeQueue: this.routeQueue,
+            routeSteering: this.routeSteering,
+          }, message, target);
+        },
         compact: (message, target, args) => handleCompactCommand({
           codex: this.codex,
           state: this.state,
@@ -394,7 +420,13 @@ export class Bridge {
       return;
     }
     if (this.isCompactRunning(message.routeKey)) {
-      if (command?.isCommand && isCommandAllowedDuringCompact(command.name ?? "")) {
+      const canonicalCompactCommand = command?.isCommand ? canonicalBridgeCommandName(command.name ?? "") : undefined;
+      if (command?.isCommand && canonicalCompactCommand && this.commandRouter.isBridgeCommand(message, command.name ?? "") && isCommandAllowedDuringCompact(canonicalCompactCommand)) {
+        await this.commandRouter.handle(message, target, command.name ?? "", command.args, text);
+        return;
+      }
+      const refreshCommand = command?.isCommand && this.isDeliveryRefreshCommand(message, command.name ?? "");
+      if (refreshCommand) {
         await this.commandRouter.handle(message, target, command.name ?? "", command.args, text);
         return;
       }
@@ -402,7 +434,13 @@ export class Bridge {
       return;
     }
     if (command?.isCommand) {
-      await this.commandRouter.handle(message, target, command.name ?? "", command.args, text);
+      if (this.commandRouter.isBridgeCommand(message, command.name ?? "")) {
+        await this.commandRouter.handle(message, target, command.name ?? "", command.args, text);
+        return;
+      }
+      if (!await this.enqueueBackendSlashPromptIfAvailable(message, target, command.name ?? "", command.raw ?? text)) {
+        await this.handleUnknownRootSlashCommand(message, target, command.name ?? "", command.args, command.raw ?? text);
+      }
       return;
     }
     this.clearCompactConfirmation(message.routeKey);
@@ -441,6 +479,28 @@ export class Bridge {
     const input = withGroupConversationPromptPrefix(message, rawInput, groupPrefixMode);
     if (await this.routeSteering.tryEnqueue(message, target, input)) return;
     await this.routeQueue.enqueuePrompt(message, target, input);
+  }
+
+  private async enqueueBackendSlashPromptIfAvailable(
+    message: ChannelMessage,
+    target: ChannelTarget,
+    commandName: string,
+    rawText: string,
+  ): Promise<boolean> {
+    if (!await this.isBackendPromptSlashCommand(commandName)) return false;
+    this.clearCompactConfirmation(message.routeKey);
+    await this.routeQueue.enqueuePrompt(message, target, rawText);
+    return true;
+  }
+
+  private async isBackendPromptSlashCommand(commandName: string): Promise<boolean> {
+    const normalized = normalizeBackendPromptSlashCommand(commandName);
+    if (!normalized) return false;
+    if (this.codex.listPromptSlashCommands?.().some((command) => normalizeBackendPromptSlashCommand(command) === normalized)) {
+      return true;
+    }
+    const refreshed = await this.codex.refreshPromptSlashCommands?.();
+    return refreshed?.some((command) => normalizeBackendPromptSlashCommand(command) === normalized) ?? false;
   }
 
   private enrichMessageFromRouteHistory(message: ChannelMessage): ChannelMessage {
@@ -498,6 +558,37 @@ export class Bridge {
       codex: this.codex,
       delivery: this.delivery,
     }, message, target, args, decision);
+  }
+
+  private async handlePlanWorkflowCommand(
+    message: ChannelMessage,
+    target: ChannelTarget,
+    choice: PlanWorkflowChoice,
+    args: string[],
+  ): Promise<void> {
+    const workflow = this.planWorkflows.get(message.routeKey);
+    if (!workflow) {
+      await this.delivery.sendText(target, "当前没有待处理计划。发送 /plan <任务> 先生成计划。");
+      return;
+    }
+    if (choice === "cancel") {
+      this.planWorkflows.delete(message.routeKey);
+      await this.delivery.sendText(target, "已取消待执行计划，不会启动执行。");
+      return;
+    }
+    if (choice === "replan") {
+      const notes = args.join(" ").trim();
+      await this.routeQueue.enqueuePrompt(message, target, planReplanPrompt(workflow, notes), { collaborationMode: "plan" });
+      await this.delivery.sendText(target, "已按补充要求继续规划。");
+      return;
+    }
+    this.planWorkflows.delete(message.routeKey);
+    if (choice === "edit") {
+      await this.delivery.sendText(target, "将按计划执行；如当前后端是 Claude Code，请先用 /permission acceptEdits 明确切换自动接受文件编辑模式。本次仍按当前权限策略执行。");
+    } else {
+      await this.delivery.sendText(target, "已接受计划，开始按当前权限/审批策略执行。");
+    }
+    await this.routeQueue.enqueuePrompt(message, target, planExecutionPrompt(workflow), { collaborationMode: "default" });
   }
 
   async waitForIdle(): Promise<void> {
@@ -606,6 +697,26 @@ export class Bridge {
     return mode;
   }
 
+  private isDeliveryRefreshCommand(message: ChannelMessage, commandName: string): boolean {
+    const normalized = commandName.trim().toLowerCase();
+    return this.deliveryPolicyFor(message).refreshCommands.some((command) => command.command.trim().toLowerCase() === normalized);
+  }
+
+  private async handleUnknownRootSlashCommand(
+    message: ChannelMessage,
+    target: ChannelTarget,
+    commandName: string,
+    args: string[] = [],
+    rawText = `/${commandName}`,
+  ): Promise<void> {
+    if (this.commandProfile === "claude") {
+      this.clearCompactConfirmation(message.routeKey);
+      await this.routeQueue.enqueuePrompt(message, target, rawText);
+      return;
+    }
+    await this.commandRouter.handle(message, target, commandName, args, rawText);
+  }
+
   private deliveryPolicyFor(message: ChannelMessage | undefined): ChannelDeliveryPolicy {
     return normalizeChannelDeliveryPolicy(message ? this.channels.getDeliveryPolicy(message) : DEFAULT_CHANNEL_DELIVERY_POLICY);
   }
@@ -642,6 +753,11 @@ function withoutSenderDisplayName(message: ChannelMessage): ChannelMessage {
   if (!message.sender.displayName) return message;
   const { displayName: _displayName, ...sender } = message.sender;
   return { ...message, sender };
+}
+
+function normalizeBackendPromptSlashCommand(commandName: string): string | undefined {
+  const normalized = commandName.trim().replace(/^\/+/, "").toLowerCase();
+  return normalized || undefined;
 }
 
 function isCommandAllowedDuringCompact(name: string): boolean {

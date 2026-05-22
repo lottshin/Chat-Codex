@@ -41,6 +41,7 @@ export async function prepareCodexServeStartup(
   };
   return {
     backend: "codex",
+    commandProfile: options.commandProfile ?? "codex",
     policy,
     adapterMode,
     cwd,
@@ -79,6 +80,7 @@ async function prepareClaudeServeStartup(
   };
   return {
     backend: "claude",
+    commandProfile: options.commandProfile ?? "claude",
     policy,
     cwd,
     claudeStatus: status,

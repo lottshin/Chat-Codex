@@ -1,4 +1,11 @@
 export type AiBackend = "codex" | "claude";
+export type CommandNamespaceProfile = "codex" | "claude";
+
+export interface CommandNamespaceMetadata {
+  profile: CommandNamespaceProfile;
+  bridgePrefix: string;
+  rootBridgeCommands: boolean;
+}
 
 export interface BackendCapabilities {
   models: boolean;
@@ -44,7 +51,7 @@ const CLAUDE_CAPABILITIES: BackendCapabilities = {
   compact: true,
   goals: false,
   collaborationMode: true,
-  interactiveApprovals: false,
+  interactiveApprovals: true,
   runtimePermissionSwitch: true,
   cancel: true,
   sessionDiscovery: false,
@@ -69,6 +76,19 @@ const METADATA: Record<AiBackend, BackendMetadata> = {
     capabilities: CLAUDE_CAPABILITIES,
   },
 };
+
+export function commandNamespaceMetadata(profile: CommandNamespaceProfile | undefined): CommandNamespaceMetadata {
+  const resolved = profile ?? "codex";
+  return {
+    profile: resolved,
+    bridgePrefix: "bridge-",
+    rootBridgeCommands: resolved === "codex",
+  };
+}
+
+export function defaultCommandProfileForBackend(backend: AiBackend | undefined): CommandNamespaceProfile {
+  return backend === "claude" ? "claude" : "codex";
+}
 
 export function backendMetadata(backend: AiBackend | undefined): BackendMetadata {
   return METADATA[backend ?? "codex"];

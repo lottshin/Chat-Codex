@@ -1,6 +1,9 @@
 import { Bridge } from "../../bridge/bridge.js";
+import { APPROVAL_SEND_RETRY_DELAY_MS } from "../../bridge/bridge-types.js";
+import { ApprovalManager } from "../../approvals/approval-manager.js";
 import { LimitedTurnScheduler } from "../../bridge/turn-scheduler.js";
 import { ChannelRegistry } from "../../channels/registry.js";
+import { createClaudeApprovalRuntime } from "../../claude/approval-runtime.js";
 import { ClaudeExecAdapter } from "../../claude/claude-exec-adapter.js";
 import { AppServerCodexAdapter } from "../../codex/app-server-codex-adapter.js";
 import { ExecCodexAdapter } from "../../codex/exec-codex-adapter.js";
@@ -31,14 +34,28 @@ export async function startServeBridge(
   }
   const runtimeLogs = display.tui ? new RuntimeLogStore() : undefined;
   const logger = runtimeLogs ? new RuntimeTuiLogger(runtimeLogs) : new ConsoleLogger(false);
-  const codex = createRealCodexAdapter(startup);
+  const registry = new ChannelRegistry({ channels: adapters, logger });
+  const approvals = new ApprovalManager();
+  const claudeRuntime = (startup.backend ?? "codex") === "claude"
+    ? await createClaudeApprovalRuntime({
+        channels: registry,
+        approvals,
+        logger,
+        approvalSendRetryDelayMs: APPROVAL_SEND_RETRY_DELAY_MS,
+        runPolicy: startup.policy,
+        claudeCommand: startup.claudeStatus?.command,
+      })
+    : undefined;
+  const codex = claudeRuntime?.adapter ?? createRealCodexAdapter(startup);
   const contextRefresh = startup.contextRefresh ?? channelActions.configStore.getContextRefreshDefaults();
   startup.contextRefresh = contextRefresh;
   const bridge = new Bridge({
-    channels: new ChannelRegistry({ channels: adapters, logger }),
+    channels: registry,
     codex,
     backend: startup.backend,
+    commandProfile: startup.commandProfile,
     state: new FileStateStore(),
+    approvals,
     logger,
     transcript: runtimeLogs ? new RuntimeTuiTranscriptSink(runtimeLogs) : new ConsoleTranscriptSink(),
     cwd: startup.cwd,
@@ -86,6 +103,7 @@ export async function startServeBridge(
     }
   } finally {
     await bridge.stop();
+    await claudeRuntime?.stop();
   }
 }
 
