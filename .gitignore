@@ -43,3 +43,4 @@ references/*
 tmp/
 .tmp/
 .tmp-chat-claude-state*/
+.claude/
