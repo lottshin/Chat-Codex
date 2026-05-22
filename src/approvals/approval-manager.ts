@@ -64,6 +64,9 @@ export class ApprovalManager {
     if (existing.status !== "pending") return Promise.resolve(existing);
     return new Promise((resolve) => {
       const waiter: ApprovalWaiter = { resolve };
+      const waiters = this.waiters.get(approvalKey) ?? new Set<ApprovalWaiter>();
+      waiters.add(waiter);
+      this.waiters.set(approvalKey, waiters);
       const timeoutMs = typeof options.timeoutMs === "number" ? options.timeoutMs : undefined;
       if (timeoutMs !== undefined) {
         waiter.timer = setTimeout(() => {
@@ -77,9 +80,6 @@ export class ApprovalManager {
         }, Math.max(timeoutMs, 0));
         waiter.timer.unref?.();
       }
-      const waiters = this.waiters.get(approvalKey) ?? new Set<ApprovalWaiter>();
-      waiters.add(waiter);
-      this.waiters.set(approvalKey, waiters);
     });
   }
 
