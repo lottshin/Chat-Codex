@@ -266,6 +266,7 @@ export class BridgeStatusText {
       {
         command: "/context-refresh [off|detect|reload|inherit]",
         description: "设置当前聊天发送前是否检测本机会话上下文更新。",
+        aliases: ["/ctx-refresh", "/context", "/ctx"],
         details: [
           "`/context-refresh`: 查看当前聊天设置。",
           "`/context-refresh off`: 关闭发送前检测。",
@@ -296,16 +297,17 @@ export class BridgeStatusText {
             },
           ]
         : []),
-      { command: "/sessions", description: "列出当前聊天上下文拥有、绑定过或本地记录相关的会话。" },
-      { command: "/sessions all", description: "列出本机全部可发现的历史会话。" },
+      { command: "/sessions", description: "列出当前聊天上下文拥有、绑定过或本地记录相关的会话。", aliases: ["/session"] },
+      { command: "/sessions all", description: "列出本机全部可发现的历史会话。", aliases: ["/all-sessions"] },
       { command: "/resume [session|编号]", description: "恢复并绑定已有会话；不带参数时进入编号选择。" },
       { command: "/use [session|编号]", description: "切换到已有会话；不带参数时进入编号选择。" },
+      { command: "/cancel", description: "取消当前等待中的交互，例如会话选择、压缩确认或待发送文件。" },
       ...(isFeishuGroupMessage(message) ? [] : [{ command: "/whoami", description: "查看当前通道身份。" }]),
       { command: "/debug", description: "查看调试状态。" },
       { command: "/plan [任务]", description: "进入 Chat-Codex 计划模式，或用计划模式处理任务；计划完成后会显示 Chat-Codex 快捷回复。", feature: "collaborationMode" },
-      { command: "/code [任务]", description: "切回默认执行模式，或用默认模式处理任务。", feature: "collaborationMode" },
+      { command: "/code [任务]", description: "切回默认执行模式，或用默认模式处理任务。", aliases: ["/default [任务]"], feature: "collaborationMode" },
       { command: "/plan-execute", description: "执行待处理计划，继续按当前权限/审批策略处理工具请求。", feature: "collaborationMode" },
-      { command: "/plan-edit", description: "执行待处理计划；如需 Claude acceptEdits，请先明确切换权限模式。", feature: "collaborationMode" },
+      { command: "/plan-edit", description: "执行待处理计划；如需 Claude acceptEdits，请先明确切换权限模式。", aliases: ["/plan-accept-edits"], feature: "collaborationMode" },
       { command: "/replan <补充>", description: "基于待处理计划继续规划，不执行代码修改。", feature: "collaborationMode" },
       { command: "/plan-cancel", description: "取消待执行计划。", feature: "collaborationMode" },
       {
@@ -321,6 +323,7 @@ export class BridgeStatusText {
       {
         command: "/progress [brief|detailed|silent]",
         description: "查看或设置当前上下文进度投递模式。",
+        aliases: ["/mode"],
         hideWhenProgressDisabled: true,
         details: [
           "`brief`: 只发送计划、自言自语、搜索和文件变更摘要。",
@@ -336,10 +339,20 @@ export class BridgeStatusText {
         feature: "compact",
       },
       { command: "/model [模型|编号] [effort]", description: "查看可用模型，或切换当前会话后续任务的模型和思考程度。", feature: "model" },
-      { command: "/permission [approval|full confirm]", description: "查看或切换当前绑定会话的权限模式。", feature: "runtimePermissionSwitch" },
-      { command: "/OK", description: "批准当前审批。", feature: "interactiveApprovals" },
-      { command: "/P", description: "按当前会话批准审批，后续同类操作尽量不再询问。", feature: "interactiveApprovals" },
-      { command: "/NO", description: "拒绝当前审批。", feature: "interactiveApprovals" },
+      {
+        command: "/permission [approval|full confirm]",
+        description: "查看或切换当前绑定会话的权限模式。",
+        aliases: ["/permissions", "/perm", "/policy"],
+        feature: "runtimePermissionSwitch",
+      },
+      {
+        command: "/OK",
+        description: "批准当前审批。",
+        details: ["别名：`/yes`、`/approve`；带选项提示时也可直接回复数字 `/1`-`/4`。"],
+        feature: "interactiveApprovals",
+      },
+      { command: "/P", description: "按当前会话批准审批，后续同类操作尽量不再询问。", details: ["别名：`/yes-session`、`/ok-session`、`/approve-session`。"], feature: "interactiveApprovals" },
+      { command: "/NO", description: "拒绝当前审批。", details: ["别名：`/deny`、`/reject`。"], feature: "interactiveApprovals" },
       { command: "/stop", description: "终止当前正在处理的任务。" },
     ];
     const visibleCommands = [
@@ -350,6 +363,7 @@ export class BridgeStatusText {
     ].map((entry) => ({
       ...entry,
       command: commandForProfile(this.commandProfile, entry.command),
+      aliases: entry.aliases?.map((alias) => commandForProfile(this.commandProfile, alias)),
       details: entry.details?.map((detail) => this.commandProfile === "claude"
         ? detail
           .replaceAll("`/compact confirm`", "`/bridge-compact confirm`")
@@ -476,6 +490,7 @@ function isFeishuGroupMessage(message: ChannelMessage | undefined): boolean {
 interface HelpCommand {
   command: string;
   description: string;
+  aliases?: string[];
   details?: string[];
   hideWhenProgressDisabled?: boolean;
   feature?: BackendCommandFeature;
@@ -485,6 +500,7 @@ interface HelpCommand {
 function formatHelpCommandLines(entry: HelpCommand): string[] {
   return [
     `- \`${entry.command}\`: ${entry.description}`,
+    ...(entry.aliases && entry.aliases.length > 0 ? [`  - 别名：${entry.aliases.map((alias) => `\`${alias}\``).join("、")}`] : []),
     ...(entry.details ?? []).map((detail) => `  - ${detail}`),
   ];
 }
