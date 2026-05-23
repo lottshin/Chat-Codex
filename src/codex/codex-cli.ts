@@ -12,10 +12,12 @@ import {
 
 export type CodexPermissionMode = "approval" | "full";
 export type CodexSandboxMode = "read-only" | "workspace-write" | "danger-full-access";
+export type ClaudePermissionMode = "acceptEdits" | "auto" | "bypassPermissions" | "default" | "dontAsk" | "plan";
 
 export interface CodexRunPolicy {
   permissionMode: CodexPermissionMode;
   sandbox?: CodexSandboxMode;
+  claudePermissionMode?: ClaudePermissionMode;
 }
 
 export interface CodexRunPolicyStatus {

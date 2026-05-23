@@ -1,9 +1,13 @@
+import type { AiBackend, CommandNamespaceProfile } from "../backend/metadata.js";
 import type { ProgressDeliveryMode, UnboundRoutePolicy, InitialRouteBinding } from "../bridge/bridge.js";
+import type { ClaudeCliStatus } from "../claude/claude-cli.js";
 import type { CodexCliStatus, CodexPermissionMode, CodexRunPolicy } from "../codex/codex-cli.js";
 import type { ContextRefreshPolicy } from "../context-refresh/types.js";
 import type { FirstRouteBindingChoice } from "./serve-wizard.js";
 
 export interface ServeStartupOptions {
+  backend?: AiBackend;
+  commandProfile?: CommandNamespaceProfile;
   session?: string;
   permission?: CodexPermissionMode;
   codexAdapter?: RealCodexAdapterMode;
@@ -18,10 +22,13 @@ export interface ServeStartupOptions {
 export type RealCodexAdapterMode = "app-server" | "exec";
 
 export interface PreparedServeStartup {
+  backend?: AiBackend;
+  commandProfile?: CommandNamespaceProfile;
   policy: CodexRunPolicy;
-  adapterMode: RealCodexAdapterMode;
+  adapterMode?: RealCodexAdapterMode;
   cwd: string;
   codexStatus?: CodexCliStatus;
+  claudeStatus?: ClaudeCliStatus;
   progressMode?: ProgressDeliveryMode;
   contextRefresh?: ContextRefreshPolicy;
   maxConcurrentTurns?: number;

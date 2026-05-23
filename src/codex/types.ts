@@ -1,4 +1,6 @@
+import type { AiBackend } from "../backend/metadata.js";
 import type { ApprovalDecision, ApprovalRequest } from "../approvals/types.js";
+import type { ChannelTarget } from "../protocol/channel.js";
 import type { CodexRunPolicy, CodexRunPolicyStatus } from "./codex-cli.js";
 import type { CodexPromptInput } from "./input.js";
 
@@ -8,6 +10,10 @@ export type { CodexInputItem, CodexPromptInput, CodexTurnInput } from "./input.j
 export const CODEX_REASONING_EFFORTS = ["none", "minimal", "low", "medium", "high", "xhigh"] as const;
 
 export type CodexReasoningEffort = typeof CODEX_REASONING_EFFORTS[number];
+
+export const CLAUDE_EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
+
+export type ClaudeEffortLevel = typeof CLAUDE_EFFORT_LEVELS[number];
 
 export const CODEX_COLLABORATION_MODES = ["default", "plan"] as const;
 
@@ -37,6 +43,8 @@ export interface CodexSession {
   cwd: string;
   createdAt: string;
   title?: string;
+  backend?: AiBackend;
+  backendSessionId?: string;
 }
 
 export interface CodexTokenUsageBreakdown {
@@ -90,6 +98,7 @@ export interface CodexModelListOptions {
 export interface CodexModelPolicy {
   model?: string;
   reasoningEffort?: CodexReasoningEffort;
+  claudeEffort?: ClaudeEffortLevel;
   serviceTier?: string | null;
 }
 
@@ -140,6 +149,8 @@ export interface CodexSessionSummary {
   cwd?: string;
   status: CodexSessionStatus;
   updatedAt: string;
+  backend?: AiBackend;
+  backendSessionId?: string;
 }
 
 export interface CodexSessionReloadResult {
@@ -152,11 +163,28 @@ export interface CodexCompactResult {
   message?: string;
   beforeTokens?: number;
   afterTokens?: number;
+  backend?: AiBackend;
+  backendSessionId?: string;
+}
+
+export interface CodexRunApprovalContext {
+  routeKey: string;
+  requestedBy: string;
+  target: ChannelTarget;
+  sessionId: string;
+  turnId: string;
+  cwd: string;
+}
+
+export interface CodexRunApprovalContextRegistration {
+  token?: string;
+  dispose(): void | Promise<void>;
 }
 
 export interface CodexAdapter {
   stop?(): Promise<void>;
   onBackgroundEvent?(handler: CodexBackgroundEventHandler): () => void;
+  registerRunApprovalContext?(context: CodexRunApprovalContext): CodexRunApprovalContextRegistration | void;
   startSession(input: StartSessionInput): Promise<CodexSession>;
   setSessionTitle?(sessionId: string, title: string): Promise<void>;
   setSessionPreview?(sessionId: string, preview: string): Promise<void>;
@@ -181,4 +209,6 @@ export interface CodexAdapter {
   setGoalStatus?(sessionId: string, status: CodexGoalStatus): Promise<CodexGoal>;
   clearGoal?(sessionId: string): Promise<boolean>;
   compactSession?(sessionId: string): Promise<CodexCompactResult>;
+  listPromptSlashCommands?(): readonly string[];
+  refreshPromptSlashCommands?(): Promise<readonly string[]>;
 }

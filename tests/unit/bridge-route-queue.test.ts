@@ -7,7 +7,7 @@ import { BridgeRouteQueue } from "../../src/bridge/route-queue.js";
 import { BridgeSessionFlow } from "../../src/bridge/session-flow.js";
 import { UnlimitedTurnScheduler } from "../../src/bridge/turn-scheduler.js";
 import { MockCodexAdapter } from "../../src/codex/mock-codex-adapter.js";
-import type { CodexEvent, CodexPromptInput } from "../../src/codex/types.js";
+import type { CodexEvent, CodexPromptInput, CodexRunApprovalContext } from "../../src/codex/types.js";
 import type { CodexSessionContextFingerprint } from "../../src/codex/session-context-fingerprint.js";
 import { codexInputPlainText } from "../../src/codex/input.js";
 import { SilentLogger } from "../../src/logging/logger.js";
@@ -96,6 +96,37 @@ test("BridgeRouteQueue stops prompt when external update reload fails", async ()
 
   assert.equal(fixture.codex.runs.length, 0);
   assert.ok(fixture.sentTexts.some((text) => text.includes("本条消息没有发送")));
+});
+
+test("BridgeRouteQueue registers and cleans up run approval context", async () => {
+  const codex = new ContextTrackingCodexAdapter();
+  const fixture = routeQueueFixture({ codex });
+
+  await fixture.queue.enqueuePrompt(message("route-a", "审批测试"), target("route-a"), "审批测试");
+  await fixture.queue.waitForWorkers();
+
+  assert.equal(codex.contexts.length, 1);
+  assert.deepEqual(codex.contexts[0], {
+    routeKey: "route-a",
+    requestedBy: "user",
+    target: target("route-a"),
+    sessionId: codex.runs[0].sessionId,
+    turnId: "context-turn-1",
+    cwd: "/repo",
+  });
+  assert.equal(codex.disposed, 1);
+});
+
+test("BridgeRouteQueue cleans up run approval context after run failure", async () => {
+  const codex = new ContextTrackingCodexAdapter({ failAfterStart: true });
+  const fixture = routeQueueFixture({ codex });
+
+  await fixture.queue.enqueuePrompt(message("route-a", "失败测试"), target("route-a"), "失败测试");
+  await fixture.queue.waitForWorkers();
+
+  assert.equal(codex.contexts.length, 1);
+  assert.equal(codex.disposed, 1);
+  assert.ok(fixture.sentTexts.some((text) => text.includes("Codex 执行失败")));
 });
 
 function routeQueueFixture(options: { codex?: MockCodexAdapter; state?: MemoryStateStore; contextRefreshMode?: "off" | "detect" | "reload" } = {}) {
@@ -191,6 +222,34 @@ class BlockingCodexAdapter extends MockCodexAdapter {
 
   release(): void {
     this.releaseCurrent?.();
+  }
+}
+
+class ContextTrackingCodexAdapter extends MockCodexAdapter {
+  readonly contexts: CodexRunApprovalContext[] = [];
+  disposed = 0;
+
+  constructor(private readonly options: { failAfterStart?: boolean } = {}) {
+    super();
+  }
+
+  registerRunApprovalContext(context: CodexRunApprovalContext) {
+    this.contexts.push(context);
+    return {
+      dispose: () => {
+        this.disposed += 1;
+      },
+    };
+  }
+
+  override async *run(sessionId: string, prompt: CodexPromptInput): AsyncIterable<CodexEvent> {
+    const promptText = codexInputPlainText(prompt);
+    this.runs.push({ sessionId, prompt: promptText });
+    const turnId = "context-turn-1";
+    yield { type: "turn.started", sessionId, turnId };
+    if (this.options.failAfterStart) throw new Error("boom");
+    yield { type: "assistant.completed", sessionId, turnId, text: `完成: ${promptText}` };
+    yield { type: "turn.completed", sessionId, turnId };
   }
 }
 

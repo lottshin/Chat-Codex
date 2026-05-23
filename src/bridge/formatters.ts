@@ -1,3 +1,4 @@
+import { approvalChoices } from "../approvals/choices.js";
 import type { ApprovalDecision, PendingApproval } from "../approvals/types.js";
 import type { CodexRunPolicy, CodexRunPolicyStatus } from "../codex/codex-cli.js";
 import { truncateDisplayText } from "../codex/codex-cli.js";
@@ -129,6 +130,7 @@ export function isCancelSessionSelectionText(value: string): boolean {
 export function isRouteBusyMutationCommand(name: string, args: string[], rawText: string): boolean {
   switch (name) {
     case "new":
+    case "clear":
     case "use":
     case "resume":
     case "plan":
@@ -249,7 +251,7 @@ export function formatRunPolicy(policy: CodexRunPolicy): string {
 
 export function formatRunPolicyForStatus(policy: CodexRunPolicy): string {
   return policy.permissionMode === "full"
-    ? "完全权限（跳过审批和沙箱）"
+    ? "完全权限（跳过审批或权限检查）"
     : `审批模式（沙箱 \`${policy.sandbox ?? "workspace-write"}\`）`;
 }
 
@@ -472,6 +474,7 @@ export function formatModelPolicy(policy: CodexModelPolicy): string {
   const parts = [
     policy.model ? `model=\`${policy.model}\`` : undefined,
     policy.reasoningEffort ? `effort=\`${policy.reasoningEffort}\`` : undefined,
+    policy.claudeEffort ? `claudeEffort=\`${policy.claudeEffort}\`` : undefined,
     policy.serviceTier ? `tier=\`${policy.serviceTier}\`` : undefined,
   ].filter(Boolean);
   return parts.length > 0 ? parts.join(" ") : "`none`";
@@ -481,6 +484,7 @@ export function formatModelPolicyForStatus(policy: CodexModelPolicy): string {
   const parts = [
     policy.model ? `模型 \`${policy.model}\`` : undefined,
     policy.reasoningEffort ? `思考程度 \`${policy.reasoningEffort}\`` : undefined,
+    policy.claudeEffort ? `Claude effort \`${policy.claudeEffort}\`` : undefined,
     policy.serviceTier ? `服务档 \`${policy.serviceTier}\`` : undefined,
   ].filter(Boolean);
   return parts.length > 0 ? parts.join("，") : "无";
@@ -594,9 +598,7 @@ export function formatPendingApprovalStatus(approval: PendingApproval | undefine
     approval.reason ? `- 原因: ${approval.reason}` : undefined,
     approval.command ? "```shell\n" + approval.command + "\n```" : undefined,
     "快捷回复：",
-    "```text\n/OK\n```",
-    "```text\n/P\n```",
-    "```text\n/NO\n```",
+    ...approvalChoices(approval).map((choice) => `\`\`\`text\n${choice.command} 或 ${choice.numeric}\n\`\`\``),
   ];
 }
 

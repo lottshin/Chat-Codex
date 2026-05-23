@@ -42,3 +42,5 @@ references/*
 # Temporary files
 tmp/
 .tmp/
+.tmp-chat-claude-state*/
+.claude/

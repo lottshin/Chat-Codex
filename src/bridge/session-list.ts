@@ -37,29 +37,35 @@ export interface FormatSessionListOptions {
 
 interface MutableSessionListItem extends SessionListItem {
   status: CodexSessionStatus;
+  backend?: CodexSessionSummary["backend"];
+  backendSessionId?: string;
 }
 
 export async function buildSessionList(options: BuildSessionListOptions): Promise<SessionListItem[]> {
   const routeScoped = options.scope === "route";
-  const currentSessionId = options.state.getBinding(options.routeKey)?.sessionId;
+  const currentBinding = options.state.getBinding(options.routeKey);
+  const currentSessionId = currentBinding?.sessionId;
+  const currentBackend = currentBinding?.backend ?? "codex";
   const items = new Map<string, MutableSessionListItem>();
 
   const addItem = (
-    input: Omit<SessionListItem, "current" | "selectable" | "ownerRouteKey" | "unavailableReason" | "source">,
+    input: Omit<SessionListItem, "current" | "selectable" | "ownerRouteKey" | "unavailableReason" | "source"> & { backend?: CodexSessionSummary["backend"]; backendSessionId?: string },
     source: "state" | "codex",
   ): void => {
-    const owner = options.state.getSessionOwner(input.id);
+    const owner = options.state.getSessionOwner(input.id, input.backend);
     const selectable = !owner || owner.ownerRouteKey === options.routeKey;
-    const existing = items.get(input.id);
+    const existing = items.get(sessionListKey(input.id, input.backend));
     const sourceValue = existing && existing.source !== source ? "merged" : source;
     const updatedAt = newerTimestamp(input.updatedAt, existing?.updatedAt);
-    items.set(input.id, {
+    items.set(sessionListKey(input.id, input.backend), {
       id: input.id,
+      backend: input.backend,
+      backendSessionId: input.backendSessionId,
       title: existing?.title ?? input.title,
       cwd: existing?.cwd ?? input.cwd,
       status: existing?.status ?? input.status ?? { type: "unknown" },
       updatedAt,
-      current: input.id === currentSessionId,
+      current: input.id === currentSessionId && (input.backend ?? "codex") === currentBackend,
       selectable,
       ...(owner ? { ownerRouteKey: owner.ownerRouteKey } : {}),
       ...(selectable ? {} : { unavailableReason: "已绑定到其它聊天上下文" }),
@@ -158,6 +164,8 @@ function formatSessionListItem(item: SessionListItem, index: number): string[] {
   const suffix = markers.length > 0 ? `（${markers.join("，")}）` : "";
   return [
     `${index}. Session: \`${item.id}\`${suffix}`,
+    (item as MutableSessionListItem).backend ? `   - 后端: \`${(item as MutableSessionListItem).backend}\`` : undefined,
+    (item as MutableSessionListItem).backend === "claude" && (item as MutableSessionListItem).backendSessionId ? `   - Claude session: \`${(item as MutableSessionListItem).backendSessionId}\`` : undefined,
     `   - 最近活跃: \`${formatSessionUpdatedAt(item.updatedAt)}\``,
     `   - 标题: ${formatSessionTitle(item.title)}`,
     `   - 状态: ${formatCodexStatus(item.status)}`,
@@ -174,9 +182,11 @@ function formatSessionTitle(title: string | undefined): string {
   return title ? truncateDisplayText(title, 60) : "无标题";
 }
 
-function storedSessionListInput(stored: StoredSession): Omit<SessionListItem, "current" | "selectable" | "ownerRouteKey" | "unavailableReason" | "source"> {
+function storedSessionListInput(stored: StoredSession): Omit<SessionListItem, "current" | "selectable" | "ownerRouteKey" | "unavailableReason" | "source"> & { backend?: CodexSessionSummary["backend"]; backendSessionId?: string } {
   return {
     id: stored.session.id,
+    backend: stored.backend ?? stored.session.backend,
+    backendSessionId: stored.backendSessionId ?? stored.session.backendSessionId,
     title: stored.session.title,
     cwd: stored.session.cwd,
     status: stored.status,
@@ -184,14 +194,20 @@ function storedSessionListInput(stored: StoredSession): Omit<SessionListItem, "c
   };
 }
 
-function codexSessionListInput(session: CodexSessionSummary): Omit<SessionListItem, "current" | "selectable" | "ownerRouteKey" | "unavailableReason" | "source"> {
+function codexSessionListInput(session: CodexSessionSummary): Omit<SessionListItem, "current" | "selectable" | "ownerRouteKey" | "unavailableReason" | "source"> & { backend?: CodexSessionSummary["backend"]; backendSessionId?: string } {
   return {
     id: session.id,
+    backend: session.backend,
+    backendSessionId: session.backendSessionId,
     title: session.title,
     cwd: session.cwd,
     status: session.status,
     updatedAt: session.updatedAt,
   };
+}
+
+function sessionListKey(id: string, backend: CodexSessionSummary["backend"] | undefined): string {
+  return `${backend ?? "codex"}:${id}`;
 }
 
 function newerTimestamp(left: string, right: string | undefined): string {

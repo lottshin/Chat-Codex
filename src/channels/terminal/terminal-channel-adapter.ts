@@ -137,7 +137,7 @@ export class TerminalChannelAdapter implements ChannelAdapter {
       deliveredAt: new Date().toISOString(),
     };
     this.status = { ...this.status, lastOutboundAt: result.deliveredAt };
-    this.output.write(`\n[Codex]\n${text}\n\n`);
+    this.output.write(`\n[AI]\n${text}\n\n`);
     if (this.interactive) this.readline?.prompt();
     void target;
     void options;

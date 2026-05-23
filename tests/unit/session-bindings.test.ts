@@ -92,6 +92,27 @@ test("SessionBindings unbinds active session and releases owner", () => {
   assert.deepEqual(bindings.listRouteSessions("route-a"), []);
 });
 
+test("SessionBindings isolates owners by backend", () => {
+  const bindings = new SessionBindings();
+
+  bindings.bindNewSession("route-codex", sessionFor("same"), { backend: "codex" });
+  bindings.bindNewSession("route-claude", sessionFor("same"), { backend: "claude", backendSessionId: "actual-claude" });
+
+  assert.equal(bindings.getOwner("same", { backend: "codex" })?.ownerRouteKey, "route-codex");
+  assert.equal(bindings.getOwner("same", { backend: "claude" })?.ownerRouteKey, "route-claude");
+  assert.equal(bindings.getOwner("same", { backend: "claude" })?.backendSessionId, "actual-claude");
+});
+
+test("SessionBindings releases only the matching backend owner on switch", () => {
+  const bindings = new SessionBindings();
+
+  bindings.bindNewSession("route-a", sessionFor("same"), { backend: "codex" });
+  bindings.bindNewSession("route-a", sessionFor("same"), { backend: "claude" });
+
+  assert.equal(bindings.getOwner("same", { backend: "codex" }), undefined);
+  assert.equal(bindings.getOwner("same", { backend: "claude" })?.ownerRouteKey, "route-a");
+});
+
 function sessionFor(id: string): CodexSession {
   return {
     id,

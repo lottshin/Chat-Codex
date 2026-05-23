@@ -222,13 +222,8 @@ function spawnWindowsCommandShim(
   args: string[],
   options: SpawnOptions,
 ): ChildProcess {
-  const env = options.env as NodeJS.ProcessEnv | undefined;
-  const comspec = windowsEnvValue(env ?? process.env, "ComSpec") ?? "cmd.exe";
-  const commandLine = [command.command, ...args].map(quoteForCmd).join(" ");
-  return spawn(comspec, ["/d", "/s", "/c", commandLine], options);
-}
-
-function quoteForCmd(value: string): string {
-  if (!value) return "\"\"";
-  return `"${value.replace(/(["^&|<>()%!])/g, "^$1")}"`;
+  return spawn(command.command, args, {
+    ...options,
+    shell: true,
+  });
 }

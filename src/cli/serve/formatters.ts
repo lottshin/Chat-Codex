@@ -4,7 +4,7 @@ import { formatSessionActiveTime } from "../actions/binding-actions.js";
 import type { PreparedServeStartup } from "../launcher-types.js";
 import { formatPermissionModeForUser } from "../serve-wizard.js";
 import { formatContextRefreshDefaultPolicyForUser } from "../../context-refresh/types.js";
-import { formatCodexStatusForCli } from "./summary.js";
+import { formatClaudeStatusForCli, formatCodexStatusForCli } from "./summary.js";
 
 export function printRuntimeSummary(
   title: string,
@@ -14,7 +14,11 @@ export function printRuntimeSummary(
   console.log("");
   console.log(`${title}已启动`);
   console.log("- 会话: 按微信聊天分别绑定；首条消息按策略处理");
-  console.log(`- Codex CLI: ${formatCodexStatusForCli(startup.codexStatus)}`);
+  const backendName = (startup.backend ?? "codex") === "claude" ? "Claude Code" : "Codex";
+  const backendStatus = (startup.backend ?? "codex") === "claude"
+    ? formatClaudeStatusForCli(startup.claudeStatus)
+    : formatCodexStatusForCli(startup.codexStatus);
+  console.log(`- ${backendName} CLI: ${backendStatus}`);
   console.log(`- 工作目录: ${startup.cwd}`);
   console.log(`- 新 session 默认权限: ${formatPolicyForCli(startup.policy)}`);
   if (startup.contextRefresh) console.log(`- 默认上下文刷新: ${formatContextRefreshDefaultPolicyForUser(startup.contextRefresh)}`);

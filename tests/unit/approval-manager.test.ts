@@ -14,9 +14,9 @@ test("ApprovalManager creates and resolves approvals", () => {
 
   assert.equal(pending.status, "pending");
   assert.equal(pending.expiresAt, undefined);
-  assert.match(manager.formatForChannel(pending), /\/OK/);
-  assert.match(manager.formatForChannel(pending), /\/P 本会话通过/);
-  assert.match(manager.formatForChannel(pending), /\/NO 拒绝当前审批/);
+  assert.match(manager.formatForChannel(pending), /\/OK 或 \/1/);
+  assert.match(manager.formatForChannel(pending), /\/P 或 \/2/);
+  assert.match(manager.formatForChannel(pending), /\/NO 或 \/3/);
   assert.doesNotMatch(manager.formatForChannel(pending), new RegExp(pending.approvalKey));
   assert.doesNotMatch(manager.formatForChannel(pending), /\/approve/);
   assert.equal(manager.latest(pending.routeKey)?.approvalKey, pending.approvalKey);
@@ -24,6 +24,25 @@ test("ApprovalManager creates and resolves approvals", () => {
   const resolved = manager.decide(pending.approvalKey, pending.routeKey, "approve");
   assert.equal(resolved.status, "resolved");
   assert.equal(resolved.decision, "approve");
+});
+
+test("ApprovalManager renders dynamic approval choices", () => {
+  const manager = new ApprovalManager();
+  const pending = manager.create("mock:default:direct:user", "user", {
+    kind: "command",
+    sessionId: "s1",
+    turnId: "t1",
+    itemId: "i1",
+    command: "echo ok",
+    availableDecisions: ["approve", "deny"],
+  });
+
+  const text = manager.formatForChannel(pending);
+
+  assert.match(text, /\/OK 或 \/1/);
+  assert.match(text, /\/NO 或 \/2/);
+  assert.doesNotMatch(text, /\/P/);
+  assert.doesNotMatch(text, /\/3/);
 });
 
 test("ApprovalManager only expires approvals when ttl is configured", () => {
@@ -99,4 +118,93 @@ test("ApprovalManager cancels pending approvals for a route", () => {
   assert.equal(cancelled[0].decisionReason, "任务已停止");
   assert.equal(manager.list("route-a").length, 0);
   assert.equal(manager.list("route-b").length, 1);
+});
+
+test("ApprovalManager waitForDecision resolves when approval is decided", async () => {
+  const manager = new ApprovalManager({ ttlMs: 60_000 });
+  const pending = manager.create("route-a", "user", {
+    kind: "command",
+    sessionId: "s1",
+    turnId: "t1",
+    itemId: "i1",
+  });
+
+  const wait = manager.waitForDecision(pending.approvalKey);
+  manager.decide(pending.approvalKey, "route-a", "approve-session");
+  const resolved = await wait;
+
+  assert.equal(resolved.status, "resolved");
+  assert.equal(resolved.decision, "approve-session");
+});
+
+test("ApprovalManager waitForDecision resolves when route approvals are cancelled", async () => {
+  const manager = new ApprovalManager({ ttlMs: 60_000 });
+  const pending = manager.create("route-a", "user", {
+    kind: "command",
+    sessionId: "s1",
+    turnId: "t1",
+    itemId: "i1",
+  });
+
+  const wait = manager.waitForDecision(pending.approvalKey);
+  manager.cancelRoute("route-a", "任务已停止");
+  const resolved = await wait;
+
+  assert.equal(resolved.status, "resolved");
+  assert.equal(resolved.decision, "cancel");
+  assert.equal(resolved.decisionReason, "任务已停止");
+});
+
+test("ApprovalManager waitForDecision times out fail-closed", async () => {
+  const manager = new ApprovalManager({ ttlMs: 60_000 });
+  const pending = manager.create("route-a", "user", {
+    kind: "command",
+    sessionId: "s1",
+    turnId: "t1",
+    itemId: "i1",
+  });
+
+  const resolved = await manager.waitForDecision(pending.approvalKey, { timeoutMs: 0 });
+
+  assert.equal(resolved.status, "resolved");
+  assert.equal(resolved.decision, "cancel");
+  assert.equal(resolved.decisionReason, "审批超时");
+});
+
+test("ApprovalManager waitForDecision resolves expired approvals", async () => {
+  const manager = new ApprovalManager({ ttlMs: -1 });
+  const pending = manager.create("route-a", "user", {
+    kind: "command",
+    sessionId: "s1",
+    turnId: "t1",
+    itemId: "i1",
+  });
+
+  const resolved = await manager.waitForDecision(pending.approvalKey);
+
+  assert.equal(resolved.status, "expired");
+});
+
+test("ApprovalManager waitForDecision keeps simultaneous approvals independent", async () => {
+  const manager = new ApprovalManager({ ttlMs: 60_000 });
+  const first = manager.create("route-a", "user", {
+    kind: "command",
+    sessionId: "s1",
+    turnId: "t1",
+    itemId: "i1",
+  });
+  const second = manager.create("route-a", "user", {
+    kind: "command",
+    sessionId: "s1",
+    turnId: "t1",
+    itemId: "i2",
+  });
+
+  const firstWait = manager.waitForDecision(first.approvalKey);
+  const secondWait = manager.waitForDecision(second.approvalKey);
+  manager.decide(second.approvalKey, "route-a", "deny");
+  manager.decide(first.approvalKey, "route-a", "approve");
+
+  assert.equal((await firstWait).decision, "approve");
+  assert.equal((await secondWait).decision, "deny");
 });

@@ -1,7 +1,7 @@
 <h1 align="center">Chat-Codex</h1>
 
 <p align="center">
-把本机 Codex 接入微信和飞书的轻量聊天中间件。
+把本机 Codex 或 Claude Code 接入微信和飞书的轻量聊天中间件。
 </p>
 
 <p align="center">
@@ -16,7 +16,7 @@
 <img src="https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white" alt="TypeScript">
 <img src="https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=111827" alt="React">
 <img src="https://img.shields.io/badge/TUI-Ink-0ea5e9" alt="Ink TUI">
-<img src="https://img.shields.io/badge/Runtime-Codex-111827" alt="Codex">
+<img src="https://img.shields.io/badge/Runtime-Codex%20%7C%20Claude%20Code-111827" alt="Codex and Claude Code">
 <img src="https://img.shields.io/badge/Channel-Weixin-07C160?logo=wechat&logoColor=white" alt="Weixin">
 <img src="https://img.shields.io/badge/Channel-Feishu-2563EB" alt="Feishu">
 <img src="https://img.shields.io/badge/License-MIT-green" alt="License">
@@ -43,9 +43,9 @@
 
 ## 项目介绍
 
-Chat-Codex 是一个轻量的聊天渠道中间件，用来把微信和飞书里的私聊消息接入本机 Codex。它负责把不同聊天平台的消息转换为统一协议，按聊天 route 绑定独立 Codex session，并把 Codex 的回复、审批、进度和文件发送回对应聊天。
+Chat-Codex 是一个轻量的聊天渠道中间件，用来把微信和飞书里的私聊消息接入本机 AI 编程后端。目前支持 Codex 和 Claude Code 两种后端。它负责把不同聊天平台的消息转换为统一协议，按聊天 route 绑定独立 session，并把后端的回复、审批、进度和文件发送回对应聊天。
 
-项目核心目标是让 Codex 可以自然地在聊天窗口里工作，同时避免多渠道、多聊天、多 session 之间的上下文串线。
+项目核心目标是让本机 AI 编程助手可以自然地在聊天窗口里工作，同时避免多渠道、多聊天、多 session 之间的上下文串线。
 
 <p align="center">
   <img src="docs/chat-codex-tui-screenshot.png" alt="Chat-Codex TUI 运行截图" width="900">
@@ -55,9 +55,10 @@ Chat-Codex 是一个轻量的聊天渠道中间件，用来把微信和飞书里
 
 - 统一 `chat-codex` 入口，使用 TUI 管理渠道、聊天绑定、权限和启动流程。
 - 支持微信账号和飞书机器人接入，私聊文本/图片/文件收发。
-- 支持每个聊天 route 独立绑定一个 Codex session。
-- 支持一个 Codex session 只归属一个 route，避免审批、文件和上下文串线。
+- 支持每个聊天 route 独立绑定一个后端 session。
+- 支持一个后端 session 只归属一个 route，避免审批、文件和上下文串线。
 - 支持 Codex app-server 作为默认接入方式，并保留 `codex exec --json` 回退适配。
+- 支持 Claude Code 后端，通过 `--backend claude` 或 `terminal claude` 启用。
 - 支持聊天内创建/恢复 session、查看状态、停止任务、处理审批、切换权限、切换模型和发送文件。
 - 支持本地持久化渠道实例、聊天绑定、session owner、session 权限和待生效绑定。
 - 支持运行期 TUI 日志面板，展示入站、出站、进度、媒体和错误日志。
@@ -72,7 +73,11 @@ npm install -g chat-codex
 chat-codex
 ```
 
-首次启动前，需要先准备本机 Codex CLI。Chat-Codex 通过本机 `codex` CLI 启动 `codex app-server` 或 `codex exec` 子进程来接入 Codex；只安装 Codex 桌面 App 不等于已满足这个前置要求。
+首次启动前，需要先准备至少一个本机 AI 后端。
+
+### Codex 后端
+
+Chat-Codex 默认使用本机 `codex` CLI 启动 `codex app-server` 或 `codex exec` 子进程来接入 Codex；只安装 Codex 桌面 App 不等于已满足这个前置要求。
 
 Codex CLI 官方安装指引：<https://developers.openai.com/codex/quickstart>
 
@@ -99,7 +104,37 @@ codex
 
 Windows 用户如果 PowerShell 里 `codex --version` 正常，但 Chat-Codex 首页显示 Codex CLI 不可用或报 `spawn codex ENOENT`，请参考 [Windows Codex CLI 排障指南](docs/windows-codex-cli-troubleshooting.zh-CN.md)。
 
-首次启动后按 TUI 引导完成 Codex 检查、渠道管理、聊天绑定和启动服务。
+### Claude Code 后端
+
+Claude Code 后端需要本机已安装并登录 Claude Code CLI：
+
+```bash
+claude --version
+```
+
+启动 Claude Code 后端：
+
+```bash
+chat-codex --backend claude
+chat-codex terminal claude
+```
+
+开发源码目录里测试时，为避免调用全局旧版，请使用：
+
+```powershell
+node dist/src/cli.js --backend claude
+node dist/src/cli.js terminal claude
+```
+
+Windows 上如果 Claude Code 报需要 Git Bash，请在 PowerShell 设置：
+
+```powershell
+$env:CLAUDE_CODE_GIT_BASH_PATH="D:\Program Files\Git\usr\bin\bash.exe"
+```
+
+如果需要覆盖 Claude CLI 路径，可设置 `CHAT_CLAUDE_BIN`。
+
+首次启动后按 TUI 引导完成后端检查、渠道管理、聊天绑定和启动服务。
 
 ### 首次配对
 
@@ -118,12 +153,22 @@ Chat-Codex 对真实微信/飞书聊天默认启用配对保护。第一次从�
 | 项目 | 默认值 | 说明 |
 | --- | --- | --- |
 | 状态根目录 | `~/.chat-codex/state/` | 保存 Bridge 配置、route/session 绑定、渠道账号状态和本机凭证。 |
-| 上传目录 | `~/.chat-codex/uploads/` | 保存微信/飞书收到的图片和文件，再以本地路径投递给 Codex。 |
+| 上传目录 | `~/.chat-codex/uploads/` | 保存微信/飞书收到的图片和文件，再以本地路径投递给当前后端。 |
 | `CHAT_CODEX_BIN` | 未设置 | 覆盖 Codex CLI 可执行文件路径；主要用于 Windows Codex CLI 路径排障。 |
+| `CHAT_CLAUDE_BIN` | 未设置 | 覆盖 Claude Code CLI 可执行文件路径。 |
+| `CLAUDE_CODE_GIT_BASH_PATH` | 未设置 | Windows 上指定 Claude Code 需要使用的 Git Bash 路径。 |
 | `CHAT_CODEX_STATE_DIR` | 未设置 | 覆盖状态根目录；相对路径按启动 `chat-codex` 时的工作目录解析。 |
 | `CHAT_CODEX_UPLOAD_DIR` | 未设置 | 覆盖上传目录；相对路径按启动 `chat-codex` 时的工作目录解析。 |
 
 旧版本曾默认写入启动目录下的 `state/` 和 `.chat-codex-uploads/`。升级后如果需要读取旧数据，可以把旧 `state/` 移到 `~/.chat-codex/state/`，或临时设置 `CHAT_CODEX_STATE_DIR=/old/start/dir/state`。
+
+隔离测试时可以临时指定状态目录，避免污染全局安装版的配置：
+
+```powershell
+$env:CHAT_CODEX_STATE_DIR="$PWD\.tmp-chat-claude-state-test"
+$env:CLAUDE_CODE_GIT_BASH_PATH="D:\Program Files\Git\usr\bin\bash.exe"
+node dist/src/cli.js --backend claude
+```
 
 ## 技术栈
 
@@ -132,7 +177,7 @@ Chat-Codex 对真实微信/飞书聊天默认启用配对保护。第一次从�
 | Runtime | Node.js 22+ |
 | 语言 | TypeScript / ESM |
 | TUI | Ink + React |
-| Codex 接入 | Codex app-server，`codex exec --json` fallback |
+| Codex / Claude Code 接入 | Codex app-server、`codex exec --json` fallback、Claude Code print/stream-json |
 | 微信渠道 | `@tencent-weixin/openclaw-weixin` 通讯能力适配 |
 | 飞书渠道 | `@larksuiteoapi/node-sdk` + WebSocket |
 | 状态 | 本地 JSON 文件 |
@@ -171,6 +216,7 @@ TUI 会引导完成 Codex 检查、渠道管理、聊天绑定和启动服务。
 | `npm run cli:mock` | Mock 通道闭环验证 |
 | `npm run cli:terminal:mock` | 终端通道 + MockCodex |
 | `npm run cli:terminal:codex` | 终端通道 + 真实 Codex |
+| `npm run cli:terminal:claude` | 终端通道 + 真实 Claude Code |
 | `npm run cli:weixin:status` | 微信辅助状态检查 |
 | `npm run cli:weixin:login` | 微信辅助扫码登录 |
 | `npm run cli:feishu:status` | 飞书辅助凭证和机器人身份检查 |
@@ -196,19 +242,20 @@ Bridge Core
   |-- TurnScheduler
   |
   v
-CodexAdapter
-  |-- AppServerCodexAdapter（默认）
-  |-- ExecCodexAdapter（回退）
+Backend Adapter
+  |-- AppServerCodexAdapter（Codex 默认）
+  |-- ExecCodexAdapter（Codex 回退）
+  |-- ClaudeExecAdapter（Claude Code）
   |
   v
-Codex CLI / Codex app-server
+Codex CLI / Codex app-server / Claude Code CLI
 ```
 
 核心边界：
 
-- Codex 侧只通过 `CodexAdapter` 交互。
+- 后端侧当前复用 `CodexAdapter` 合约，实际可选择 Codex 或 Claude Code。
 - 渠道侧只通过 `ChannelAdapter` 交互。
-- Bridge Core 只负责通用路由、队列、session 绑定、审批、权限和 Codex turn 调度。
+- Bridge Core 只负责通用路由、队列、session 绑定、审批、权限和后端 turn 调度。
 - 登录、平台 token、游标、限流、重试、typing、媒体上传等都属于具体渠道 adapter。
 - 不同渠道的投递差异通过 `ChannelCapabilities` 和 `ChannelDeliveryPolicy` 表达。
 
@@ -218,7 +265,7 @@ Codex CLI / Codex app-server
 <channelId>:<accountId>:<conversationKind>:<conversationId>
 ```
 
-同一个 route 的普通消息串行处理；不同 route 可以并行运行不同 Codex session。一个 Codex session 只能属于一个 route。
+同一个 route 的普通消息串行处理；不同 route 可以并行运行不同后端 session。一个 session 只能属于一个 route。
 
 ## 聊天内命令
 
@@ -227,15 +274,15 @@ Codex CLI / Codex app-server
 | 命令 | 用途 |
 | --- | --- |
 | `/help` | 查看当前渠道可用命令 |
-| `/new` | 为当前聊天 route 创建新的 Codex session |
-| `/resume [session\|编号]` | 恢复并绑定已有 Codex session |
+| `/new` | 为当前聊天 route 创建新的 session |
+| `/resume [session\|编号]` | 恢复并绑定已有 session |
 | `/use [session\|编号]` | 切换当前 route 的 active session |
 | `/sessions` | 查看当前 route 拥有或绑定过的 session |
-| `/sessions all` | 查看本机可发现的 Codex 历史 session |
+| `/sessions all` | 查看本机可发现的历史 session |
 | `/status` | 查看 session、模型、token、队列、审批、权限和渠道状态 |
 | `/whoami` | 查看当前 channel、route、sender 和 conversation 信息 |
 | `/debug` | 查看调试状态 |
-| `/stop` | 停止当前 route 正在运行的 Codex turn |
+| `/stop` | 停止当前 route 正在运行的任务 |
 | `/OK` | 批准当前 route 最新 pending approval |
 | `/P` | 持久批准当前 route 最新 pending approval |
 | `/NO` | 拒绝当前 route 最新 pending approval |
@@ -250,10 +297,12 @@ Codex CLI / Codex app-server
 | `/model <模型或编号> [effort]` | 切换模型和 reasoning effort |
 | `/model effort <effort>` | 只切换 reasoning effort |
 | `/model default` | 清除当前 session 的模型覆盖 |
-| `/sendfile <任务>` | 允许 Codex 本轮声明并发送文件 |
+| `/sendfile <任务>` | 允许当前后端本轮声明并发送文件 |
 | `/compact` | 压缩当前 session 的历史上下文，需 `/compact confirm` 确认 |
 | `/progress [brief\|detailed\|silent]` | 非微信渠道的进度投递模式 |
 | `/fff` | 微信专用静默刷新 |
+
+> Claude Code 后端当前使用 print/stream-json 模式。文本收发和基础进度可用；远程交互审批、模型切换、上下文压缩和 Goal 等能力会按后端能力显示或返回不支持说明。
 
 ## 文件发送
 

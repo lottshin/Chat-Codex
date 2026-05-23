@@ -1,11 +1,21 @@
 #!/usr/bin/env node
 import { stdin, stdout } from "node:process";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { createInterface, type Interface } from "node:readline/promises";
+import { backendDisplayName, type AiBackend, type CommandNamespaceProfile } from "./backend/metadata.js";
 import { Bridge, parseProgressDeliveryMode, type ProgressDeliveryMode } from "./bridge/bridge.js";
+import { APPROVAL_SEND_RETRY_DELAY_MS } from "./bridge/bridge-types.js";
+import { ApprovalManager } from "./approvals/approval-manager.js";
 import { MockChannelAdapter } from "./channels/mock/mock-channel-adapter.js";
 import { TerminalChannelAdapter } from "./channels/terminal/terminal-channel-adapter.js";
+import { createSingleChannelRegistry } from "./channels/registry.js";
 import { WeixinAdapter } from "./channels/weixin/weixin-adapter.js";
 import { displayWeixinQrCode } from "./channels/weixin/weixin-qr-display.js";
+import { checkClaudeCli, type ClaudeCliStatus } from "./claude/claude-cli.js";
+import { createClaudeApprovalRuntime } from "./claude/approval-runtime.js";
+import { ClaudeExecAdapter } from "./claude/claude-exec-adapter.js";
+import { formatClaudeCommandSource, formatClaudePlatform } from "./claude/claude-process.js";
 import { checkCodexCli, discoverCodexSessions, displayCodexSessionTitle, findCodexSessionById, formatCodexSessionTitleForDisplay, truncateDisplayText, type CodexCliStatus, type CodexPermissionMode, type CodexRunPolicy, type DiscoveredCodexSession } from "./codex/codex-cli.js";
 import { formatCodexCommandSource, formatCodexPlatform } from "./codex/codex-process.js";
 import { runServe } from "./cli/serve.js";
@@ -26,6 +36,8 @@ import { CHAT_CODEX_DISPLAY_NAME, chatCodexTitle, chatCodexVersion, chatCodexVer
 import { formatLocalDateTime } from "./time/display-time.js";
 
 interface StartupOptions {
+  backend?: AiBackend;
+  commandProfile?: CommandNamespaceProfile;
   session?: string;
   permission?: CodexPermissionMode;
   codexAdapter?: RealCodexAdapterMode;
@@ -40,18 +52,31 @@ interface StartupOptions {
 type RealCodexAdapterMode = "app-server" | "exec";
 
 interface PreparedCodexStartup {
+  backend: AiBackend;
+  commandProfile: CommandNamespaceProfile;
   policy: CodexRunPolicy;
-  adapterMode: RealCodexAdapterMode;
+  adapterMode?: RealCodexAdapterMode;
   sessionId?: string;
   sessionTitle?: string;
   cwd: string;
   codexStatus?: CodexCliStatus;
+  claudeStatus?: ClaudeCliStatus;
 }
 
-async function main(argv: string[]): Promise<void> {
+interface InvocationDefaults {
+  backend: AiBackend;
+  commandProfile: CommandNamespaceProfile;
+}
+
+interface CliRuntimeOptions {
+  invocation?: InvocationDefaults;
+}
+
+async function main(argv: string[], runtimeOptions: CliRuntimeOptions = {}): Promise<void> {
+  const invocation = runtimeOptions.invocation ?? invocationProfile();
   const [area, command, ...rest] = argv;
   if (!area) {
-    await runServe({});
+    await runServe({ backend: invocation.backend, commandProfile: invocation.commandProfile });
     return;
   }
 
@@ -71,7 +96,7 @@ async function main(argv: string[]): Promise<void> {
   }
 
   if (area.startsWith("--")) {
-    await runServe(parseStartupOptions(argv));
+    await runServe(parseStartupOptions(argv, invocation));
     return;
   }
 
@@ -80,8 +105,8 @@ async function main(argv: string[]): Promise<void> {
     return;
   }
 
-  if (area === "terminal" && (command === "mock" || command === "codex")) {
-    await runTerminalBridge(command, parseStartupOptions(rest));
+  if (area === "terminal" && (command === "mock" || command === "codex" || command === "claude")) {
+    await runTerminalBridge(command, parseStartupOptions(rest, invocation));
     return;
   }
 
@@ -110,11 +135,17 @@ async function main(argv: string[]): Promise<void> {
   }
 
   if (area === "start" || area === "mock") {
-    await runTerminalBridge("mock", parseStartupOptions(rest));
+    await runTerminalBridge("mock", parseStartupOptions(rest, invocation));
     return;
   }
 
   throw new Error(`未知命令: ${argv.join(" ")}`);
+}
+
+function invocationProfile(): { backend: AiBackend; commandProfile: CommandNamespaceProfile } {
+  const executable = path.basename(process.argv[1] ?? "").toLowerCase();
+  if (executable.startsWith("chat-claude")) return { backend: "claude", commandProfile: "claude" };
+  return { backend: "codex", commandProfile: "codex" };
 }
 
 async function askStdin(prompt: string): Promise<string> {
@@ -150,8 +181,8 @@ async function runMockCodexFlow(): Promise<void> {
   }
 }
 
-function parseStartupOptions(args: string[]): StartupOptions {
-  const options: StartupOptions = {};
+function parseStartupOptions(args: string[], defaults: { backend?: AiBackend; commandProfile?: CommandNamespaceProfile } = {}): StartupOptions {
+  const options: StartupOptions = { backend: defaults.backend, commandProfile: defaults.commandProfile };
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (arg === "--session") {
@@ -162,6 +193,18 @@ function parseStartupOptions(args: string[]): StartupOptions {
         throw new Error("--permission 只能是 approval 或 full");
       }
       options.permission = value;
+    } else if (arg === "--backend") {
+      const value = args[++index];
+      if (value !== "codex" && value !== "claude") {
+        throw new Error("--backend 只能是 codex 或 claude");
+      }
+      options.backend = value;
+    } else if (arg === "--command-profile") {
+      const value = args[++index];
+      if (value !== "codex" && value !== "claude") {
+        throw new Error("--command-profile 只能是 codex 或 claude");
+      }
+      options.commandProfile = value;
     } else if (arg === "--codex-adapter" || arg === "--adapter") {
       const value = args[++index];
       if (value !== "app-server" && value !== "exec") {
@@ -198,49 +241,84 @@ function parseStartupOptions(args: string[]): StartupOptions {
   return options;
 }
 
-async function runTerminalBridge(mode: "mock" | "codex", options: StartupOptions = {}): Promise<void> {
+async function runTerminalBridge(mode: "mock" | "codex" | "claude", options: StartupOptions = {}): Promise<void> {
   const channel = new TerminalChannelAdapter();
-  const startup = mode === "codex" ? await prepareCodexStartup(options) : { policy: undefined, adapterMode: undefined, sessionId: undefined, cwd: process.cwd() };
-  const codex = mode === "codex" ? createRealCodexAdapter(startup) : new MockCodexAdapter();
+  const realBackend = mode === "claude" || options.backend === "claude" ? "claude" : "codex";
+  const startup = mode === "mock"
+    ? { backend: "codex" as const, commandProfile: options.commandProfile ?? "codex" as const, policy: undefined, adapterMode: undefined, sessionId: undefined, cwd: process.cwd() }
+    : await prepareCodexStartup({ ...options, backend: realBackend });
+  const startupClaudeStatus = "claudeStatus" in startup ? startup.claudeStatus : undefined;
+  const logger = new ConsoleLogger(false);
+  const approvals = new ApprovalManager();
+  const claudeRuntime = mode !== "mock" && realBackend === "claude"
+    ? await createClaudeApprovalRuntime({
+        channels: createSingleChannelRegistry(channel, logger),
+        approvals,
+        logger,
+        approvalSendRetryDelayMs: APPROVAL_SEND_RETRY_DELAY_MS,
+        runPolicy: startup.policy,
+        claudeCommand: startupClaudeStatus?.command,
+      })
+    : undefined;
+  const codex = mode === "mock" ? new MockCodexAdapter() : claudeRuntime?.adapter ?? createRealCodexAdapter(startup);
   const bridge = new Bridge({
     channel,
     codex,
-    logger: new ConsoleLogger(false),
+    backend: realBackend,
+    commandProfile: startup.commandProfile,
+    approvals,
+    logger,
     cwd: startup.cwd,
     progressMode: options.progressMode,
   });
 
-  await bridge.start();
-  if (mode === "codex") {
-    printRuntimeSummary("终端 Codex 中间件", startup, options.progressMode);
-    if (startup.sessionId) {
-      await channel.emitText(`/resume ${startup.sessionId}`);
-    } else {
-      await channel.emitText("/new");
+  try {
+    await bridge.start();
+    if (mode !== "mock") {
+      printRuntimeSummary(realBackend === "claude" ? "终端 Claude Code 中间件" : "终端 Codex 中间件", startup, options.progressMode);
+      if (startup.sessionId) {
+        await channel.emitText(`/bridge-resume ${startup.sessionId}`);
+      } else {
+        await channel.emitText("/bridge-new");
+      }
     }
+    await channel.waitUntilClosed();
+  } finally {
+    await bridge.stop();
+    await claudeRuntime?.stop();
   }
-  await channel.waitUntilClosed();
-  await bridge.stop();
 }
 
 async function prepareCodexStartup(
   options: StartupOptions,
   display: { progressDisabled?: boolean } = {},
 ): Promise<PreparedCodexStartup> {
-  const status = await checkCodexCli();
+  const status = options.backend === "claude" ? await checkClaudeCli() : await checkCodexCli();
   if (!status.available) {
-    throw new Error(`Codex 不可用: ${status.error ?? "unknown error"}`);
+    const backendName = backendDisplayName(options.backend);
+    throw new Error(`${backendName} 不可用: ${status.error ?? "unknown error"}`);
   }
-  console.log("");
-  console.log("Codex 启动准备");
-  console.log(`- 平台: ${formatCodexPlatform(status)}`);
-  console.log(`- CLI: ${status.version ?? status.codexBin}`);
-  console.log(`- 路径: ${status.codexBin}`);
-  console.log(`- 来源: ${formatCodexCommandSource(status.codexBinSource)}`);
+  if (options.backend === "claude") {
+    const claudeStatus = status as ClaudeCliStatus;
+    console.log("");
+    console.log("Claude Code 启动准备");
+    console.log(`- 平台: ${formatClaudePlatform(claudeStatus)}`);
+    console.log(`- CLI: ${claudeStatus.version ?? claudeStatus.claudeBin}`);
+    console.log(`- 路径: ${claudeStatus.claudeBin}`);
+    console.log(`- 来源: ${formatClaudeCommandSource(claudeStatus.claudeBinSource)}`);
+  } else {
+    const codexStatus = status as CodexCliStatus;
+    console.log("");
+    console.log("Codex 启动准备");
+    console.log(`- 平台: ${formatCodexPlatform(codexStatus)}`);
+    console.log(`- CLI: ${codexStatus.version ?? codexStatus.codexBin}`);
+    console.log(`- 路径: ${codexStatus.codexBin}`);
+    console.log(`- 来源: ${formatCodexCommandSource(codexStatus.codexBinSource)}`);
+  }
   const interactive = Boolean(stdin.isTTY && stdout.isTTY);
   const rl = interactive ? createInterface({ input: stdin, output: stdout }) : undefined;
   try {
-    const sessions = discoverCodexSessions({ limit: 10 });
+    const sessions = options.backend === "claude" ? [] : discoverCodexSessions({ limit: 10 });
     const adapterMode = options.codexAdapter ?? "app-server";
     const sessionChoice = await resolveSessionChoice(options, rl, sessions);
     const cwd = sessionChoice.sessionId
@@ -256,17 +334,20 @@ async function prepareCodexStartup(
       sessionTitle: sessionChoice.session ? displayCodexSessionTitle(sessionChoice.session) : undefined,
       cwd,
       policy,
-      adapterMode,
+      adapterMode: options.backend === "claude" ? undefined : adapterMode,
       progressMode: options.progressMode,
       progressDisabled: display.progressDisabled,
     });
     return {
+      backend: options.backend ?? "codex",
+      commandProfile: options.commandProfile ?? "codex",
       policy,
-      adapterMode,
+      adapterMode: options.backend === "claude" ? undefined : adapterMode,
       sessionId: sessionChoice.sessionId,
       sessionTitle: sessionChoice.session ? displayCodexSessionTitle(sessionChoice.session) : undefined,
       cwd,
-      codexStatus: status,
+      codexStatus: options.backend === "claude" ? undefined : status as CodexCliStatus,
+      claudeStatus: options.backend === "claude" ? status as ClaudeCliStatus : undefined,
     };
   } finally {
     rl?.close();
@@ -278,25 +359,27 @@ async function resolvePermissionMode(options: StartupOptions, rl?: Interface): P
     throw new Error("使用完全权限必须显式传入 --yes-dangerously-full");
   }
   if (options.permission === "full") {
-    await confirmFullPermission(rl, Boolean(options.yesDangerouslyFull));
+    await confirmFullPermission(rl, Boolean(options.yesDangerouslyFull), options.backend);
     return "full";
   }
   if (options.permission === "approval") return "approval";
   if (!rl) return "approval";
+  const backendName = backendDisplayName(options.backend);
   console.log("");
-  console.log("Codex 权限模式（作用于本次启动后的后续任务）");
-  console.log("1. 审批模式 - 使用 workspace-write 沙箱；app-server 可把审批推送到微信 /OK 或 /NO");
-  console.log("2. 完全权限 - 跳过审批和沙箱，非常危险");
+  console.log(`${backendName} 权限模式（作用于本次启动后的后续任务）`);
+  console.log("1. 审批模式 - 使用 workspace-write 沙箱；支持情况取决于当前后端");
+  console.log("2. 完全权限 - 跳过审批或权限检查，非常危险");
   const answer = (await rl.question("请选择权限模式 [1]: ")).trim();
   if (answer === "2" || answer.toLowerCase() === "full") {
-    await confirmFullPermission(rl, false);
+    await confirmFullPermission(rl, false, options.backend);
     return "full";
   }
   return "approval";
 }
 
-async function confirmFullPermission(rl: Interface | undefined, alreadyConfirmed: boolean): Promise<void> {
-  const warning = "警告：完全权限会让 Codex 跳过审批和沙箱，能够直接执行命令并修改文件。只有在你完全信任当前任务时才继续。";
+async function confirmFullPermission(rl: Interface | undefined, alreadyConfirmed: boolean, backend?: AiBackend): Promise<void> {
+  const backendName = backendDisplayName(backend);
+  const warning = `警告：完全权限会让 ${backendName} 跳过审批或权限检查，能够直接执行命令并修改文件。只有在你完全信任当前任务时才继续。`;
   console.log(warning);
   if (alreadyConfirmed) return;
   if (!rl) throw new Error("完全权限需要交互确认，或传入 --yes-dangerously-full");
@@ -311,6 +394,10 @@ async function resolveSessionChoice(
   rl: Interface | undefined,
   sessions: DiscoveredCodexSession[],
 ): Promise<{ sessionId?: string; session?: DiscoveredCodexSession }> {
+  if (options.backend === "claude") {
+    if (options.session && options.session !== "new") return { sessionId: options.session };
+    return {};
+  }
   if (options.session && options.session !== "new") {
     if (options.session === "last") {
       return { sessionId: sessions[0]?.id, session: sessions[0] };
@@ -344,14 +431,14 @@ async function resolveStartupWorkdir(options: StartupOptions, rl?: Interface): P
   let input = options.cwd;
   if (!input && rl) {
     console.log("");
-    console.log(`新 Codex 会话默认工作目录: ${defaultCwd}`);
+    console.log(`新会话默认工作目录: ${defaultCwd}`);
     input = await rl.question("请输入新会话工作目录 [默认当前目录]: ");
   }
   const resolved = resolveNewSessionWorkdir(input, defaultCwd);
   if (resolved.created) {
     console.log(`工作目录不存在，已创建: ${resolved.cwd}`);
   }
-  console.log(`新 Codex 会话工作目录: ${resolved.cwd}`);
+  console.log(`新会话工作目录: ${resolved.cwd}`);
   return resolved.cwd;
 }
 
@@ -381,7 +468,7 @@ function printStartupSelection(params: {
   sessionTitle?: string;
   cwd: string;
   policy: CodexRunPolicy;
-  adapterMode: RealCodexAdapterMode;
+  adapterMode?: RealCodexAdapterMode;
   progressMode?: ProgressDeliveryMode;
   progressDisabled?: boolean;
 }): void {
@@ -390,14 +477,14 @@ function printStartupSelection(params: {
   console.log(`- 会话: ${params.sessionId ? `恢复 ${params.sessionId}` : "新建"}`);
   if (params.sessionTitle) console.log(`- 标题: ${truncateDisplayText(params.sessionTitle)}`);
   console.log(`- 工作目录: ${params.cwd}`);
-  console.log(`- Codex 接入: ${formatAdapterForCli(params.adapterMode)}`);
+  console.log(`- ${params.adapterMode ? "Codex 接入" : "Claude Code 接入"}: ${params.adapterMode ? formatAdapterForCli(params.adapterMode) : "exec"}`);
   console.log(`- 权限模式: ${formatPolicyForCli(params.policy)}`);
   console.log(`- 阶段进度: ${formatProgressForCli(params.progressMode, params.progressDisabled)}`);
 }
 
 function printRuntimeSummary(
   title: string,
-  startup: PreparedCodexStartup | { policy?: CodexRunPolicy; adapterMode?: RealCodexAdapterMode; sessionId?: string; sessionTitle?: string; cwd: string; codexStatus?: CodexCliStatus },
+  startup: PreparedCodexStartup | { backend?: AiBackend; commandProfile?: CommandNamespaceProfile; policy?: CodexRunPolicy; adapterMode?: RealCodexAdapterMode; sessionId?: string; sessionTitle?: string; cwd: string; codexStatus?: CodexCliStatus; claudeStatus?: ClaudeCliStatus },
   progressMode?: ProgressDeliveryMode,
   display: { progressDisabled?: boolean } = {},
 ): void {
@@ -410,9 +497,15 @@ function printRuntimeSummary(
     console.log(`- Codex CLI: ${startup.codexStatus.version ?? startup.codexStatus.codexBin}`);
     console.log(`- Codex 路径: ${startup.codexStatus.codexBin}`);
   }
+  if (startup.claudeStatus) {
+    console.log(`- Claude Code CLI: ${startup.claudeStatus.version ?? startup.claudeStatus.claudeBin}`);
+    console.log(`- Claude Code 路径: ${startup.claudeStatus.claudeBin}`);
+  }
   if (startup.adapterMode) console.log(`- Codex 接入: ${formatAdapterForCli(startup.adapterMode)}`);
+  if ((startup.backend ?? "codex") === "claude") console.log("- Claude Code 接入: exec");
   if (startup.policy) console.log(`- 权限模式: ${formatPolicyForCli(startup.policy)}`);
   console.log(`- 阶段进度: ${formatProgressForCli(progressMode, display.progressDisabled)}`);
+  console.log(`- 命令空间: ${(startup.commandProfile ?? "codex") === "claude" ? "Claude Code root slash，桥命令 /bridge-*" : "Chat-Codex root slash"}`);
   console.log("- 退出: Ctrl+C");
 }
 
@@ -438,8 +531,11 @@ function formatProgressForCli(progressMode: ProgressDeliveryMode | undefined, di
   return formatProgressModeForUser(progressMode, disabled);
 }
 
-function createRealCodexAdapter(startup: PreparedCodexStartup | { policy?: CodexRunPolicy; adapterMode?: RealCodexAdapterMode; codexStatus?: CodexCliStatus }): CodexAdapter {
+function createRealCodexAdapter(startup: PreparedCodexStartup | { backend?: AiBackend; policy?: CodexRunPolicy; adapterMode?: RealCodexAdapterMode; codexStatus?: CodexCliStatus; claudeStatus?: ClaudeCliStatus }): CodexAdapter {
   const runPolicy = startup.policy ?? { permissionMode: "approval", sandbox: "workspace-write" };
+  if ((startup.backend ?? "codex") === "claude") {
+    return new ClaudeExecAdapter({ runPolicy, claudeCommand: startup.claudeStatus?.command });
+  }
   if (startup.adapterMode === "exec") {
     return new ExecCodexAdapter({ runPolicy, codexCommand: startup.codexStatus?.command });
   }
@@ -451,21 +547,25 @@ function printHelp(): void {
     chatCodexTitle(),
     "",
     "Commands:",
-    "  chat-codex                         启动统一交互入口（管理渠道并启动 Codex）",
+    "  chat-codex                         启动 Codex/Chat-Codex 命令空间",
+    "  chat-claude                        启动 Claude Code 命令空间（桥命令使用 /bridge-*）",
     "  chat-codex version                 查看 Chat-Codex 和 Node.js 版本",
     "  chat-codex test                    运行本地 mock Codex/Channel 流程",
     "  chat-codex terminal mock           启动本地终端通道 + MockCodex",
     "  chat-codex terminal codex          启动本地终端通道 + Codex",
+    "  chat-codex terminal claude         启动本地终端通道 + Claude Code",
     "",
     "Options:",
     "    -v, --version                   输出版本号",
+    "    --backend codex|claude           选择 AI 后端；默认取决于 chat-codex/chat-claude",
     "    --session new|last|<id>          设置启动时首个微信私聊预设；不会绑定整个微信账号",
     "    --cwd <dir>, --workdir <dir>     设置新会话工作目录；目录不存在会自动创建",
     "    --permission approval|full       设置安全沙箱或完全权限",
+    "    --command-profile codex|claude   选择命令空间；claude 下桥命令使用 /bridge-*",
     "    --codex-adapter app-server|exec  设置 Codex 接入方式；默认 app-server，支持微信审批",
     "    --yes-dangerously-full           非交互确认完全权限",
     "    --progress brief|detailed|silent 设置默认进度投递模式（微信渠道固定禁用）",
-    "    --max-concurrent-turns <n>       设置全局 Codex turn 并发上限；默认不限制",
+    "    --max-concurrent-turns <n>       设置全局任务并发上限；默认不限制",
     "    --no-tui                        使用普通 prompt 交互，不进入 Ink TUI",
     "    --no-interactive                 非交互启动；需要已有微信登录态",
     "  chat-codex weixin status           查看 WeixinAdapter 当前状态",
@@ -477,7 +577,13 @@ function printHelp(): void {
   ].join("\n"));
 }
 
-main(process.argv.slice(2)).catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
-});
+export async function runCli(argv: string[], runtimeOptions: CliRuntimeOptions = {}): Promise<void> {
+  await main(argv, runtimeOptions);
+}
+
+if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+  main(process.argv.slice(2)).catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  });
+}

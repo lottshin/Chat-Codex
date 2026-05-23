@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
-test("package exposes chat-codex as the main startup command", () => {
+test("package exposes chat-codex and chat-claude startup commands", () => {
   const packageJson = JSON.parse(fs.readFileSync(path.join(process.cwd(), "package.json"), "utf8")) as {
     name?: string;
     bin?: Record<string, string>;
@@ -13,6 +13,7 @@ test("package exposes chat-codex as the main startup command", () => {
 
   assert.equal(packageJson.name, "chat-codex");
   assert.equal(packageJson.bin?.["chat-codex"], "dist/src/cli.js");
+  assert.equal(packageJson.bin?.["chat-claude"], "dist/src/cli-claude.js");
   assert.equal(packageJson.bin?.["codex-wechat-bridge"], undefined);
   assert.equal(packageJson.scripts?.["chat-codex"], "npm run build && node dist/src/cli.js");
   assert.equal(packageJson.scripts?.["cli:chat-codex"], "npm run build && node dist/src/cli.js");
@@ -26,6 +27,20 @@ test("package exposes chat-codex as the main startup command", () => {
   assert.equal(packageJson.scripts?.["cli:feishu:codex"], undefined);
 });
 
+test("chat-claude mock terminal starts in Claude profile without double boot", () => {
+  const output = execFileSync(process.execPath, ["dist/src/cli-claude.js", "terminal", "mock", "--no-tui"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    input: "/bridge-help\n/stop\n",
+    timeout: 15000,
+  });
+
+  assert.match(output, /Claude profile：根 `\/\.\.\.` 优先发给 Claude Code/);
+  assert.match(output, /\/bridge-help/);
+  assert.equal((output.match(/本地终端通道已启动/g) ?? []).length, 1);
+  assert.doesNotMatch(output, /命令空间: Chat-Codex root slash/);
+});
+
 test("CLI help documents the chat-codex main entry", () => {
   const packageJson = JSON.parse(fs.readFileSync(path.join(process.cwd(), "package.json"), "utf8")) as {
     version?: string;
@@ -36,7 +51,8 @@ test("CLI help documents the chat-codex main entry", () => {
   });
 
   assert.match(help, new RegExp(`Chat-Codex v${escapeRegExp(packageJson.version ?? "")}`));
-  assert.match(help, /chat-codex\s+启动统一交互入口/);
+  assert.match(help, /chat-codex\s+启动 Codex\/Chat-Codex 命令空间/);
+  assert.match(help, /chat-claude\s+启动 Claude Code 命令空间/);
   assert.match(help, /chat-codex version\s+查看 Chat-Codex 和 Node\.js 版本/);
   assert.match(help, /-v, --version\s+输出版本号/);
   assert.doesNotMatch(help, /codex-wechat-bridge codex/);

@@ -27,7 +27,7 @@ export async function handleStopCommand(
   const clearedMedia = options.pendingMedia.clear(message.routeKey);
   if (!binding) {
     await options.delivery.sendText(target, [
-      "当前没有活跃 Codex 会话。",
+      "当前没有活跃会话。",
       clearedMedia > 0 ? clearedPendingMediaText(clearedMedia) : undefined,
     ].filter(Boolean).join("\n"));
     return;
@@ -37,14 +37,14 @@ export async function handleStopCommand(
   const clearedSteers = options.routeSteering.clearRouteState(message.routeKey);
   if (!workerRunning && status.type !== "running" && status.type !== "waiting_approval") {
     await options.delivery.sendText(target, [
-      "当前没有正在运行的 Codex 任务。",
+      "当前没有正在运行的任务。",
       clearedSteers > 0 ? `已清空 ${clearedSteers} 条待投递补充消息。` : undefined,
       clearedMedia > 0 ? clearedPendingMediaText(clearedMedia) : undefined,
     ].filter(Boolean).join("\n"));
     return;
   }
   if (!options.codex.cancel) {
-    await options.delivery.sendText(target, "当前 Codex Adapter 不支持取消。");
+    await options.delivery.sendText(target, "当前后端不支持取消。");
     return;
   }
   const clearedQueued = options.routeQueue.clearQueued(message.routeKey);
@@ -54,7 +54,7 @@ export async function handleStopCommand(
   options.state.setSessionStatus(binding.sessionId, { type: "idle" });
   await options.delivery.sendTyping(target, false);
   await options.delivery.sendText(target, [
-    "已请求停止当前 Codex 任务。",
+    "已请求停止当前任务。",
     clearedSteers > 0 ? `已清空 ${clearedSteers} 条待投递补充消息。` : undefined,
     clearedQueued > 0 ? `已清空 ${clearedQueued} 条排队消息。` : undefined,
     clearedMedia > 0 ? clearedPendingMediaText(clearedMedia) : undefined,

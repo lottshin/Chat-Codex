@@ -16,7 +16,7 @@ test("BridgeSessionFlow creates new sessions in the startup cwd", async () => {
 
   assert.equal(session.cwd, "/repo");
   assert.equal(fixture.state.getBinding("route-a")?.sessionId, session.id);
-  assert.match(fixture.sentTexts.at(-1) ?? "", /已创建新 Codex 会话/);
+  assert.match(fixture.sentTexts.at(-1) ?? "", /已创建新( Codex)?会话/);
   assert.match(fixture.sentTexts.at(-1) ?? "", /Cwd: \/repo/);
 });
 
