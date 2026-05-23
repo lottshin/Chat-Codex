@@ -14,9 +14,10 @@ test("ApprovalManager creates and resolves approvals", () => {
 
   assert.equal(pending.status, "pending");
   assert.equal(pending.expiresAt, undefined);
-  assert.match(manager.formatForChannel(pending), /\/OK 或 \/1/);
-  assert.match(manager.formatForChannel(pending), /\/P 或 \/2/);
-  assert.match(manager.formatForChannel(pending), /\/NO 或 \/3/);
+  assert.match(manager.formatForChannel(pending), /类型: 命令执行/);
+  assert.match(manager.formatForChannel(pending), /\/OK 或 \/1：通过当前审批/);
+  assert.match(manager.formatForChannel(pending), /\/P 或 \/2：本会话通过/);
+  assert.match(manager.formatForChannel(pending), /\/NO 或 \/3：拒绝当前审批/);
   assert.doesNotMatch(manager.formatForChannel(pending), new RegExp(pending.approvalKey));
   assert.doesNotMatch(manager.formatForChannel(pending), /\/approve/);
   assert.equal(manager.latest(pending.routeKey)?.approvalKey, pending.approvalKey);
@@ -39,8 +40,8 @@ test("ApprovalManager renders dynamic approval choices", () => {
 
   const text = manager.formatForChannel(pending);
 
-  assert.match(text, /\/OK 或 \/1/);
-  assert.match(text, /\/NO 或 \/2/);
+  assert.match(text, /\/OK 或 \/1：通过当前审批/);
+  assert.match(text, /\/NO 或 \/2：拒绝当前审批/);
   assert.doesNotMatch(text, /\/P/);
   assert.doesNotMatch(text, /\/3/);
 });

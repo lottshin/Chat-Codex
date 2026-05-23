@@ -39,12 +39,12 @@ export async function handlePermissionCommand(
     if (sessionId) options.state.setSessionRunPolicy(sessionId, policy);
     const policyStatus = options.runPolicyStatus(sessionId);
     await options.delivery.sendText(target, [
-      "已切换权限模式: approval",
+      "已切换到审批模式。",
       sessionId ? `作用范围: 当前会话 \`${sessionId}\`` : "作用范围: 默认策略（后续新会话）",
       "后续任务将使用 workspace-write sandbox。",
       policyStatus && !policyStatus.interactiveApprovals
         ? "注意：当前后端不支持交互审批；真实生效的 approval_policy 仍是 never。"
-        : "后续审批请求会交给当前 Adapter 处理。",
+        : "后续如需审批，会继续通过当前后端处理。",
       policyStatus?.note ? `说明: ${policyStatus.note}` : undefined,
       options.routeQueue.hasWorker(message.routeKey) ? "当前正在运行的任务不会被改写；需要立即生效请先 /stop。" : undefined,
     ].filter(Boolean).join("\n"));
@@ -54,7 +54,7 @@ export async function handlePermissionCommand(
     if (!isConfirmed(args.slice(1))) {
       await options.delivery.sendText(target, [
         "完全权限会跳过审批或权限检查，当前后端可以直接执行命令并修改文件，风险很高。",
-        "确认切换请发送:",
+        "确认切换请直接发送:",
         "/permission full confirm",
       ].join("\n"));
       return;
@@ -63,7 +63,7 @@ export async function handlePermissionCommand(
     options.codex.setRunPolicy(policy, sessionId);
     if (sessionId) options.state.setSessionRunPolicy(sessionId, policy);
     await options.delivery.sendText(target, [
-      "已切换权限模式: full",
+      "已切换到完全权限。",
       sessionId ? `作用范围: 当前会话 \`${sessionId}\`` : "作用范围: 默认策略（后续新会话）",
       "后续任务将跳过审批或权限检查。建议完成高权限任务后发送 /permission approval 切回安全模式。",
       options.routeQueue.hasWorker(message.routeKey) ? "当前正在运行的任务不会被改写；需要立即生效请先 /stop。" : undefined,
@@ -75,7 +75,7 @@ export async function handlePermissionCommand(
     if (claudeMode === "bypassPermissions" && !isConfirmed(args.slice(1))) {
       await options.delivery.sendText(target, [
         "Claude Code bypassPermissions 会跳过权限检查，风险很高。",
-        "确认切换请发送:",
+        "确认切换请直接发送:",
         `/permission ${rawMode} confirm`,
       ].join("\n"));
       return;

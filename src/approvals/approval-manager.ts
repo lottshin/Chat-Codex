@@ -1,5 +1,6 @@
 import type { ApprovalDecision, ApprovalRequest, PendingApproval } from "./types.js";
 import { approvalChoices, formatApprovalChoiceLine } from "./choices.js";
+import { formatApprovalKindForUser } from "../bridge/formatters.js";
 
 export interface ApprovalManagerOptions {
   ttlMs?: number | null;
@@ -122,17 +123,17 @@ export class ApprovalManager {
   formatForChannel(pending: PendingApproval, backendName = "Codex"): string {
     const lines = [
       `${backendName} 请求审批`,
-      `类型: ${pending.kind}`,
+      `类型: ${formatApprovalKindForUser(pending.kind)}`,
       `Session: ${shortId(pending.sessionId)}`,
       `Turn: ${shortId(pending.turnId)}`,
     ];
-    if (pending.cwd) lines.push(`CWD: ${pending.cwd}`);
-    if (pending.command) lines.push("Command:", pending.command);
-    if (pending.reason) lines.push(`Reason: ${pending.reason}`);
+    if (pending.cwd) lines.push(`工作目录: ${pending.cwd}`);
+    if (pending.command) lines.push("待执行命令:", pending.command);
+    if (pending.reason) lines.push(`原因: ${pending.reason}`);
     if (pending.risk) lines.push(`风险: ${pending.risk}`);
     lines.push(
       "",
-      "快捷回复:",
+      "直接回复以下任一命令即可处理:",
       ...approvalChoices(pending).map(formatApprovalChoiceLine),
     );
     return lines.join("\n");

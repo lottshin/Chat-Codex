@@ -25,7 +25,7 @@ export function approvalChoices(approval: Pick<PendingApproval, "availableDecisi
 }
 
 export function formatApprovalChoiceLine(choice: ApprovalChoice): string {
-  return `${choice.command} 或 ${choice.numeric} ${choice.description}`;
+  return `${choice.command} 或 ${choice.numeric}：${choice.description}`;
 }
 
 export function decisionForNumericApprovalChoice(
