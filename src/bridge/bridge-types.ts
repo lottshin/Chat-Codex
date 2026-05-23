@@ -147,7 +147,7 @@ export const STEER_BATCH_MAX_CHARS = 4000;
 export const ROUTE_BUSY_MUTATION_REJECT_TEXT = [
   "当前对话的 Codex 正在执行，不能修改会话、权限、模型、协作模式或 Goal。",
   "上下文刷新设置也会在当前任务结束前被拦截。",
-  "请等待完成，或发送 /stop 后再修改。",
+  "下一步：等待当前任务完成；如需中断，请发送 /stop，完成后再重发刚才的命令。",
 ].join("\n");
 export const COMPACT_RUNNING_REJECT_TEXT = "当前正在压缩上下文，请等待完成后再操作。";
 export const COMPACT_RUNNING_MESSAGE_REJECT_TEXT = "当前正在压缩上下文，请等待完成后再发送消息。";

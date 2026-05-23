@@ -299,7 +299,7 @@ export class BridgeCommandRouter {
           await this.handlers.planWorkflow(message, target, "cancel", args);
           return;
         }
-        await this.delivery.sendText(target, `未知命令: /${name}\n发送 /help 查看可用命令。`);
+        await this.delivery.sendText(target, unknownCommandMessage(name, this.commandProfile));
         return;
       case "p":
       case "yes-session":
@@ -329,7 +329,7 @@ export class BridgeCommandRouter {
         await this.handlers.compact(message, target, args);
         return;
       default:
-        await this.delivery.sendText(target, `未知命令: /${name}\n发送 /help 查看可用命令。`);
+        await this.delivery.sendText(target, unknownCommandMessage(name, this.commandProfile));
     }
   }
   isBridgeCommand(message: ChannelMessage, name: string): boolean {
@@ -361,6 +361,16 @@ export class BridgeCommandRouter {
     await this.delivery.sendText(target, unsupportedCommandMessage(this.backend, command, featureLabel));
     return true;
   }
+}
+
+function unknownCommandMessage(name: string, commandProfile: CommandNamespaceProfile): string {
+  if (commandProfile === "claude") {
+    return [
+      `未知 Chat-Codex 命令: /${name}`,
+      "下一步：发送 /bridge-help 查看 Chat-Codex 可用命令；Claude Code 原生命令请直接发送根命令。",
+    ].join("\n");
+  }
+  return `未知命令: /${name}\n下一步：发送 /help 查看可用命令。`;
 }
 
 function isApprovalAlias(name: string): boolean {

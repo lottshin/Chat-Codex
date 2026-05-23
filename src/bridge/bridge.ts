@@ -568,7 +568,7 @@ export class Bridge {
   ): Promise<void> {
     const workflow = this.planWorkflows.get(message.routeKey);
     if (!workflow) {
-      await this.delivery.sendText(target, "当前没有待处理计划。发送 /plan <任务> 先生成计划。");
+      await this.delivery.sendText(target, "当前没有待处理计划。下一步：发送 /plan <任务> 先生成计划。");
       return;
     }
     if (choice === "cancel") {

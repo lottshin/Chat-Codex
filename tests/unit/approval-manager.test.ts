@@ -94,6 +94,7 @@ test("ApprovalManager rejects wrong route decisions", () => {
   });
 
   assert.throws(() => manager.decide(pending.approvalKey, "route-b", "deny"), /不属于当前会话/);
+  assert.throws(() => manager.decide(pending.approvalKey, "route-b", "deny"), /\/OK、\/NO 或数字选项/);
 });
 
 test("ApprovalManager cancels pending approvals for a route", () => {

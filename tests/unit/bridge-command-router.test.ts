@@ -55,7 +55,13 @@ test("BridgeCommandRouter classifies bridge-owned command names", () => {
 test("BridgeCommandRouter sends unknown command help text", async () => {
   const fixture = routerFixture();
   await fixture.router.handle(message(), target(), "missing", [], "/missing");
-  assert.equal(fixture.sent.at(-1), "未知命令: /missing\n发送 /help 查看可用命令。");
+  assert.equal(fixture.sent.at(-1), "未知命令: /missing\n下一步：发送 /help 查看可用命令。");
+});
+
+test("BridgeCommandRouter points Claude profile bridge errors to /bridge-help", async () => {
+  const fixture = routerFixture({ backend: "claude", commandProfile: "claude" });
+  await fixture.router.handle(message(), target(), "bridge-missing", [], "/bridge-missing");
+  assert.equal(fixture.sent.at(-1), "未知 Chat-Codex 命令: /bridge-missing\n下一步：发送 /bridge-help 查看 Chat-Codex 可用命令；Claude Code 原生命令请直接发送根命令。");
 });
 
 test("BridgeCommandRouter handles refresh commands before normal dispatch", async () => {
@@ -74,6 +80,7 @@ test("BridgeCommandRouter rejects semantic mutations while route is busy", async
   const fixture = routerFixture({ busy: true });
   await fixture.router.handle(message(), target(), "model", ["gpt-next", "xhigh"], "/model gpt-next xhigh");
   assert.match(fixture.sent.at(-1) ?? "", /当前对话的 Codex 正在执行/);
+  assert.match(fixture.sent.at(-1) ?? "", /下一步.*\/stop/);
   assert.equal(fixture.calls.model, 0);
 });
 
@@ -210,6 +217,12 @@ test("BridgeCommandRouter keeps approval shortcuts ahead of plan workflow", asyn
 
   assert.deepEqual(fixture.approvalDecisions, ["approve", "deny"]);
   assert.deepEqual(fixture.planWorkflowChoices, []);
+});
+
+test("BridgeCommandRouter treats /4 as unknown when no shortcut is pending", async () => {
+  const fixture = routerFixture();
+  await fixture.router.handle(message(), target(), "4", [], "/4");
+  assert.equal(fixture.sent.at(-1), "未知命令: /4\n下一步：发送 /help 查看可用命令。");
 });
 
 test("BridgeCommandRouter routes explicit plan workflow commands", async () => {

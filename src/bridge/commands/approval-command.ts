@@ -22,7 +22,7 @@ export async function handleApprovalCommand(
   const parsed = parseApprovalArgs(options.approvals, message.routeKey, args);
   const key = parsed.approvalKey ?? options.approvals.latest(message.routeKey)?.approvalKey;
   if (!key) {
-    await options.delivery.sendText(target, "当前没有待处理审批。");
+    await options.delivery.sendText(target, "当前没有待处理审批。下一步：等待新的审批提示；如需查看当前状态，请发送 /status。");
     return;
   }
   try {
