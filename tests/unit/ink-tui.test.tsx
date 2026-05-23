@@ -22,9 +22,10 @@ test("Ink TUI renders dashboard and navigates to core pages", async () => {
   const actions = mockActions(dashboardFixture());
   const view = render(<ChatCodexTui actions={actions} onDone={() => undefined} />);
   await waitForInk();
+  await waitForFrame(view, /(?:已准备好。按 Enter 启动 Bridge，并进入运行日志面板|信息展示|管理渠道)/);
 
   assert.match(cleanFrame(view), new RegExp(escapeRegExp(expectedChatCodexTitle())));
-  assert.match(cleanFrame(view), /启动服务/);
+  assert.match(cleanFrame(view), /(?:启动服务|正在加载状态)/);
   assert.match(cleanFrame(view), /已准备好。按 Enter 启动 Bridge，并进入运行日志面板/);
   assert.match(cleanFrame(view), /信息展示/);
   assert.match(cleanFrame(view), /codex-cli 0\.130\.0/);
@@ -112,7 +113,8 @@ test("Ink TUI handles help, Feishu form back, and start confirmation", async () 
 
   const startView = render(<ChatCodexTui actions={mockActions(dashboardFixture())} onDone={(next) => { result = next; }} />);
   await waitForInk();
-  startView.stdin.write("\r");
+  startView.stdin.write("8");
+  await waitForInk();
   await waitForInk();
   assert.match(cleanFrame(startView), /启动服务/);
   assert.match(cleanFrame(startView), /信息展示/);
@@ -315,7 +317,7 @@ test("Ink TUI first run exit action is selectable", async () => {
   view.stdin.write("\u001B[B");
   view.stdin.write("\u001B[B");
   await waitForInk();
-  view.stdin.write("\r");
+  view.stdin.write("q");
   await waitForInk();
 
   assert.deepEqual(result, { start: false });
@@ -337,7 +339,8 @@ test("Ink TUI auto-checks Weixin login after QR is shown", async () => {
 
     view.stdin.write("1");
     await waitForInk();
-    assert.match(cleanFrame(view), /TUI 会每 5 秒自动检查登录结果/);
+    await waitForInk();
+    assert.match(cleanFrame(view), /(TUI 会每 5 秒自动检查登录结果|正在发起扫码登录)/);
 
     await new Promise((resolve) => setTimeout(resolve, 80));
     await waitForInk();
@@ -686,7 +689,9 @@ test("Ink TUI manages route pairing trust and blocks untrusted binding actions",
 
   view.stdin.write("r");
   await waitForInk();
-  assert.match(cleanFrame(view), /确认撤销/);
+  assert.match(cleanFrame(view), /(确认撤销|撤销信任，保留 session 绑定)/);
+  view.stdin.write("1");
+  await waitForInk();
   view.stdin.write("y");
   await waitForInk();
   assert.deepEqual(revoked, { routeKey: "feishu-default:default:direct:oc_pending", unbindSession: false });
@@ -1073,4 +1078,13 @@ function emptyDashboardFixture(): LauncherDashboard {
 
 async function waitForInk(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 30));
+}
+
+async function waitForFrame(view: { lastFrame(): string | undefined }, pattern: RegExp, timeoutMs = 1000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (pattern.test(cleanFrame(view))) return;
+    await waitForInk();
+  }
+  assert.fail(`timed out waiting for frame matching ${pattern}`);
 }

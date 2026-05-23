@@ -40,9 +40,9 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "npm run build && node --test dist/tests/unit/*.test.js dist/tests/integration/*.test.js",
-    "test:unit": "npm run build && node --test dist/tests/unit/*.test.js",
-    "test:integration": "npm run build && node --test dist/tests/integration/*.test.js",
+    "test": "npm run build && node scripts/run-tests.mjs unit integration",
+    "test:unit": "npm run build && node scripts/run-tests.mjs unit",
+    "test:integration": "npm run build && node scripts/run-tests.mjs integration",
     "chat-codex": "npm run build && node dist/src/cli.js",
     "cli:chat-codex": "npm run build && node dist/src/cli.js",
     "cli:mock": "npm run build && node dist/src/cli.js test",

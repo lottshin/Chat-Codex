@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CodexEvent } from "../../src/codex/types.js";
@@ -8,6 +8,7 @@ import { AppServerRpcClient } from "../../src/codex/app-server/rpc-client.js";
 import { AppServerSessionStore } from "../../src/codex/app-server/session-store.js";
 import { AppServerTurnController } from "../../src/codex/app-server/turn-controller.js";
 import { AsyncEventQueue } from "../../src/codex/app-server/turn-store.js";
+import { writeFakeCodexBin } from "../helpers/fake-codex-bin.js";
 
 test("app-server session store keeps local sessions and thread mappings", () => {
   const store = new AppServerSessionStore();
@@ -91,8 +92,11 @@ test("app-server turn controller maps notifications to queued events and status 
 
 test("app-server rpc client starts stdio server, dispatches responses, notifications, and stop", async () => {
   const dir = await mkdtemp(join(tmpdir(), "chat-codex-rpc-"));
-  const bin = join(dir, "fake-codex.mjs");
-  await writeFile(bin, `#!/usr/bin/env node
+  const bin = await writeFakeCodexBin({
+    root: dir,
+    name: "fake-codex",
+    extension: ".mjs",
+    source: `#!/usr/bin/env node
 import { createInterface } from "node:readline";
 const rl = createInterface({ input: process.stdin });
 for await (const line of rl) {
@@ -106,8 +110,8 @@ for await (const line of rl) {
     console.log(JSON.stringify({ id: message.id, result: { emitted: true } }));
   }
 }
-`);
-  await chmod(bin, 0o755);
+`,
+  });
   const notifications: unknown[] = [];
   const client = new AppServerRpcClient({
     codexBin: bin,

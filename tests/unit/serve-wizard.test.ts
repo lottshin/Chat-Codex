@@ -60,7 +60,7 @@ test("serve wizard formats channel-first home summary with Chinese actions", () 
     },
   });
 
-  assert.ok(text.includes("Codex Chat Bridge"));
+  assert.ok(text.includes("AI Chat Bridge"));
   assert.ok(text.includes("当前位置：首页"));
   assert.ok(text.includes("渠道"));
   assert.ok(text.includes("聊天绑定"));

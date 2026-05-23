@@ -6,14 +6,17 @@ import os from "node:os";
 import path from "node:path";
 import { AppServerCodexAdapter } from "../../src/codex/app-server-codex-adapter.js";
 import type { CodexEvent, CodexTurnInput } from "../../src/codex/types.js";
+import { writeFakeCodexBinSync } from "../helpers/fake-codex-bin.js";
 
 function tempDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "app-server-codex-test-"));
 }
 
 function fakeCodexBin(root: string): string {
-  const fakeBin = path.join(root, "fake-codex-app-server.js");
-  fs.writeFileSync(fakeBin, `#!/usr/bin/env node
+  return writeFakeCodexBinSync({
+    root,
+    name: "fake-codex-app-server",
+    source: `#!/usr/bin/env node
 const fs = require("node:fs");
 const readline = require("node:readline");
 fs.appendFileSync(${JSON.stringify(path.join(root, "fake-app-server-starts.log"))}, process.pid + "\\n");
@@ -332,9 +335,8 @@ rl.on("line", (line) => {
     send({ id: message.id, result: {} });
   }
 });
-`, "utf-8");
-  fs.chmodSync(fakeBin, 0o755);
-  return fakeBin;
+`,
+  });
 }
 
 function fakeAppServerStartCount(root: string): number {

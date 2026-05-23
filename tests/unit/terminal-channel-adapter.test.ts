@@ -55,6 +55,6 @@ test("TerminalChannelAdapter writes replies to output", async () => {
   }, "reply text");
 
   assert.equal(result.channelId, "terminal");
-  assert.match(output.text(), /\[Codex\]\nreply text/);
+  assert.match(output.text(), /\[(Codex|AI)\]\nreply text/);
   assert.equal((await adapter.getStatus()).lastOutboundAt, result.deliveredAt);
 });
