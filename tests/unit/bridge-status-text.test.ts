@@ -74,6 +74,13 @@ test("BridgeStatusText uses /bridge-* help commands in Claude profile", () => {
   assert.match(text, /\/bridge-help/);
   assert.match(text, /\/bridge-status/);
   assert.match(text, /\/bridge-compact/);
+  assert.match(text, /\/bridge-session/);
+  assert.match(text, /\/bridge-all-sessions/);
+  assert.match(text, /\/bridge-default \[任务\]/);
+  assert.match(text, /\/bridge-mode/);
+  assert.match(text, /\/bridge-ctx-refresh/);
+  assert.match(text, /\/bridge-permissions/);
+  assert.match(text, /\/bridge-plan-accept-edits/);
   assert.match(text, /根 `\/\.\.\.` 优先发给 Claude Code/);
 });
 
