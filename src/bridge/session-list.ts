@@ -131,9 +131,9 @@ export function formatSessionListPage(page: SessionListPage, options: FormatSess
 
   lines.push("");
   if (options.selectionMode) {
-    lines.push("直接回复编号完成切换；回复 `n` 下一页，`p` 上一页；回复“取消”退出。");
+    lines.push("下一步：直接回复编号完成切换；回复 `n` 下一页，`p` 上一页；回复“取消”退出。");
   } else if (options.pageCommand) {
-    lines.push(`发送 \`${options.pageCommand} next\` / \`${options.pageCommand} prev\` 翻页；发送 \`/use\` 进入切换选择。`);
+    lines.push(`下一步：发送 \`/use\` 进入编号选择，或发送 \`/use <session>\` 直接切换；翻页用 \`${options.pageCommand} next\` / \`${options.pageCommand} prev\`。`);
   }
   return lines.join("\n").trimEnd();
 }

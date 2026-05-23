@@ -232,8 +232,8 @@ export class BridgeStatusText {
       title: "会话",
       scopeLabel: request.scope === "all" ? "全部可发现" : "当前聊天",
       emptyText: request.scope === "all"
-        ? "未发现历史会话。发送 `/new` 创建新会话。"
-        : "当前聊天暂无会话。发送 `/new` 创建新会话，或发送 `/resume` 进入会话选择。",
+        ? "下一步：发送 `/new` 创建新会话。"
+        : "下一步：发送 `/new` 创建新会话，或发送 `/resume` 进入会话选择。",
       pageCommand: request.scope === "all" ? "/sessions all" : "/sessions",
     });
   }

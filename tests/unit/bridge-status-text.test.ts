@@ -129,6 +129,8 @@ test("BridgeStatusText shows backend labels in sessions list", async () => {
   assert.match(text, /Session: `claude-local-1`/);
   assert.match(text, /后端: `claude`/);
   assert.match(text, /Claude session: `claude-actual-123`/);
+  assert.match(text, /下一步：发送 `\/use` 进入编号选择/);
+  assert.match(text, /`\/use <session>`/);
 });
 
 test("BridgeStatusText shows actionable next step for idle bound sessions", async () => {
