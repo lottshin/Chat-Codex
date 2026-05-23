@@ -67,27 +67,29 @@ export class ApprovalManager {
       const waiters = this.waiters.get(approvalKey) ?? new Set<ApprovalWaiter>();
       waiters.add(waiter);
       this.waiters.set(approvalKey, waiters);
-      const timeoutMs = typeof options.timeoutMs === "number" ? options.timeoutMs : undefined;
-      if (timeoutMs !== undefined) {
-        waiter.timer = setTimeout(() => {
-          const pending = this.approvals.get(approvalKey);
-          if (!pending || pending.status !== "pending") return;
-          pending.status = "resolved";
-          pending.decision = "cancel";
-          pending.decisionReason = "审批超时";
-          this.approvals.set(approvalKey, pending);
-          this.notifyWaiters(pending);
-        }, Math.max(timeoutMs, 0));
-        waiter.timer.unref?.();
-      }
-      this.expireOld();
-      const updated = this.approvals.get(approvalKey);
-      if (!updated || updated.status !== "pending") {
+
+      const resolveIfSettled = (): boolean => {
+        const updated = this.approvals.get(approvalKey);
+        if (!updated || updated.status === "pending") return false;
         waiters.delete(waiter);
         if (waiters.size === 0) this.waiters.delete(approvalKey);
         if (waiter.timer) clearTimeout(waiter.timer);
-        resolve(updated ?? existing);
+        resolve(updated);
+        return true;
+      };
+
+      if (resolveIfSettled()) return;
+
+      const timeoutMs = typeof options.timeoutMs === "number" ? options.timeoutMs : undefined;
+      if (timeoutMs !== undefined) {
+        waiter.timer = setTimeout(() => {
+          this.resolveTimeout(approvalKey);
+        }, Math.max(timeoutMs, 0));
+        waiter.timer.unref?.();
       }
+
+      this.expireOld();
+      resolveIfSettled();
     });
   }
 
@@ -103,10 +105,7 @@ export class ApprovalManager {
     if (pending.status !== "pending") {
       throw new Error(`审批请求 ${approvalKey} 已处理`);
     }
-    pending.status = "resolved";
-    pending.decision = decision;
-    this.approvals.set(approvalKey, pending);
-    this.notifyWaiters(pending);
+    this.finalize(pending, { status: "resolved", decision });
     return pending;
   }
 
@@ -115,11 +114,7 @@ export class ApprovalManager {
     const cancelled: PendingApproval[] = [];
     for (const pending of this.approvals.values()) {
       if (pending.routeKey !== routeKey || pending.status !== "pending") continue;
-      pending.status = "resolved";
-      pending.decision = "cancel";
-      pending.decisionReason = reason?.trim() || undefined;
-      this.approvals.set(pending.approvalKey, pending);
-      this.notifyWaiters(pending);
+      this.finalize(pending, { status: "resolved", decision: "cancel", decisionReason: reason?.trim() || undefined });
       cancelled.push(pending);
     }
     return cancelled;
@@ -149,11 +144,26 @@ export class ApprovalManager {
     const now = Date.now();
     for (const approval of this.approvals.values()) {
       if (approval.status === "pending" && approval.expiresAt && Date.parse(approval.expiresAt) <= now) {
-        approval.status = "expired";
-        this.approvals.set(approval.approvalKey, approval);
-        this.notifyWaiters(approval);
+        this.finalize(approval, { status: "expired", decision: undefined, decisionReason: undefined });
       }
     }
+  }
+
+  private resolveTimeout(approvalKey: string): void {
+    const pending = this.approvals.get(approvalKey);
+    if (!pending || pending.status !== "pending") return;
+    this.finalize(pending, { status: "resolved", decision: "cancel", decisionReason: "审批超时" });
+  }
+
+  private finalize(
+    approval: PendingApproval,
+    updates: Pick<PendingApproval, "status" | "decision" | "decisionReason">,
+  ): void {
+    approval.status = updates.status;
+    approval.decision = updates.decision;
+    approval.decisionReason = updates.decisionReason;
+    this.approvals.set(approval.approvalKey, approval);
+    this.notifyWaiters(approval);
   }
 
   private notifyWaiters(approval: PendingApproval): void {
