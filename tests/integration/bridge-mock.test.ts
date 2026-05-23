@@ -1125,6 +1125,7 @@ test("Bridge keeps first-party and unknown slash command handling ahead of backe
   assert.equal(codex.runs.length, 0);
   assert.ok(channel.sentMessages.some((message) => message.text.includes("即将压缩当前会话")));
   assert.ok(channel.sentMessages.some((message) => message.text.includes("未知命令: /missing")));
+  assert.ok(channel.sentMessages.some((message) => message.text.includes("下一步：发送 /help")));
 });
 
 test("Bridge does not pass Claude slash commands through for Codex by default", async () => {
@@ -1138,6 +1139,7 @@ test("Bridge does not pass Claude slash commands through for Codex by default", 
 
   assert.equal(codex.runs.length, 0);
   assert.ok(channel.sentMessages.some((message) => message.text.includes("未知命令: /simplify")));
+  assert.ok(channel.sentMessages.some((message) => message.text.includes("下一步：发送 /help")));
 });
 
 test("Bridge queues known backend slash commands while route is busy", async () => {
@@ -1877,6 +1879,7 @@ test("Bridge rejects semantic mutations while the current route is busy", async 
 
   const rejectMessages = channel.sentMessages.filter((message) => message.text.includes("不能修改会话、权限、模型、协作模式或 Goal"));
   assert.equal(rejectMessages.length, 4);
+  assert.ok(rejectMessages.every((message) => message.text.includes("下一步") && message.text.includes("/stop")));
   assert.equal(codex.getRunPolicy("mock-codex-1").permissionMode, "approval");
   assert.deepEqual(codex.getModelPolicy("mock-codex-1"), {});
   assert.equal(codex.getCollaborationMode("mock-codex-1"), "default");
@@ -1900,7 +1903,7 @@ test("Bridge treats pending approvals as busy for semantic mutations", async () 
   await channel.emitText("/model gpt-next xhigh");
   await bridge.stop();
 
-  assert.ok(channel.sentMessages.some((message) => message.text.includes("不能修改会话、权限、模型、协作模式或 Goal")));
+  assert.ok(channel.sentMessages.some((message) => message.text.includes("不能修改会话、权限、模型、协作模式或 Goal") && message.text.includes("下一步") && message.text.includes("/stop")));
   assert.deepEqual(codex.getModelPolicy("mock-codex-1"), { model: "gpt-next", reasoningEffort: "xhigh" });
   const setMessages = channel.sentMessages.filter((message) => message.text.includes("已设置模型"));
   assert.equal(setMessages.length, 1);
@@ -2680,7 +2683,7 @@ test("Bridge keeps approvals scoped to the originating channel route", async () 
   await bridge.stop();
 
   assert.ok(channelB.sentMessages.some((message) => message.text.includes("Codex 请求审批")));
-  assert.ok(channelA.sentMessages.some((message) => message.text === "当前没有待处理审批。"));
+  assert.ok(channelA.sentMessages.some((message) => message.text.includes("当前没有待处理审批") && message.text.includes("/status")));
   assert.equal(codex.resolvedApprovals.length, 1);
   assert.equal(codex.resolvedApprovals[0].decision, "approve");
 });

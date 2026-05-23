@@ -97,13 +97,22 @@ export class ApprovalManager {
     this.expireOld();
     const pending = this.approvals.get(approvalKey);
     if (!pending) {
-      throw new Error(`未找到审批请求: ${approvalKey}`);
+      throw new Error([
+        `未找到审批请求: ${approvalKey}`,
+        "下一步：等待新的审批提示；如需查看当前状态，请发送 /status。",
+      ].join("\n"));
     }
     if (pending.routeKey !== routeKey) {
-      throw new Error(`审批请求 ${approvalKey} 不属于当前会话`);
+      throw new Error([
+        `审批请求 ${approvalKey} 不属于当前会话`,
+        "下一步：请回到收到审批提示的原聊天，并发送提示中列出的命令，例如 /OK、/NO 或数字选项。",
+      ].join("\n"));
     }
     if (pending.status !== "pending") {
-      throw new Error(`审批请求 ${approvalKey} 已处理`);
+      throw new Error([
+        `审批请求 ${approvalKey} 已处理`,
+        "下一步：如需继续，请发送新的任务；如需查看当前状态，请发送 /status。",
+      ].join("\n"));
     }
     this.finalize(pending, { status: "resolved", decision });
     return pending;

@@ -45,7 +45,10 @@ export function isApprovalDecisionAvailable(
 }
 
 export function unavailableApprovalDecisionMessage(decision: ApprovalDecision): string {
-  return `当前审批不支持${descriptionForDecision(decision)}。`;
+  return [
+    `当前审批不支持${descriptionForDecision(decision)}。`,
+    "下一步：请发送审批提示中列出的命令，例如 /OK、/NO 或数字选项。",
+  ].join("\n");
 }
 
 function commandForDecision(decision: ApprovalDecision): string {
