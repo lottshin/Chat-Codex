@@ -80,6 +80,14 @@ export class ApprovalManager {
         }, Math.max(timeoutMs, 0));
         waiter.timer.unref?.();
       }
+      this.expireOld();
+      const updated = this.approvals.get(approvalKey);
+      if (!updated || updated.status !== "pending") {
+        waiters.delete(waiter);
+        if (waiters.size === 0) this.waiters.delete(approvalKey);
+        if (waiter.timer) clearTimeout(waiter.timer);
+        resolve(updated ?? existing);
+      }
     });
   }
 
