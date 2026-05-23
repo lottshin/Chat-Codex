@@ -431,9 +431,9 @@ export class BridgeStatusText {
       `- 作用范围: ${sessionId ? `当前会话 \`${sessionId}\`` : "默认策略（后续新会话）"}`,
       `- 当前模式: \`${policy ? formatRunPolicy(policy) : "unknown"}\``,
       policyStatus ? `- 审批支持: ${formatApprovalSupport(policyStatus)}` : undefined,
-      "- `approval`: 使用 `workspace-write` sandbox；是否能在聊天里弹审批取决于当前后端。",
+      "- `approval`: 使用 `workspace-write` sandbox；如当前后端支持，会在聊天里发起审批。",
       "- `full`: 完全权限，跳过审批或权限检查，风险很高。",
-      "- 切回安全沙箱模式: `/permission approval`",
+      "- 切回审批模式: `/permission approval`",
       "- 切到完全权限: `/permission full confirm`",
       policyStatus?.note ? `- 说明: ${policyStatus.note}` : undefined,
     ].filter(Boolean).join("\n");

@@ -605,9 +605,9 @@ test("Bridge handles new session, prompt, status, and approval over mock channel
   const approvalMessage = channel.sentMessages.find((message) => message.text.includes("Codex 请求审批"));
   assert.ok(approvalMessage, "approval request should be sent to channel");
   assert.equal(/\[a[0-9a-z]+]/.test(approvalMessage.text), false, "approval id should not be exposed in normal channel prompt");
-  assert.ok(approvalMessage.text.includes("/OK 或 /1 通过当前审批"));
-  assert.ok(approvalMessage.text.includes("/P 或 /2 本会话通过"));
-  assert.ok(approvalMessage.text.includes("/NO 或 /3 拒绝当前审批"));
+  assert.ok(approvalMessage.text.includes("/OK 或 /1：通过当前审批"));
+  assert.ok(approvalMessage.text.includes("/P 或 /2：本会话通过"));
+  assert.ok(approvalMessage.text.includes("/NO 或 /3：拒绝当前审批"));
 
   await channel.emitText("/OK 好的");
   await bridge.waitForIdle();
@@ -620,7 +620,7 @@ test("Bridge handles new session, prompt, status, and approval over mock channel
   assert.ok(channel.sentMessages.some((message) => message.text.includes("已绑定 Codex 会话")));
   assert.ok(channel.sentMessages.some((message) => message.text.includes("Mock Codex 回复: 你好")));
   assert.ok(channel.sentMessages.some((message) => message.text.includes("**Codex 状态**")));
-  const approvalHandledMessage = channel.sentMessages.find((message) => message.text.startsWith("审批已处理:"))?.text ?? "";
+  const approvalHandledMessage = channel.sentMessages.find((message) => message.text.startsWith("审批已处理："))?.text ?? "";
   assert.ok(approvalHandledMessage.includes("已通过"));
   assert.equal(/\[a[0-9a-z]+]/.test(approvalHandledMessage), false, "approval handled reply should not expose internal id");
   assert.equal(codex.resolvedApprovals.length, 1);
@@ -1921,7 +1921,7 @@ test("Bridge keeps route busy mutation guard scoped to the active route", async 
   assert.equal(codex.getRunPolicy("mock-codex-1").permissionMode, "approval");
   assert.equal(codex.getRunPolicy("mock-codex-2").permissionMode, "full");
   assert.ok(channelA.sentMessages.some((message) => message.text.includes("不能修改会话、权限、模型、协作模式或 Goal")));
-  assert.ok(channelB.sentMessages.some((message) => message.text.includes("已切换权限模式: full")));
+  assert.ok(channelB.sentMessages.some((message) => message.text.includes("已切换到完全权限。")));
 });
 
 test("Bridge rejects numbered session selection while the route is busy", async () => {
@@ -2014,7 +2014,7 @@ test("Bridge approves latest approval for the current session with /P", async ()
 
   assert.equal(codex.resolvedApprovals.length, 1);
   assert.equal(codex.resolvedApprovals[0].decision, "approve-session");
-  assert.ok(channel.sentMessages.some((message) => message.text.includes("审批已处理: 已按本会话通过")));
+  assert.ok(channel.sentMessages.some((message) => message.text.includes("审批已处理：已按本会话通过，当前操作将继续执行。")));
 });
 
 test("Bridge retries approval notifications until one is delivered", async () => {
@@ -2030,7 +2030,7 @@ test("Bridge retries approval notifications until one is delivered", async () =>
   assert.equal(channel.approvalAttempts, 3);
   const deliveredApprovals = channel.sentMessages.filter((message) => message.text.includes("Codex 请求审批"));
   assert.equal(deliveredApprovals.length, 1);
-  assert.ok(deliveredApprovals[0].text.includes("/OK 或 /1 通过当前审批"));
+  assert.ok(deliveredApprovals[0].text.includes("/OK 或 /1：通过当前审批"));
 });
 
 test("Bridge stops retrying approval notification after approval is resolved", async () => {
@@ -2387,7 +2387,7 @@ test("Bridge permission command shows and changes Codex run policy", async () =>
 
   assert.ok(channel.sentMessages.some((message) => message.text.includes("当前模式: `approval sandbox=workspace-write`")));
   assert.ok(channel.sentMessages.some((message) => message.text.includes("/permission full confirm")));
-  assert.ok(channel.sentMessages.some((message) => message.text.includes("已切换权限模式: full")));
+  assert.ok(channel.sentMessages.some((message) => message.text.includes("已切换到完全权限。")));
   assert.ok(channel.sentMessages.some((message) => message.text.includes("权限模式: 完全权限")));
   assert.equal(codex.getRunPolicy().permissionMode, "approval");
 });

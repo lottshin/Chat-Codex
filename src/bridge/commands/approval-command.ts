@@ -33,7 +33,7 @@ export async function handleApprovalCommand(
     }
     const pending = options.approvals.decide(key, message.routeKey, decision);
     await options.codex.resolveApproval?.(pending.adapterApprovalId ?? pending.approvalKey, decision);
-    await options.delivery.sendText(target, `审批已处理: ${formatApprovalDecision(decision)}`);
+    await options.delivery.sendText(target, `审批已处理：${formatApprovalDecision(decision)}，当前操作将继续执行。`);
   } catch (error) {
     await options.delivery.sendText(target, error instanceof Error ? error.message : String(error));
   }
