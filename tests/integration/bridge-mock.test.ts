@@ -614,7 +614,7 @@ test("Bridge handles new session, prompt, status, and approval over mock channel
   await bridge.stop();
 
   assert.ok(channel.sentMessages.some((message) => message.text.includes("已创建新会话")));
-  assert.ok(channel.sentMessages.some((message) => message.text.includes("**会话**") && message.text.includes("范围: 当前聊天")));
+  assert.ok(channel.sentMessages.some((message) => message.text.includes("**会话**") && message.text.includes("范围: 当前聊天") && message.text.includes("下一步：发送 `/use` 进入编号选择")));
   assert.ok(channel.sentMessages.some((message) => message.text.includes("当前通道身份")));
   assert.ok(channel.sentMessages.some((message) => message.text.includes("Capabilities")));
   assert.ok(channel.sentMessages.some((message) => message.text.includes("已绑定 Codex 会话")));
@@ -738,6 +738,8 @@ test("Bridge can switch sessions by entering a numbered selection mode", async (
   assert.ok(selection.includes("**切换 Codex 会话**"));
   assert.ok(selection.includes("1. Session: `mock-codex-2`（当前）"));
   assert.ok(selection.includes("2. Session: `mock-codex-1`"));
+  assert.ok(selection.includes("下一步：直接回复编号完成切换"));
+  assert.ok(selection.includes("回复 `n` 下一页，`p` 上一页"));
 
   await channel.emitText("2");
   await channel.emitText("/status");
@@ -761,6 +763,7 @@ test("Bridge turns an unknown session id into a recoverable selection prompt", a
 
   assert.ok(selection.includes("没有找到 session `missing-session-id`"));
   assert.ok(selection.includes("**切换 Codex 会话**"));
+  assert.ok(selection.includes("下一步：直接回复编号完成切换"));
   assert.equal(selection.includes("mock session not found"), false);
   assert.ok(channel.sentMessages.at(-1)?.text.includes("已退出切换会话"));
 });
@@ -788,6 +791,7 @@ test("Bridge paginates numbered session selection by current page", async () => 
   await bridge.stop();
 
   assert.ok(page2.includes("页码: `2 / 2`"));
+  assert.ok(page2.includes("下一步：直接回复编号完成切换"));
   assert.ok(channel.sentMessages.some((message) => message.text.includes("已绑定 Codex 会话")));
   assert.ok(channel.sentMessages.at(-1)?.text.includes(`当前会话: \`${selectedId}\``));
 });
@@ -825,6 +829,7 @@ test("Bridge exposes all sessions command for channel users", async () => {
   assert.equal(allSessionsMessages.length, 2);
   assert.ok(allSessionsMessages.every((message) => message.text.includes("mock-codex-1")));
   assert.ok(allSessionsMessages.every((message) => message.text.includes("mock-codex-2")));
+  assert.ok(allSessionsMessages.every((message) => message.text.includes("下一步：发送 `/use` 进入编号选择")));
 });
 
 test("Bridge supports /session alias and paginates session list commands", async () => {
@@ -848,8 +853,13 @@ test("Bridge supports /session alias and paginates session list commands", async
   const allListPage2 = channel.sentMessages.find((message) => message.text.includes("范围: 全部可发现") && message.text.includes("页码: `2 / 2`"))?.text ?? "";
 
   assert.ok(routeList.includes("Session: `mock-codex-1`（当前）"));
+  assert.ok(routeList.includes("下一步：发送 `/use` 进入编号选择"));
   assert.ok(allListPage1.includes("数量: `12`"));
+  assert.ok(allListPage1.includes("下一步：发送 `/use` 进入编号选择"));
+  assert.ok(allListPage1.includes("/sessions all next"));
   assert.ok(allListPage2.includes("数量: `12`"));
+  assert.ok(allListPage2.includes("下一步：发送 `/use` 进入编号选择"));
+  assert.ok(allListPage2.includes("/sessions all prev"));
   assert.ok(channel.sentMessages.at(-1)?.text.includes("页码: `1 / 2`"));
 });
 

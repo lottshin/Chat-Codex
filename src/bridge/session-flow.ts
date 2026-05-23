@@ -221,7 +221,7 @@ export class BridgeSessionFlow {
     }
     if (sessionListStateExpired(selection.createdAt)) {
       this.selections.delete(message.routeKey);
-      await this.delivery.sendText(target, "会话选择已过期，请重新发送 `/resume` 或 `/use`。");
+      await this.delivery.sendText(target, "会话选择已过期。\n下一步：请重新发送 `/resume` 或 `/use`。");
       return;
     }
     const action = sessionPageAction(text);
@@ -235,7 +235,7 @@ export class BridgeSessionFlow {
     if (choiceIndex === undefined) {
       await this.delivery.sendText(target, [
         "正在切换会话。",
-        "请直接回复当前页列表编号，例如 1；回复 `n` 下一页，`p` 上一页；回复“取消”退出。",
+        "下一步：请直接回复当前页列表编号，例如 1；回复 `n` 下一页，`p` 上一页；回复“取消”退出。",
       ].join("\n"));
       return;
     }

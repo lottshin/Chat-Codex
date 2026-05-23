@@ -69,6 +69,19 @@ test("BridgeSessionFlow reports owner conflicts without rebinding", async () => 
   assert.match(fixture.sentTexts.at(-1) ?? "", /Owner: route-other/);
 });
 
+test("BridgeSessionFlow shows next steps while selecting a session", async () => {
+  const fixture = sessionFlowFixture();
+  await fixture.codex.startSession({ routeKey: "seed", cwd: "/seed", title: "seed" });
+
+  await fixture.flow.resumeOrUseSession(message("route-a"), target("route-a"), undefined);
+  await fixture.flow.handleSessionSelectionReply(message("route-a"), target("route-a"), "x");
+
+  assert.match(fixture.sentTexts[0] ?? "", /下一步：直接回复编号完成切换/);
+  assert.match(fixture.sentTexts[0] ?? "", /`n` 下一页/);
+  assert.match(fixture.sentTexts[0] ?? "", /回复“取消”退出/);
+  assert.match(fixture.sentTexts[1] ?? "", /下一步：请直接回复当前页列表编号/);
+});
+
 test("BridgeSessionFlow keeps initial existing binding scoped to the first direct route", async () => {
   const codex = new MockCodexAdapter();
   const existing = await codex.startSession({ routeKey: "seed", cwd: "/seed", title: "seed" });
