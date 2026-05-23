@@ -85,7 +85,6 @@ export class ApprovalManager {
         waiter.timer = setTimeout(() => {
           this.resolveTimeout(approvalKey);
         }, Math.max(timeoutMs, 0));
-        waiter.timer.unref?.();
       }
 
       this.expireOld();
