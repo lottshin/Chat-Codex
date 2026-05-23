@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { ApprovalManager } from "../../src/approvals/approval-manager.js";
 import { BridgeStatusText } from "../../src/bridge/status-text.js";
+import type { PendingPlanWorkflow } from "../../src/bridge/plan-workflow.js";
 import type { CodexAdapter, CodexSessionStatus, CodexSessionSummary } from "../../src/codex/types.js";
 import { ChannelRegistry } from "../../src/channels/registry.js";
 import { SilentLogger } from "../../src/logging/logger.js";
@@ -129,6 +130,117 @@ test("BridgeStatusText shows backend labels in sessions list", async () => {
   assert.match(text, /后端: `claude`/);
   assert.match(text, /Claude session: `claude-actual-123`/);
 });
+
+test("BridgeStatusText shows actionable next step for idle bound sessions", async () => {
+  const state = new MemoryStateStore();
+  state.bindSession(routeKey(), {
+    id: "mock-codex-1",
+    cwd: "/tmp/project",
+    createdAt: new Date().toISOString(),
+    title: "mock chat",
+  });
+
+  const text = await statusText({ state });
+
+  assert.match(text, /下一步：发送普通消息继续任务/);
+  assert.match(text, /`\/help`/);
+});
+
+test("BridgeStatusText shows actionable next step for unbound sessions", async () => {
+  const text = await statusText();
+
+  assert.match(text, /下一步：发送普通消息创建或绑定会话/);
+  assert.match(text, /`\/new`/);
+  assert.match(text, /`\/resume`/);
+});
+
+test("BridgeStatusText shows actionable next step for pending approvals", async () => {
+  const state = new MemoryStateStore();
+  state.bindSession(routeKey(), {
+    id: "mock-codex-1",
+    cwd: "/tmp/project",
+    createdAt: new Date().toISOString(),
+    title: "mock chat",
+  });
+  const approvals = new ApprovalManager();
+  approvals.create(routeKey(), "user", {
+    kind: "command",
+    sessionId: "mock-codex-1",
+    turnId: "turn-1",
+    itemId: "item-1",
+    command: "echo ok",
+  });
+
+  const text = await statusText({ state, approvals });
+
+  assert.match(text, /\*\*待处理审批\*\*/);
+  assert.match(text, /下一步：请处理待审批项/);
+  assert.match(text, /`\/OK`/);
+  assert.match(text, /`\/P`/);
+  assert.match(text, /`\/NO`/);
+});
+
+test("BridgeStatusText shows actionable next step for pending plan workflows", async () => {
+  const state = new MemoryStateStore();
+  state.bindSession(routeKey(), {
+    id: "mock-codex-1",
+    cwd: "/tmp/project",
+    createdAt: new Date().toISOString(),
+    title: "mock chat",
+  });
+  const workflow: PendingPlanWorkflow = {
+    routeKey: routeKey(),
+    message: message(),
+    target: {
+      channelId: "mock",
+      routeKey: routeKey(),
+      conversation: { id: "user", kind: "direct" },
+      recipient: { id: "user" },
+    },
+    originalPrompt: "实现功能",
+    planText: "计划内容",
+    sessionId: "mock-codex-1",
+    createdAt: new Date().toISOString(),
+  };
+
+  const text = await statusText({ state, planWorkflow: workflow });
+
+  assert.match(text, /\*\*待处理计划\*\*/);
+  assert.match(text, /下一步：请处理待计划项/);
+  assert.match(text, /`\/1`/);
+  assert.match(text, /`\/2`/);
+  assert.match(text, /`\/3`/);
+  assert.match(text, /`\/4`/);
+});
+
+async function statusText(options: {
+  state?: MemoryStateStore;
+  approvals?: ApprovalManager;
+  status?: CodexSessionStatus;
+  planWorkflow?: PendingPlanWorkflow;
+  busy?: boolean;
+} = {}): Promise<string> {
+  return new BridgeStatusText({
+    commandProfile: "codex",
+    channels: fakeChannels(),
+    codex: fakeCodex(options.status ?? { type: "idle" }),
+    state: options.state ?? new MemoryStateStore(),
+    approvals: options.approvals ?? new ApprovalManager(),
+    routeQueueLength: () => 0,
+    deliveryPolicyFor: () => DEFAULT_CHANNEL_DELIVERY_POLICY,
+    shouldConsumePendingInitialRouteBinding: () => false,
+    pendingInitialRouteBinding: () => undefined,
+    isRouteBusy: () => options.busy ?? false,
+    routeSteerPendingCount: () => 0,
+    pendingMediaCount: () => 0,
+    compactStateForRoute: () => ({ type: "none" }),
+    collaborationModeForRoute: () => "default",
+    progressModeFor: () => "brief",
+    contextRefreshFor: () => ({ policy: { mode: "off" }, source: "route" }),
+    runPolicyStatus: () => undefined,
+    planWorkflowForRoute: () => options.planWorkflow,
+  }).statusText(message());
+}
 
 function fakeChannels(): ChannelRegistry {
   return new ChannelRegistry({

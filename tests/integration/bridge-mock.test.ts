@@ -619,7 +619,7 @@ test("Bridge handles new session, prompt, status, and approval over mock channel
   assert.ok(channel.sentMessages.some((message) => message.text.includes("Capabilities")));
   assert.ok(channel.sentMessages.some((message) => message.text.includes("已绑定 Codex 会话")));
   assert.ok(channel.sentMessages.some((message) => message.text.includes("Mock Codex 回复: 你好")));
-  assert.ok(channel.sentMessages.some((message) => message.text.includes("**Codex 状态**")));
+  assert.ok(channel.sentMessages.some((message) => message.text.includes("**Codex 状态**") && message.text.includes("下一步：发送普通消息继续任务")));
   const approvalHandledMessage = channel.sentMessages.find((message) => message.text.startsWith("审批已处理："))?.text ?? "";
   assert.ok(approvalHandledMessage.includes("已通过"));
   assert.equal(/\[a[0-9a-z]+]/.test(approvalHandledMessage), false, "approval handled reply should not expose internal id");
@@ -893,6 +893,8 @@ test("Bridge status includes session token context without channel identity deta
   assert.match(statusMessage, /上下文: `164,171 \/ 258,400 token`（63\.5%，剩余 94,229）/);
   assert.match(statusMessage, /最近一轮 token: 输入 `160,000`，缓存 `120,000`，输出 `4,171`，推理输出 `1,200`/);
   assert.match(statusMessage, /本会话累计 token: 总计 `34,375,973`，输入 `34,282,029`，缓存 `33,213,184`，输出 `93,944`，推理输出 `30,181`/);
+  assert.match(statusMessage, /下一步：发送普通消息继续任务/);
+  assert.match(statusMessage, /`\/help`/);
   assert.doesNotMatch(statusMessage, /13303\.4%/);
   assert.doesNotMatch(statusMessage, /mock:mock-account:direct:project-room/);
   assert.doesNotMatch(statusMessage, /Mock User \(alice\)/);
@@ -1012,13 +1014,17 @@ test("Bridge shows Chat-Codex plan workflow choices and executes accepted plan",
   await bridge.start();
   await channel.emitText("/plan 实现小功能");
   await bridge.waitForIdle();
+  await channel.emitText("/status");
   await channel.emitText("/1");
   await bridge.waitForIdle();
   await bridge.stop();
 
   const planMessage = channel.sentMessages.find((message) => message.text.includes("Chat-Codex 计划快捷回复"))?.text ?? "";
+  const statusMessage = channel.sentMessages.find((message) => message.text.includes("**待处理计划**"))?.text ?? "";
   assert.ok(planMessage.includes("不是 Claude 原生 TUI 选项"));
   assert.ok(planMessage.includes("/plan-execute 或 /1"));
+  assert.ok(statusMessage.includes("下一步：请处理待计划项"));
+  assert.ok(statusMessage.includes("/1") && statusMessage.includes("/4"));
   assert.deepEqual(codex.modeRuns, ["plan", "default"]);
   assert.match(codex.prompts[1], /请按以下已批准的计划执行/);
   assert.match(codex.prompts[1], /实现小功能/);
@@ -1886,6 +1892,7 @@ test("Bridge rejects semantic mutations while the current route is busy", async 
   assert.equal((await codex.getGoal("mock-codex-1"))?.objective, "保持目标");
   const statusMessages = channel.sentMessages.filter((message) => message.text.includes("**Codex 状态**"));
   assert.ok(statusMessages.some((message) => message.text.includes("处理状态: 正在处理")));
+  assert.ok(statusMessages.some((message) => message.text.includes("下一步：当前任务正在执行") && message.text.includes("/stop")));
   assert.ok(statusMessages.at(-1)?.text.includes("进度投递: 静默"));
 });
 
@@ -2053,6 +2060,7 @@ test("Bridge stops retrying approval notification after approval is resolved", a
   await channel.emitText("/status");
   const statusMessage = channel.sentMessages.at(-1)?.text ?? "";
   assert.ok(statusMessage.includes("**待处理审批**"));
+  assert.ok(statusMessage.includes("下一步：请处理待审批项"));
   assert.ok(statusMessage.includes("```text\n/OK 或 /1\n```"));
   assert.ok(statusMessage.includes("```text\n/P 或 /2\n```"));
   assert.ok(statusMessage.includes("```text\n/NO 或 /3\n```"));

@@ -177,6 +177,13 @@ export class BridgeStatusText {
       modelPolicy ? `- 模型覆盖: ${formatModelPolicyForStatus(modelPolicy)}` : undefined,
       policy ? `- 权限模式: ${formatRunPolicyForStatus(policy)}` : undefined,
       policyStatus && !policyStatus.interactiveApprovals ? `- 审批入口: ${formatApprovalSupport(policyStatus)}` : undefined,
+      formatStatusNextStep({
+        binding: Boolean(binding),
+        workerRunning,
+        compactState,
+        pendingApprovals: approvals.length,
+        hasPlanWorkflow: Boolean(planWorkflow),
+      }),
       compactRunning ? "- 可用操作: 等待上下文压缩完成；当前不支持中途取消 /compact" : undefined,
       workerRunning && binding && !compactRunning ? "- 可用操作: 发送 `/stop` 终止当前任务" : undefined,
     ];
@@ -567,6 +574,21 @@ function isSameActiveTurn(left: CodexSessionStatus, right: CodexSessionStatus): 
   const leftTurnId = "turnId" in left ? left.turnId : undefined;
   const rightTurnId = "turnId" in right ? right.turnId : undefined;
   return !leftTurnId || !rightTurnId || leftTurnId === rightTurnId;
+}
+
+function formatStatusNextStep(options: {
+  binding: boolean;
+  workerRunning: boolean;
+  compactState: CompactState;
+  pendingApprovals: number;
+  hasPlanWorkflow: boolean;
+}): string {
+  if (options.compactState.type !== "none") return "- 下一步：按上下文压缩提示继续处理。";
+  if (options.pendingApprovals > 0) return "- 下一步：请处理待审批项，可发送审批提示中的 `/OK`、`/P`、`/NO` 或数字选项。";
+  if (options.hasPlanWorkflow) return "- 下一步：请处理待计划项，可发送 `/1` 执行、`/2` 修改、`/3` 重新规划或 `/4` 取消。";
+  if (options.workerRunning) return "- 下一步：当前任务正在执行；如需中断，请发送 `/stop`。";
+  if (!options.binding) return "- 下一步：发送普通消息创建或绑定会话；如需明确选择，请发送 `/new` 或 `/resume`。";
+  return "- 下一步：发送普通消息继续任务；如需查看命令，请发送 `/help`。";
 }
 
 function formatPendingPlanWorkflowStatus(workflow: PendingPlanWorkflow | undefined): string[] {
