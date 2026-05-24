@@ -83,6 +83,39 @@ test("BridgeStatusText uses /bridge-* help commands in Claude profile", () => {
   assert.match(text, /\/bridge-permissions/);
   assert.match(text, /\/bridge-plan-accept-edits/);
   assert.match(text, /根 `\/\.\.\.` 优先发给 Claude Code/);
+  assert.match(text, /\*\*常用下一步\*\*/);
+  assert.match(text, /发送 `\/bridge-status`/);
+  assert.match(text, /发送 `\/bridge-sessions` 查看列表，或发送 `\/bridge-use` 进入编号选择/);
+  assert.match(text, /`\/OK`、`\/P`、`\/NO`/);
+});
+
+test("BridgeStatusText shows common next steps in Codex profile help", () => {
+  const text = new BridgeStatusText({
+    commandProfile: "codex",
+    channels: fakeChannels(),
+    codex: fakeCodex({ type: "idle" }),
+    state: new MemoryStateStore(),
+    approvals: new ApprovalManager(),
+    routeQueueLength: () => 0,
+    deliveryPolicyFor: () => DEFAULT_CHANNEL_DELIVERY_POLICY,
+    shouldConsumePendingInitialRouteBinding: () => false,
+    pendingInitialRouteBinding: () => undefined,
+    isRouteBusy: () => false,
+    routeSteerPendingCount: () => 0,
+    pendingMediaCount: () => 0,
+    compactStateForRoute: () => ({ type: "none" }),
+    collaborationModeForRoute: () => "default",
+    progressModeFor: () => "brief",
+    contextRefreshFor: () => ({ policy: { mode: "off" }, source: "route" }),
+    runPolicyStatus: () => undefined,
+    planWorkflowForRoute: () => undefined,
+  }).helpText(message());
+
+  assert.ok(text.indexOf("**常用下一步**") < text.indexOf("**完整命令**"));
+  assert.match(text, /发送 `\/status`/);
+  assert.match(text, /发送 `\/new`/);
+  assert.match(text, /发送 `\/sessions` 查看列表，或发送 `\/use` 进入编号选择/);
+  assert.doesNotMatch(text, /\/bridge-status/);
 });
 
 test("BridgeStatusText shows backend labels in sessions list", async () => {

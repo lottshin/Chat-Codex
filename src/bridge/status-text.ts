@@ -388,6 +388,10 @@ export class BridgeStatusText {
       "**可用命令**",
       this.commandProfile === "claude" ? "Claude profile：根 `/...` 优先发给 Claude Code；桥接管理命令请使用 `/bridge-*`。" : undefined,
       "",
+      "**常用下一步**",
+      ...formatHelpNextStepLines(this.commandProfile),
+      "",
+      "**完整命令**",
       ...visibleCommands.flatMap(formatHelpCommandLines),
     ].filter(Boolean).join("\n").trimEnd();
   }
@@ -502,6 +506,21 @@ interface HelpCommand {
   hideWhenProgressDisabled?: boolean;
   feature?: BackendCommandFeature;
   commandName?: string;
+}
+
+function formatHelpNextStepLines(commandProfile: CommandNamespaceProfile): string[] {
+  const statusCommand = commandForProfile(commandProfile, "/status");
+  const newCommand = commandForProfile(commandProfile, "/new");
+  const sessionsCommand = commandForProfile(commandProfile, "/sessions");
+  const useCommand = commandForProfile(commandProfile, "/use");
+  return [
+    "- 继续任务：直接发送普通消息。",
+    `- 查看状态：发送 \`${statusCommand}\`。`,
+    `- 新建会话：发送 \`${newCommand}\`。`,
+    `- 切换会话：发送 \`${sessionsCommand}\` 查看列表，或发送 \`${useCommand}\` 进入编号选择。`,
+    "- 遇到审批：按审批提示发送 `/OK`、`/P`、`/NO` 或数字选项。",
+    `- 不确定命令：先发送 \`${statusCommand}\` 看当前状态和下一步。`,
+  ];
 }
 
 function formatHelpCommandLines(entry: HelpCommand): string[] {
