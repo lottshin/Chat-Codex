@@ -987,14 +987,22 @@ test("Bridge model command lists actual models and is shown in help", async () =
   await bridge.stop();
 
   const help = channel.sentMessages.find((message) => message.text.startsWith("**可用命令**"))?.text ?? "";
-  assert.ok(help.includes("- `/model [模型|编号] [effort]`: 查看可用模型，或切换当前会话后续任务的模型和思考程度。"));
+  assert.ok(help.includes("- `/model [list|all|模型|编号|default|effort]`: 查看可用模型，或切换当前会话后续任务的模型和思考程度。"));
+  assert.ok(help.includes("`/model all`: 包含隐藏模型。"));
+  assert.ok(help.includes("`/model 2 high`: 按上方列表编号选择模型并设置思考程度。"));
+  assert.ok(help.includes("`/model effort medium`: 只调整当前模型的后续思考程度。"));
+  assert.ok(help.includes("`/model default`、`/model reset`、`/model clear`: 清除模型覆盖。"));
+  assert.ok(help.includes("effort 关键字也支持 `thinking` / `reasoning`。"));
   const visibleList = channel.sentMessages.find((message) => message.text.includes("**模型设置**") && !message.text.includes("gpt-hidden"))?.text ?? "";
-  assert.ok(visibleList.includes("`model/list`"));
+  assert.ok(visibleList.includes("显示范围: 常用模型"));
   assert.ok(visibleList.includes("`gpt-test`"));
   assert.ok(visibleList.includes("`gpt-next`"));
   assert.equal(visibleList.includes("`gpt-hidden`"), false);
+  assert.ok(visibleList.includes("发送 `/model 2 high` 可按编号选择上方列表项"));
+  assert.ok(visibleList.includes("发送 `/model all` 可包含隐藏模型"));
+  assert.ok(visibleList.includes("发送 `/model default` 清除模型覆盖"));
   const allList = channel.sentMessages.at(-1)?.text ?? "";
-  assert.ok(allList.includes("`model/list includeHidden=true`"));
+  assert.ok(allList.includes("显示范围: 包含隐藏模型"));
   assert.ok(allList.includes("`gpt-hidden`"));
 });
 
@@ -1007,11 +1015,15 @@ test("Bridge model command switches model and effort for the current session", a
   await channel.emitText("/new");
   await channel.emitText("/model gpt-next xhigh");
   await channel.emitText("/status");
+  await channel.emitText("/model effort high");
+  await channel.emitText("/model default");
   await channel.emitText("/model 2 high");
   await bridge.stop();
 
   assert.deepEqual(codex.getModelPolicy("mock-codex-1"), { model: "gpt-next", reasoningEffort: "high" });
-  assert.ok(channel.sentMessages.some((message) => message.text.includes("已设置模型")));
+  assert.ok(channel.sentMessages.some((message) => message.text.includes("已设置模型") && message.text.includes("后续任务将使用该模型设置") && message.text.includes("下一步")));
+  assert.ok(channel.sentMessages.some((message) => message.text.includes("已设置思考程度。") && message.text.includes("该设置只影响后续任务")));
+  assert.ok(channel.sentMessages.some((message) => message.text.includes("已清除模型覆盖。") && message.text.includes("后续任务将使用当前后端默认模型")));
   const status = channel.sentMessages.find((message) => message.text.includes("**Codex 状态**"))?.text ?? "";
   assert.ok(status.includes("模型覆盖: 模型 `gpt-next`，思考程度 `xhigh`"));
 });
@@ -1029,8 +1041,8 @@ test("Bridge model command rejects unknown models and invalid or unsupported eff
 
   assert.deepEqual(codex.getModelPolicy(), {});
   assert.ok(channel.sentMessages.some((message) => message.text.includes("未找到模型: `gpt-missing`")));
-  assert.ok(channel.sentMessages.some((message) => message.text.includes("未知思考程度: `impossible`")));
-  assert.ok(channel.sentMessages.some((message) => message.text.includes("模型 `gpt-test` 不支持思考程度 `xhigh`")));
+  assert.ok(channel.sentMessages.some((message) => message.text.includes("未知思考程度: `impossible`") && message.text.includes("发送 `/model` 查看当前可用模型和示例")));
+  assert.ok(channel.sentMessages.some((message) => message.text.includes("模型 `gpt-test` 不支持思考程度 `xhigh`") && message.text.includes("使用默认思考程度")));
 });
 
 test("Bridge switches persistent collaboration mode with /plan and /code", async () => {
