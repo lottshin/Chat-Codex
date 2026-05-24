@@ -22,7 +22,7 @@ export async function handleProgressModeCommand(
   }
   const mode = parseProgressDeliveryMode(rawMode);
   if (!mode) {
-    await options.delivery.sendText(target, "未知进度模式。可用值: brief, detailed, silent。");
+    await options.delivery.sendText(target, options.statusText.invalidProgressModeText(rawMode));
     return;
   }
   options.setProgressMode(message.routeKey, mode);

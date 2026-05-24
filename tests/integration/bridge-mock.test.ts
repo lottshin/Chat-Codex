@@ -199,7 +199,7 @@ class WeixinLikeChannelAdapter extends MockChannelAdapter {
       taskStart: "suppress",
       progress: "suppress",
       progressCommand: "disabled",
-      progressDisabledMessage: "微信渠道已禁用进度投递，/progress 在微信中不可用。",
+      progressDisabledMessage: "微信渠道已禁用进度投递，/progress 和 /mode 在微信中不可用。",
       statusProgressLabel: "disabled",
       statusProgressDescription: "微信渠道不投递进度",
       refreshCommands: [
@@ -2311,7 +2311,25 @@ test("Bridge progress command enables detailed progress for the current route", 
   await bridge.stop();
 
   assert.ok(channel.sentMessages.some((message) => message.text.includes("当前模式: `detailed`")));
+  assert.ok(channel.sentMessages.some((message) => message.text.includes("命令和工具细节") && message.text.includes("`/mode <模式>`")));
+  assert.ok(channel.sentMessages.some((message) => message.text.includes("`verbose` / `debug`") && message.text.includes("`quiet` / `off` / `none`")));
   assert.ok(channel.sentMessages.some((message) => message.text.includes("正在执行命令: npm test")));
+});
+
+test("Bridge progress command explains invalid modes", async () => {
+  const channel = new MockChannelAdapter();
+  const codex = new MockCodexAdapter();
+  const bridge = new Bridge({ channel, codex, cwd: process.cwd() });
+
+  await bridge.start();
+  await channel.emitText("/progress impossible");
+  await bridge.stop();
+
+  const message = channel.sentMessages.at(-1)?.text ?? "";
+  assert.ok(message.includes("未知进度模式: `impossible`"));
+  assert.ok(message.includes("可用值: `brief`、`detailed`、`silent`"));
+  assert.ok(message.includes("`normal`=`brief`"));
+  assert.ok(message.includes("发送 `/progress` 查看当前模式和示例"));
 });
 
 test("Bridge suppresses task start and progress on weixin while keeping final replies", async () => {
@@ -2444,11 +2462,15 @@ test("Bridge rejects progress command and silently accepts /fff on weixin", asyn
 
   await bridge.start();
   await channel.emitText("/progress detailed");
+  await channel.emitText("/mode detailed");
   await channel.emitText("/fff");
   await bridge.stop();
 
-  assert.equal(channel.sentMessages.length, 1);
+  assert.equal(channel.sentMessages.length, 2);
   assert.match(channel.sentMessages[0].text, /微信渠道已禁用进度投递/);
+  assert.match(channel.sentMessages[0].text, /\/progress 和 \/mode/);
+  assert.match(channel.sentMessages[1].text, /微信渠道已禁用进度投递/);
+  assert.match(channel.sentMessages[1].text, /\/progress 和 \/mode/);
 });
 
 test("Bridge reports progress disabled in weixin status", async () => {

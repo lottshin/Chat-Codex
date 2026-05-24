@@ -329,13 +329,15 @@ export class BridgeStatusText {
       },
       {
         command: "/progress [brief|detailed|silent]",
-        description: "查看或设置当前上下文进度投递模式。",
+        description: "查看或设置当前上下文的进度投递详细程度。",
         aliases: ["/mode"],
         hideWhenProgressDisabled: true,
         details: [
-          "`brief`: 只发送计划、自言自语、搜索和文件变更摘要。",
-          "`detailed`: 发送所有可见进度，包括命令和工具调用细节。",
-          "`silent`: 不发送进度文本，只发送开始、审批和最终回复。",
+          "`brief`: 摘要模式，发送计划、推理自言自语、搜索、文件变更和其他摘要，隐藏命令和工具细节。",
+          "`detailed`: 详细模式，发送所有可见进度，包括命令和工具调用细节。",
+          "`silent`: 静默模式，不发送进度文本，但仍保留开始提示、审批和最终回复。",
+          "发送 `/progress brief`、`/progress detailed` 或 `/progress silent` 设置模式；`/mode` 是同一命令的别名。",
+          "别名值：`normal`=`brief`，`verbose`/`debug`=`detailed`，`quiet`/`off`/`none`=`silent`。",
         ],
       },
       { command: "/sendfile <任务内容>", description: "让当前后端本轮按内部协议声明最终要发送的文件。", feature: "sendfile" },
@@ -392,6 +394,10 @@ export class BridgeStatusText {
       aliases: entry.aliases?.map((alias) => commandForProfile(this.commandProfile, alias)),
       details: entry.details?.map((detail) => this.commandProfile === "claude"
         ? detail
+          .replaceAll("`/progress brief`", "`/bridge-progress brief`")
+          .replaceAll("`/progress detailed`", "`/bridge-progress detailed`")
+          .replaceAll("`/progress silent`", "`/bridge-progress silent`")
+          .replaceAll("`/mode`", "`/bridge-mode`")
           .replaceAll("`/model` 或 `/model list`", "`/bridge-model` 或 `/bridge-model list`")
           .replaceAll("`/model all`", "`/bridge-model all`")
           .replaceAll("`/model 2 high`", "`/bridge-model 2 high`")
@@ -432,13 +438,38 @@ export class BridgeStatusText {
 
   progressModeText(routeKey: string): string {
     const mode = this.progressModeFor(routeKey);
+    const progressCommand = commandForProfile(this.commandProfile, "/progress");
+    const modeCommand = commandForProfile(this.commandProfile, "/mode");
+    const sendFileCommand = commandForProfile(this.commandProfile, "/sendfile");
     return [
       "**进度投递**",
       `- 当前模式: \`${mode}\``,
-      "- `brief`: 只发送计划、自言自语、搜索和文件变更摘要，不发送命令/工具细节。",
-      "- `detailed`: 发送所有可见进度，包括命令和工具调用细节。",
-      "- `silent`: 不发送进度文本，只发送开始、审批和最终回复。",
-      "- 文件不会由进度模式自动发送；需要本轮允许发文件时使用 `/sendfile <任务内容>`。",
+      "",
+      "**模式说明**",
+      "- `brief`: 摘要模式，发送计划、推理自言自语、搜索、文件变更和其他摘要，隐藏命令和工具细节。",
+      "- `detailed`: 详细模式，发送所有可见进度，包括命令和工具调用细节。",
+      "- `silent`: 静默模式，不发送进度文本，但仍保留开始提示、审批和最终回复。",
+      "",
+      "**用法**",
+      `- 发送 \`${progressCommand} brief\` 使用摘要模式。`,
+      `- 发送 \`${progressCommand} detailed\` 查看命令和工具细节。`,
+      `- 发送 \`${progressCommand} silent\` 静默进度文本。`,
+      `- 发送 \`${modeCommand} <模式>\` 也可以设置同一选项。`,
+      "",
+      "**别名值**",
+      "- `normal` = `brief`；`verbose` / `debug` = `detailed`；`quiet` / `off` / `none` = `silent`。",
+      "",
+      `文件不会由进度模式自动发送；需要本轮允许发文件时使用 \`${sendFileCommand} <任务内容>\`。`,
+    ].join("\n");
+  }
+
+  invalidProgressModeText(value: string): string {
+    const progressCommand = commandForProfile(this.commandProfile, "/progress");
+    return [
+      `未知进度模式: \`${value}\``,
+      "可用值: `brief`、`detailed`、`silent`。",
+      "别名: `normal`=`brief`，`verbose`/`debug`=`detailed`，`quiet`/`off`/`none`=`silent`。",
+      `下一步：发送 \`${progressCommand}\` 查看当前模式和示例。`,
     ].join("\n");
   }
 

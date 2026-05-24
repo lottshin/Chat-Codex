@@ -236,7 +236,7 @@ export class BridgeCommandRouter {
       case "progress":
       case "mode":
         if (deliveryPolicy.progressCommand === "disabled") {
-          await this.delivery.sendText(target, deliveryPolicy.progressDisabledMessage ?? "当前渠道已禁用进度投递，/progress 不可用。");
+          await this.delivery.sendText(target, deliveryPolicy.progressDisabledMessage ?? "当前渠道已禁用进度投递，/progress 和 /mode 不可用。");
           return;
         }
         await this.handlers.progressMode(message, target, args[0]);
