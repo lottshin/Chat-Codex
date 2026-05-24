@@ -22,7 +22,7 @@ export async function handleApprovalCommand(
   const parsed = parseApprovalArgs(options.approvals, message.routeKey, args);
   const key = parsed.approvalKey ?? options.approvals.latest(message.routeKey)?.approvalKey;
   if (!key) {
-    await options.delivery.sendText(target, "当前没有待处理审批。下一步：等待新的审批提示；如需查看当前状态，请发送 /status。");
+    await options.delivery.sendText(target, "当前没有待处理审批。下一步：等待新的审批提示、发送 /status 查看当前状态，或直接发送普通消息继续任务。");
     return;
   }
   try {
@@ -33,7 +33,7 @@ export async function handleApprovalCommand(
     }
     const pending = options.approvals.decide(key, message.routeKey, decision);
     await options.codex.resolveApproval?.(pending.adapterApprovalId ?? pending.approvalKey, decision);
-    await options.delivery.sendText(target, `审批已处理：${formatApprovalDecision(decision)}，当前操作将继续执行。`);
+    await options.delivery.sendText(target, `审批已处理：${formatApprovalDecision(decision)}，当前操作将继续执行。\n下一步：等待当前任务继续输出；如需补充信息，直接发送普通消息。`);
   } catch (error) {
     await options.delivery.sendText(target, error instanceof Error ? error.message : String(error));
   }

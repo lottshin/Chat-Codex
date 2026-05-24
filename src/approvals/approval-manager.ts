@@ -1,5 +1,5 @@
 import type { ApprovalDecision, ApprovalRequest, PendingApproval } from "./types.js";
-import { approvalChoices, formatApprovalChoiceLine } from "./choices.js";
+import { approvalChoices, formatApprovalChoiceSummaryLine } from "./choices.js";
 import { formatApprovalKindForUser } from "../bridge/formatters.js";
 
 export interface ApprovalManagerOptions {
@@ -142,8 +142,10 @@ export class ApprovalManager {
     if (pending.risk) lines.push(`风险: ${pending.risk}`);
     lines.push(
       "",
-      "直接回复以下任一命令即可处理:",
-      ...approvalChoices(pending).map(formatApprovalChoiceLine),
+      "**请选择处理方式**",
+      ...approvalChoices(pending).map(formatApprovalChoiceSummaryLine),
+      "",
+      "下一步：直接回复上面任一命令；不确定时发送 /status 查看当前待处理审批。",
     );
     return lines.join("\n");
   }

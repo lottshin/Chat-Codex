@@ -12,14 +12,18 @@ test("ApprovalManager creates and resolves approvals", () => {
     command: "echo ok",
   });
 
+  const text = manager.formatForChannel(pending);
+
   assert.equal(pending.status, "pending");
   assert.equal(pending.expiresAt, undefined);
-  assert.match(manager.formatForChannel(pending), /类型: 命令执行/);
-  assert.match(manager.formatForChannel(pending), /\/OK 或 \/1：通过当前审批/);
-  assert.match(manager.formatForChannel(pending), /\/P 或 \/2：本会话通过/);
-  assert.match(manager.formatForChannel(pending), /\/NO 或 \/3：拒绝当前审批/);
-  assert.doesNotMatch(manager.formatForChannel(pending), new RegExp(pending.approvalKey));
-  assert.doesNotMatch(manager.formatForChannel(pending), /\/approve/);
+  assert.match(text, /类型: 命令执行/);
+  assert.match(text, /\*\*请选择处理方式\*\*/);
+  assert.match(text, /`\/OK` 或 `\/1`：通过当前审批/);
+  assert.match(text, /`\/P` 或 `\/2`：本会话通过/);
+  assert.match(text, /`\/NO` 或 `\/3`：拒绝当前审批/);
+  assert.match(text, /下一步：直接回复上面任一命令；不确定时发送 \/status 查看当前待处理审批。/);
+  assert.doesNotMatch(text, new RegExp(pending.approvalKey));
+  assert.doesNotMatch(text, /\/approve/);
   assert.equal(manager.latest(pending.routeKey)?.approvalKey, pending.approvalKey);
 
   const resolved = manager.decide(pending.approvalKey, pending.routeKey, "approve");
@@ -40,8 +44,8 @@ test("ApprovalManager renders dynamic approval choices", () => {
 
   const text = manager.formatForChannel(pending);
 
-  assert.match(text, /\/OK 或 \/1：通过当前审批/);
-  assert.match(text, /\/NO 或 \/2：拒绝当前审批/);
+  assert.match(text, /`\/OK` 或 `\/1`：通过当前审批/);
+  assert.match(text, /`\/NO` 或 `\/2`：拒绝当前审批/);
   assert.doesNotMatch(text, /\/P/);
   assert.doesNotMatch(text, /\/3/);
 });
