@@ -90,7 +90,7 @@ const WEIXIN_DELIVERY_POLICY: ChannelDeliveryPolicy = {
   taskStart: "suppress",
   progress: "suppress",
   progressCommand: "disabled",
-  progressDisabledMessage: "微信渠道已禁用进度投递，/progress 在微信中不可用。",
+  progressDisabledMessage: "微信渠道已禁用进度投递，/progress 和 /mode 在微信中不可用。",
   statusProgressLabel: "disabled",
   statusProgressDescription: "微信渠道不投递进度",
   refreshCommands: [

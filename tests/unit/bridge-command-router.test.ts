@@ -162,12 +162,14 @@ test("BridgeCommandRouter honors disabled progress command policy", async () => 
     deliveryPolicyFor: () => normalizeChannelDeliveryPolicy({
       ...DEFAULT_CHANNEL_DELIVERY_POLICY,
       progressCommand: "disabled",
-      progressDisabledMessage: "当前渠道禁用进度。",
+      progressDisabledMessage: "当前渠道已禁用进度投递，/progress 和 /mode 不可用。",
       refreshCommands: [],
     }),
   });
   await fixture.router.handle(message(), target(), "progress", ["detailed"], "/progress detailed");
-  assert.equal(fixture.sent.at(-1), "当前渠道禁用进度。");
+  await fixture.router.handle(message(), target(), "mode", ["detailed"], "/mode detailed");
+  assert.equal(fixture.sent.at(-2), "当前渠道已禁用进度投递，/progress 和 /mode 不可用。");
+  assert.equal(fixture.sent.at(-1), "当前渠道已禁用进度投递，/progress 和 /mode 不可用。");
   assert.equal(fixture.calls.progressMode, 0);
 });
 

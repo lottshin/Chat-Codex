@@ -21,9 +21,15 @@ import {
 } from "../../src/bridge/formatters.js";
 
 test("bridge formatters parse progress and model command values", () => {
+  assert.equal(parseProgressDeliveryMode("brief"), "brief");
   assert.equal(parseProgressDeliveryMode("normal"), "brief");
+  assert.equal(parseProgressDeliveryMode("detailed"), "detailed");
   assert.equal(parseProgressDeliveryMode("verbose"), "detailed");
+  assert.equal(parseProgressDeliveryMode("debug"), "detailed");
+  assert.equal(parseProgressDeliveryMode("silent"), "silent");
+  assert.equal(parseProgressDeliveryMode("quiet"), "silent");
   assert.equal(parseProgressDeliveryMode("off"), "silent");
+  assert.equal(parseProgressDeliveryMode("none"), "silent");
   assert.equal(parseProgressDeliveryMode("unknown"), undefined);
 
   assert.deepEqual(parseModelCommandArgs([]), { type: "list" });

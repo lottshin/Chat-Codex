@@ -79,9 +79,13 @@ test("BridgeStatusText uses /bridge-* help commands in Claude profile", () => {
   assert.match(text, /\/bridge-session/);
   assert.match(text, /\/bridge-all-sessions/);
   assert.match(text, /\/bridge-default \[任务\]/);
+  assert.match(text, /\/bridge-progress \[brief\|detailed\|silent\]/);
   assert.match(text, /\/bridge-mode/);
+  assert.match(text, /`\/bridge-progress brief`、`\/bridge-progress detailed` 或 `\/bridge-progress silent`/);
+  assert.doesNotMatch(text, /`\/progress brief`/);
   assert.match(text, /\/bridge-ctx-refresh/);
   assert.match(text, /\/bridge-permissions/);
+  assert.doesNotMatch(text, /\/bridge-1/);
   assert.match(text, /\/bridge-permission \[approval\|full confirm\|default\|auto\|acceptEdits\|dontAsk\|plan\|bypassPermissions confirm\]/);
   assert.match(text, /`\/bridge-permission full confirm`: 高风险完全权限/);
   assert.match(text, /`\/bridge-permission bypassPermissions confirm`: Claude Code 高风险模式/);
@@ -347,6 +351,34 @@ test("BridgeStatusText shows permission guidance by command profile", () => {
   assert.doesNotMatch(claudeText, /`\/permission full confirm`/);
 });
 
+test("BridgeStatusText shows progress guidance by command profile", () => {
+  const codex = statusTextRenderer("codex");
+  const claude = statusTextRenderer("claude");
+
+  const codexHelp = codex.helpText(message());
+  const codexProgress = codex.progressModeText(routeKey());
+  const claudeProgress = claude.progressModeText(routeKey());
+  const codexInvalid = codex.invalidProgressModeText("impossible");
+  const claudeInvalid = claude.invalidProgressModeText("impossible");
+
+  assert.match(codexHelp, /`brief`: 摘要模式，发送计划、推理自言自语、搜索、文件变更和其他摘要/);
+  assert.match(codexHelp, /别名值：`normal`=`brief`/);
+  assert.match(codexProgress, /\*\*模式说明\*\*/);
+  assert.match(codexProgress, /其他摘要/);
+  assert.match(codexProgress, /`\/progress detailed` 查看命令和工具细节/);
+  assert.match(codexProgress, /`\/mode <模式>`/);
+  assert.match(codexProgress, /`\/sendfile <任务内容>`/);
+  assert.match(claudeProgress, /`\/bridge-progress detailed` 查看命令和工具细节/);
+  assert.match(claudeProgress, /`\/bridge-mode <模式>`/);
+  assert.match(claudeProgress, /`\/bridge-sendfile <任务内容>`/);
+  assert.doesNotMatch(claudeProgress, /`\/progress detailed`/);
+  assert.match(codexInvalid, /未知进度模式: `impossible`/);
+  assert.match(codexInvalid, /可用值: `brief`、`detailed`、`silent`/);
+  assert.match(codexInvalid, /`quiet`\/`off`\/`none`=`silent`/);
+  assert.match(codexInvalid, /发送 `\/progress` 查看当前模式和示例/);
+  assert.match(claudeInvalid, /发送 `\/bridge-progress` 查看当前模式和示例/);
+});
+
 test("BridgeStatusText shows compact status actions by command profile", async () => {
   const state = new MemoryStateStore();
   state.bindSession(routeKey(), {
@@ -401,6 +433,30 @@ async function statusText(options: {
     runPolicyStatus: () => undefined,
     planWorkflowForRoute: () => options.planWorkflow,
   }).statusText(message());
+}
+
+function statusTextRenderer(commandProfile: "codex" | "claude" = "codex"): BridgeStatusText {
+  return new BridgeStatusText({
+    backend: commandProfile === "claude" ? "claude" : undefined,
+    commandProfile,
+    channels: fakeChannels(),
+    codex: fakeCodex({ type: "idle" }),
+    state: new MemoryStateStore(),
+    approvals: new ApprovalManager(),
+    routeQueueLength: () => 0,
+    deliveryPolicyFor: () => DEFAULT_CHANNEL_DELIVERY_POLICY,
+    shouldConsumePendingInitialRouteBinding: () => false,
+    pendingInitialRouteBinding: () => undefined,
+    isRouteBusy: () => false,
+    routeSteerPendingCount: () => 0,
+    pendingMediaCount: () => 0,
+    compactStateForRoute: () => ({ type: "none" }),
+    collaborationModeForRoute: () => "default",
+    progressModeFor: () => "brief",
+    contextRefreshFor: () => ({ policy: { mode: "off" }, source: "route" }),
+    runPolicyStatus: () => undefined,
+    planWorkflowForRoute: () => undefined,
+  });
 }
 
 function fakeChannels(): ChannelRegistry {
