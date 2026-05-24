@@ -105,7 +105,7 @@ export interface BridgeCommandHandlers {
   contextRefresh(message: ChannelMessage, target: ChannelTarget, rawMode: string | undefined): Promise<void>;
   groupReceive(message: ChannelMessage, target: ChannelTarget, args: string[], commandName: string): Promise<void>;
   groupName(message: ChannelMessage, target: ChannelTarget, args: string[]): Promise<void>;
-  sendFile(message: ChannelMessage, target: ChannelTarget, rawText: string): Promise<void>;
+  sendFile(message: ChannelMessage, target: ChannelTarget, rawText: string, commandName: string): Promise<void>;
   model(message: ChannelMessage, target: ChannelTarget, args: string[]): Promise<void>;
   permission(message: ChannelMessage, target: ChannelTarget, args: string[]): Promise<void>;
   approval(message: ChannelMessage, target: ChannelTarget, args: string[], decision: ApprovalDecision): Promise<void>;
@@ -256,7 +256,7 @@ export class BridgeCommandRouter {
         return;
       case "sendfile":
         if (await this.rejectUnsupported(target, "sendfile", "sendfile", "文件发送协议")) return;
-        await this.handlers.sendFile(message, target, rawText);
+        await this.handlers.sendFile(message, target, rawText, name);
         return;
       case "model":
         if (await this.rejectUnsupported(target, "model", "model", "模型切换")) return;

@@ -81,7 +81,10 @@ test("BridgeStatusText uses /bridge-* help commands in Claude profile", () => {
   assert.match(text, /\/bridge-default \[任务\]/);
   assert.match(text, /\/bridge-progress \[brief\|detailed\|silent\]/);
   assert.match(text, /\/bridge-mode/);
-  assert.match(text, /`\/bridge-progress brief`、`\/bridge-progress detailed` 或 `\/bridge-progress silent`/);
+  assert.match(text, /\/bridge-sendfile <任务内容>/);
+  assert.match(text, /普通消息里的本地路径、Markdown 链接或 file:\/\/ 引用不会自动作为附件发送/);
+  assert.match(text, /渠道必须支持图片\/文件发送/);
+  assert.doesNotMatch(text, /\/sendfile <任务内容>/);
   assert.doesNotMatch(text, /`\/progress brief`/);
   assert.match(text, /\/bridge-ctx-refresh/);
   assert.match(text, /\/bridge-permissions/);
@@ -127,7 +130,11 @@ test("BridgeStatusText shows common next steps in Codex profile help", () => {
   assert.match(text, /发送 `\/status`/);
   assert.match(text, /发送 `\/new`/);
   assert.match(text, /发送 `\/sessions` 查看列表，或发送 `\/use` 进入编号选择/);
-  assert.doesNotMatch(text, /\/bridge-status/);
+  assert.match(text, /\/sendfile <任务内容>/);
+  assert.match(text, /普通消息里的本地路径、Markdown 链接或 file:\/\/ 引用不会自动作为附件发送/);
+  assert.match(text, /最终回复必须声明 `BRIDGE_SEND_FILE: \/absolute\/path\/to\/file`/);
+  assert.match(text, /渠道必须支持图片\/文件发送/);
+  assert.doesNotMatch(text, /\/bridge-sendfile/);
 });
 
 test("BridgeStatusText shows backend labels in sessions list", async () => {

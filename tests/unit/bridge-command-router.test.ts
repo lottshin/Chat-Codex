@@ -247,6 +247,20 @@ test("BridgeCommandRouter keeps named approval aliases stable", async () => {
   assert.deepEqual(fixture.approvalDecisions, ["approve", "deny"]);
 });
 
+test("BridgeCommandRouter routes sendfile with the original command name", async () => {
+  const codex = routerFixture();
+  await codex.router.handle(message(), target(), "sendfile", ["生成报告"], "/sendfile 生成报告");
+
+  assert.equal(codex.calls.sendFile, 1);
+  assert.deepEqual(codex.sendFileCall, { rawText: "/sendfile 生成报告", commandName: "sendfile" });
+
+  const claude = routerFixture({ backend: "claude", commandProfile: "claude" });
+  await claude.router.handle(message(), target(), "bridge-sendfile", ["生成报告"], "/bridge-sendfile 生成报告");
+
+  assert.equal(claude.calls.sendFile, 1);
+  assert.deepEqual(claude.sendFileCall, { rawText: "/bridge-sendfile 生成报告", commandName: "bridge-sendfile" });
+});
+
 test("BridgeCommandRouter allows supported Claude command handlers", async () => {
   const fixture = routerFixture({ backend: "claude" });
 
@@ -254,11 +268,13 @@ test("BridgeCommandRouter allows supported Claude command handlers", async () =>
   await fixture.router.handle(message(), target(), "plan", [], "/plan");
   await fixture.router.handle(message(), target(), "permission", ["auto"], "/permission auto");
   await fixture.router.handle(message(), target(), "compact", [], "/compact");
+  await fixture.router.handle(message(), target(), "sendfile", ["生成报告"], "/sendfile 生成报告");
 
   assert.equal(fixture.calls.model, 1);
   assert.equal(fixture.calls.collaborationMode, 1);
   assert.equal(fixture.calls.permission, 1);
   assert.equal(fixture.calls.compact, 1);
+  assert.equal(fixture.calls.sendFile, 1);
 });
 
 test("BridgeCommandRouter allows supported Codex commands by default", async () => {
@@ -267,10 +283,12 @@ test("BridgeCommandRouter allows supported Codex commands by default", async () 
   await fixture.router.handle(message(), target(), "model", ["gpt-next"], "/model gpt-next");
   await fixture.router.handle(message(), target(), "compact", [], "/compact");
   await fixture.router.handle(message(), target(), "ok", [], "/OK");
+  await fixture.router.handle(message(), target(), "sendfile", ["生成报告"], "/sendfile 生成报告");
 
   assert.equal(fixture.calls.model, 1);
   assert.equal(fixture.calls.compact, 1);
   assert.equal(fixture.calls.approval, 1);
+  assert.equal(fixture.calls.sendFile, 1);
 });
 
 function routerFixture(options: {
@@ -292,10 +310,12 @@ function routerFixture(options: {
     permission: 0,
     compact: 0,
     approval: 0,
+    sendFile: 0,
     planWorkflow: 0,
   };
   let newSessionCall: { args: string[]; rawText: string } | undefined;
   let groupReceiveCall: { args: string[]; commandName: string } | undefined;
+  let sendFileCall: { rawText: string; commandName: string } | undefined;
   const approvalDecisions: string[] = [];
   const planWorkflowChoices: PlanWorkflowChoice[] = [];
   const delivery = new BridgeDelivery({
@@ -336,7 +356,10 @@ function routerFixture(options: {
       groupReceiveCall = { args, commandName };
     },
     groupName: async () => undefined,
-    sendFile: async () => undefined,
+    sendFile: async (_message, _target, rawText, commandName) => {
+      calls.sendFile += 1;
+      sendFileCall = { rawText, commandName };
+    },
     model: async () => {
       calls.model += 1;
     },
@@ -366,6 +389,9 @@ function routerFixture(options: {
     },
     get groupReceiveCall() {
       return groupReceiveCall;
+    },
+    get sendFileCall() {
+      return sendFileCall;
     },
     approvalDecisions,
     planWorkflowChoices,
