@@ -319,10 +319,10 @@ export class Bridge {
           delivery: this.delivery,
           registry: this.feishuGroupMembers,
         }, message, target, args),
-        sendFile: (message, target, rawText) => handleSendFileCommand({
+        sendFile: (message, target, rawText, commandName) => handleSendFileCommand({
           delivery: this.delivery,
           routeQueue: this.routeQueue,
-        }, message, target, rawText),
+        }, message, target, rawText, commandName),
         model: (message, target, args) => handleModelCommand({
           codex: this.codex,
           state: this.state,

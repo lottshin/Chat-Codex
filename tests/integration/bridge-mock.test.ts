@@ -2265,6 +2265,29 @@ test("Bridge sends final declared files for /sendfile and strips bridge protocol
   assert.equal(channel.sentMessages.some((message) => message.text.includes("BRIDGE_SEND_FILE")), false);
 });
 
+test("Bridge sends final declared files for /bridge-sendfile without leaking the alias into the prompt", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "bridge-sendfile-claude-test-"));
+  const imagePath = path.join(root, "result.png");
+  fs.writeFileSync(imagePath, "png");
+  const channel = new MockChannelAdapter({ media: true });
+  const codex = new SendFileCodexAdapter(imagePath);
+  const bridge = new Bridge({ channel, codex, cwd: root, backend: "claude", commandProfile: "claude" });
+
+  await bridge.start();
+  await channel.emitText("/bridge-sendfile 生成结果图并发给我");
+  await bridge.waitForIdle();
+  await bridge.stop();
+
+  assert.equal(codex.prompts.length, 1);
+  assert.ok(codex.prompts[0].includes("生成结果图并发给我"));
+  assert.equal(codex.prompts[0].includes("/bridge-sendfile"), false);
+  assert.ok(codex.prompts[0].includes("BRIDGE_SEND_FILE: /absolute/path/to/file"));
+  assert.equal(channel.sentMedia.length, 1);
+  assert.equal(channel.sentMedia[0].media.path, imagePath);
+  assert.ok(channel.sentMessages.some((message) => message.text === "文件已准备好。"));
+  assert.equal(channel.sentMessages.some((message) => message.text.includes("BRIDGE_SEND_FILE")), false);
+});
+
 test("Bridge aggregates /sendfile media failures without per-file fallback spam", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "bridge-sendfile-fail-test-"));
   const imagePath = path.join(root, "result.png");

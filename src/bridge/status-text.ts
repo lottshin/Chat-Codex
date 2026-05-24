@@ -340,7 +340,16 @@ export class BridgeStatusText {
           "别名值：`normal`=`brief`，`verbose`/`debug`=`detailed`，`quiet`/`off`/`none`=`silent`。",
         ],
       },
-      { command: "/sendfile <任务内容>", description: "让当前后端本轮按内部协议声明最终要发送的文件。", feature: "sendfile" },
+      {
+        command: "/sendfile <任务内容>",
+        description: "本轮允许当前后端在最终回复中声明要发送的本地文件。",
+        details: [
+          "普通消息里的本地路径、Markdown 链接或 file:// 引用不会自动作为附件发送。",
+          "最终回复必须声明 `BRIDGE_SEND_FILE: /absolute/path/to/file`，Bridge 会剥离协议行后发送文件。",
+          "渠道必须支持图片/文件发送；发送失败会汇总为文件发送结果。",
+        ],
+        feature: "sendfile",
+      },
       {
         command: "/compact",
         description: "压缩当前会话的历史上下文。",
