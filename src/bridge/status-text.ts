@@ -184,7 +184,7 @@ export class BridgeStatusText {
         pendingApprovals: approvals.length,
         hasPlanWorkflow: Boolean(planWorkflow),
       }),
-      compactRunning ? "- 可用操作: 等待上下文压缩完成；当前不支持中途取消 /compact" : undefined,
+      compactRunning ? "- 可用操作: 等待上下文压缩完成；当前不支持中途取消 `/compact`，可发送 `/status` 刷新查看" : undefined,
       workerRunning && binding && !compactRunning ? "- 可用操作: 发送 `/stop` 终止当前任务" : undefined,
     ];
     const channelLines = [
@@ -628,10 +628,12 @@ function formatCompactStatusLines(state: CompactState, commandProfile: CommandNa
       "- 上下文压缩: 等待确认",
       `- 压缩会话: \`${state.sessionId}\``,
       `- 可用操作: ${commandProfile === "claude" ? "发送 `/bridge-compact confirm` 开始，或发送 `/cancel` 取消" : "发送 `/compact confirm` 开始，或发送 `/cancel` 取消"}`,
+      "- 下一步：确认要压缩请发送确认命令；不想压缩请发送 `/cancel`。",
     ];
   }
   return [
     "- 上下文压缩: 进行中",
     `- 压缩会话: \`${state.sessionId}\``,
+    "- 可用操作: 等待上下文压缩完成；当前不支持中途取消 `/compact`，可发送 `/status` 刷新查看。",
   ];
 }

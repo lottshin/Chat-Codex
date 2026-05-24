@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { ApprovalManager } from "../../src/approvals/approval-manager.js";
 import { BridgeStatusText } from "../../src/bridge/status-text.js";
+import type { CompactState } from "../../src/bridge/bridge-types.js";
 import type { PendingPlanWorkflow } from "../../src/bridge/plan-workflow.js";
 import type { CodexAdapter, CodexSessionStatus, CodexSessionSummary } from "../../src/codex/types.js";
 import { ChannelRegistry } from "../../src/channels/registry.js";
@@ -248,15 +249,42 @@ test("BridgeStatusText shows actionable next step for pending plan workflows", a
   assert.match(text, /`\/4`/);
 });
 
+test("BridgeStatusText shows compact status actions by command profile", async () => {
+  const state = new MemoryStateStore();
+  state.bindSession(routeKey(), {
+    id: "mock-codex-1",
+    cwd: "/tmp/project",
+    createdAt: new Date().toISOString(),
+    title: "mock chat",
+  });
+
+  const codexText = await statusText({ state, compactState: { type: "confirming", sessionId: "mock-codex-1", requestedAt: new Date().toISOString() } });
+  const claudeText = await statusText({
+    state,
+    commandProfile: "claude",
+    compactState: { type: "confirming", sessionId: "mock-codex-1", requestedAt: new Date().toISOString() },
+  });
+  const runningText = await statusText({ state, compactState: { type: "running", sessionId: "mock-codex-1", startedAt: new Date().toISOString() } });
+
+  assert.match(codexText, /发送 `\/compact confirm` 开始/);
+  assert.match(codexText, /确认要压缩请发送确认命令/);
+  assert.match(claudeText, /发送 `\/bridge-compact confirm` 开始/);
+  assert.match(runningText, /上下文压缩: 进行中/);
+  assert.match(runningText, /当前不支持中途取消 `\/compact`/);
+  assert.match(runningText, /可发送 `\/status` 刷新查看/);
+});
+
 async function statusText(options: {
   state?: MemoryStateStore;
   approvals?: ApprovalManager;
   status?: CodexSessionStatus;
   planWorkflow?: PendingPlanWorkflow;
   busy?: boolean;
+  commandProfile?: "codex" | "claude";
+  compactState?: CompactState;
 } = {}): Promise<string> {
   return new BridgeStatusText({
-    commandProfile: "codex",
+    commandProfile: options.commandProfile ?? "codex",
     channels: fakeChannels(),
     codex: fakeCodex(options.status ?? { type: "idle" }),
     state: options.state ?? new MemoryStateStore(),
@@ -268,7 +296,7 @@ async function statusText(options: {
     isRouteBusy: () => options.busy ?? false,
     routeSteerPendingCount: () => 0,
     pendingMediaCount: () => 0,
-    compactStateForRoute: () => ({ type: "none" }),
+    compactStateForRoute: () => options.compactState ?? ({ type: "none" }),
     collaborationModeForRoute: () => "default",
     progressModeFor: () => "brief",
     contextRefreshFor: () => ({ policy: { mode: "off" }, source: "route" }),

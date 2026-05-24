@@ -670,7 +670,7 @@ test("Bridge handles compact confirmation and success over mock channel", async 
   await bridge.stop();
 
   const help = channel.sentMessages.find((message) => message.text.startsWith("**可用命令**"))?.text ?? "";
-  const confirmation = channel.sentMessages.find((message) => message.text.includes("即将压缩当前会话"))?.text ?? "";
+  const confirmation = channel.sentMessages.find((message) => message.text.includes("即将压缩当前绑定"))?.text ?? "";
   const completed = channel.sentMessages.find((message) => message.text.includes("上下文压缩完成"))?.text ?? "";
   assert.equal(help.includes("```text"), false);
   assert.equal(help.includes("/new chat"), false);
@@ -687,13 +687,68 @@ test("Bridge handles compact confirmation and success over mock channel", async 
   assert.ok(help.includes("  - `/context-refresh inherit`: 清除当前聊天覆盖，跟随全局默认。"));
   assert.ok(help.includes("- `/compact`: 压缩当前会话的历史上下文。"));
   assert.ok(help.includes("  - `/compact confirm`: 确认并开始压缩。"));
+  assert.ok(confirmation.includes("即将压缩当前绑定的后端会话历史上下文"));
+  assert.ok(confirmation.includes("不会修改项目文件、git 状态或工作目录"));
   assert.ok(confirmation.includes("压缩前上下文: `164,171 / 258,400 token`"));
-  assert.ok(channel.sentMessages.some((message) => message.text.includes("上下文压缩: 等待确认")));
+  assert.ok(confirmation.includes("下一步：确认要压缩请发送 /compact confirm；不想压缩请发送 /cancel。"));
+  assert.ok(channel.sentMessages.some((message) => message.text.includes("上下文压缩: 等待确认") && message.text.includes("确认要压缩请发送确认命令")));
   assert.ok(channel.sentMessages.some((message) => message.text.includes("已取消本次上下文压缩确认")));
-  assert.ok(channel.sentMessages.some((message) => message.text.includes("已开始压缩当前会话上下文")));
+  assert.ok(channel.sentMessages.some((message) => message.text.includes("已开始压缩当前会话上下文") && message.text.includes("/status 查看进度")));
   assert.ok(completed.includes("压缩后上下文: `164,171 / 258,400 token`"));
+  assert.ok(completed.includes("下一步：可以继续发送普通消息；如需确认当前状态，请发送 /status。"));
   assert.deepEqual(codex.compactedSessions, ["mock-codex-1"]);
   assert.deepEqual(channel.sentTyping.map((event) => event.typing), [true, false]);
+});
+
+test("Bridge explains compact edge cases over mock channel", async () => {
+  const channel = new MockChannelAdapter();
+  const codex = new MockCodexAdapter();
+  codex.compactError = new Error("compact unavailable now");
+  const bridge = new Bridge({ channel, codex, cwd: process.cwd() });
+
+  await bridge.start();
+  await channel.emitText("/compact confirm");
+  await channel.emitText("/new");
+  await channel.emitText("/compact");
+  await channel.emitText("/new");
+  await channel.emitText("/compact confirm");
+  await channel.emitText("/compact");
+  await channel.emitText("/compact confirm");
+  await bridge.stop();
+
+  assert.ok(channel.sentMessages.some((message) => message.text.includes("当前聊天还没有绑定会话") && message.text.includes("/new") && message.text.includes("/resume")));
+  assert.ok(channel.sentMessages.some((message) => message.text.includes("本次上下文压缩确认已过期") && message.text.includes("下一步：请重新发送 /compact")));
+  assert.ok(channel.sentMessages.some((message) => message.text.includes("上下文压缩失败：compact unavailable now") && message.text.includes("项目文件未修改") && message.text.includes("重试 /compact")));
+});
+
+test("Bridge explains compact confirm without pending and unsupported backend", async () => {
+  const noPendingChannel = new MockChannelAdapter();
+  const noPendingCodex = new MockCodexAdapter();
+  const noPendingBridge = new Bridge({ channel: noPendingChannel, codex: noPendingCodex, cwd: process.cwd() });
+
+  await noPendingBridge.start();
+  await noPendingChannel.emitText("/new");
+  await noPendingChannel.emitText("/compact confirm");
+  await noPendingBridge.stop();
+
+  assert.ok(noPendingChannel.sentMessages.some((message) => message.text.includes("当前没有待确认的上下文压缩") && message.text.includes("先发送 /compact")));
+
+  const unsupportedChannel = new MockChannelAdapter();
+  const unsupportedCodex: CodexAdapter = {
+    startSession: (input) => noPendingCodex.startSession(input),
+    resumeSession: (sessionId) => noPendingCodex.resumeSession(sessionId),
+    run: (sessionId, prompt, options) => noPendingCodex.run(sessionId, prompt, options),
+    getStatus: (sessionId) => noPendingCodex.getStatus(sessionId),
+    listSessions: (routeKey) => noPendingCodex.listSessions(routeKey),
+  };
+  const unsupportedBridge = new Bridge({ channel: unsupportedChannel, codex: unsupportedCodex, cwd: process.cwd() });
+
+  await unsupportedBridge.start();
+  await unsupportedChannel.emitText("/new");
+  await unsupportedChannel.emitText("/compact");
+  await unsupportedBridge.stop();
+
+  assert.ok(unsupportedChannel.sentMessages.some((message) => message.text.includes("当前后端不支持 /compact") && message.text.includes("不影响继续发送普通消息") && message.text.includes("/status")));
 });
 
 test("Bridge blocks current route operations while compact runs but allows other routes", async () => {
@@ -724,9 +779,10 @@ test("Bridge blocks current route operations while compact runs but allows other
     .filter((message) => message.target.conversation.id === "main" && message.text.includes("**Codex 状态**"))
     .at(-1)?.text ?? "";
   assert.ok(mainStatus.includes("上下文压缩: 进行中"));
-  assert.ok(mainStatus.includes("当前不支持中途取消 /compact"));
-  assert.ok(channel.sentMessages.some((message) => message.text === "当前正在压缩上下文，请等待完成后再操作。"));
-  assert.ok(channel.sentMessages.some((message) => message.text === "当前正在压缩上下文，请等待完成后再发送消息。"));
+  assert.ok(mainStatus.includes("当前不支持中途取消 `/compact`"));
+  assert.ok(mainStatus.includes("可发送 `/status` 刷新查看"));
+  assert.ok(channel.sentMessages.some((message) => message.text === "当前正在压缩上下文，请等待完成后再操作；可发送 /status 查看进度。"));
+  assert.ok(channel.sentMessages.some((message) => message.text === "当前正在压缩上下文，请等待完成后再发送消息；可发送 /status 查看进度。"));
   assert.equal(codex.runs.some((run) => run.prompt === "压缩中普通消息"), false);
   assert.ok(codex.runs.some((run) => run.prompt === "其他 route 正常执行"));
   assert.deepEqual(codex.compactedSessions, ["mock-codex-1"]);
@@ -1120,7 +1176,7 @@ test("Bridge passes Claude profile root slash commands through and keeps /bridge
   assert.ok(bridgeHelp.includes("发送 `/bridge-sessions` 查看列表，或发送 `/bridge-use` 进入编号选择"));
   assert.equal(bridgeHelp.includes("发送 `/status`"), false);
   assert.ok(channel.sentMessages.some((message) => message.text.includes("**Claude Code 状态**")));
-  assert.equal(channel.sentMessages.some((message) => message.text.includes("即将压缩当前会话")), false);
+  assert.equal(channel.sentMessages.some((message) => message.text.includes("即将压缩当前绑定")), false);
 });
 
 test("Bridge keeps Claude profile root approval and plan shortcuts local when pending", async () => {
@@ -1151,7 +1207,7 @@ test("Bridge keeps first-party and unknown slash command handling ahead of backe
   await bridge.stop();
 
   assert.equal(codex.runs.length, 0);
-  assert.ok(channel.sentMessages.some((message) => message.text.includes("即将压缩当前会话")));
+  assert.ok(channel.sentMessages.some((message) => message.text.includes("即将压缩当前绑定")));
   assert.ok(channel.sentMessages.some((message) => message.text.includes("未知命令: /missing")));
   assert.ok(channel.sentMessages.some((message) => message.text.includes("下一步：发送 /help")));
 });

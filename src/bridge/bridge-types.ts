@@ -149,5 +149,5 @@ export const ROUTE_BUSY_MUTATION_REJECT_TEXT = [
   "上下文刷新设置也会在当前任务结束前被拦截。",
   "下一步：等待当前任务完成；如需中断，请发送 /stop，完成后再重发刚才的命令。",
 ].join("\n");
-export const COMPACT_RUNNING_REJECT_TEXT = "当前正在压缩上下文，请等待完成后再操作。";
-export const COMPACT_RUNNING_MESSAGE_REJECT_TEXT = "当前正在压缩上下文，请等待完成后再发送消息。";
+export const COMPACT_RUNNING_REJECT_TEXT = "当前正在压缩上下文，请等待完成后再操作；可发送 /status 查看进度。";
+export const COMPACT_RUNNING_MESSAGE_REJECT_TEXT = "当前正在压缩上下文，请等待完成后再发送消息；可发送 /status 查看进度。";
