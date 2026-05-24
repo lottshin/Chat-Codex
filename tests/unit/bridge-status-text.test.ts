@@ -87,6 +87,9 @@ test("BridgeStatusText uses /bridge-* help commands in Claude profile", () => {
   assert.match(text, /`\/bridge-permission bypassPermissions confirm`: Claude Code 高风险模式/);
   assert.doesNotMatch(text, /`\/permission full confirm`/);
   assert.match(text, /\/bridge-plan-accept-edits/);
+  assert.match(text, /\/bridge-plan-execute/);
+  assert.match(text, /别名：`\/1`/);
+  assert.doesNotMatch(text, /\/bridge-1/);
   assert.match(text, /根 `\/\.\.\.` 优先发给 Claude Code/);
   assert.match(text, /\*\*常用下一步\*\*/);
   assert.match(text, /发送 `\/bridge-status`/);
@@ -246,11 +249,49 @@ test("BridgeStatusText shows actionable next step for pending plan workflows", a
   const text = await statusText({ state, planWorkflow: workflow });
 
   assert.match(text, /\*\*待处理计划\*\*/);
-  assert.match(text, /下一步：请处理待计划项/);
+  assert.match(text, /下一步：请处理待处理计划/);
   assert.match(text, /`\/1`/);
-  assert.match(text, /`\/2`/);
+  assert.match(text, /`\/2` 按当前权限执行/);
+  assert.match(text, /\/plan-edit 或 \/2 按当前权限策略执行这个计划/);
+  assert.match(text, /\/permission acceptEdits/);
+  assert.doesNotMatch(text, /\/2` 修改/);
+  assert.doesNotMatch(text, /切到 Claude acceptEdits 语义/);
   assert.match(text, /`\/3`/);
   assert.match(text, /`\/4`/);
+});
+
+test("BridgeStatusText shows pending plan guidance by command profile", async () => {
+  const state = new MemoryStateStore();
+  state.bindSession(routeKey(), {
+    id: "mock-codex-1",
+    cwd: "/tmp/project",
+    createdAt: new Date().toISOString(),
+    title: "mock chat",
+  });
+  const workflow: PendingPlanWorkflow = {
+    routeKey: routeKey(),
+    message: message(),
+    target: {
+      channelId: "mock",
+      routeKey: routeKey(),
+      conversation: { id: "user", kind: "direct" },
+      recipient: { id: "user" },
+    },
+    originalPrompt: "实现功能",
+    planText: "计划内容",
+    sessionId: "mock-codex-1",
+    createdAt: new Date().toISOString(),
+  };
+
+  const text = await statusText({ state, commandProfile: "claude", planWorkflow: workflow });
+
+  assert.match(text, /\/bridge-plan-execute 或 \/1/);
+  assert.match(text, /\/bridge-plan-edit 或 \/2/);
+  assert.match(text, /\/bridge-permission acceptEdits/);
+  assert.match(text, /\/bridge-replan <补充> 或 \/3 <补充>/);
+  assert.match(text, /\/bridge-plan-cancel 或 \/4/);
+  assert.doesNotMatch(text, /\/plan-edit 或 \/2/);
+  assert.doesNotMatch(text, /\/permission acceptEdits/);
 });
 
 test("BridgeStatusText shows permission guidance by command profile", () => {
