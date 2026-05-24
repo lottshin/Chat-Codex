@@ -884,8 +884,10 @@ test("Bridge exposes all sessions command for channel users", async () => {
   assert.ok(help.includes("别名：`/yes-session`、`/ok-session`、`/approve-session`。"));
   assert.ok(help.includes("- `/NO`: 拒绝当前审批。"));
   assert.ok(help.includes("别名：`/deny`、`/reject`。"));
-  assert.ok(help.includes("- `/permission [approval|full confirm]`: 查看或切换当前绑定会话的权限模式。"));
+  assert.ok(help.includes("- `/permission [approval|full confirm|default|auto|acceptEdits|dontAsk|plan|bypassPermissions confirm]`: 查看或切换当前绑定会话的权限模式。"));
   assert.ok(help.includes("  - 别名：`/permissions`、`/perm`、`/policy`"));
+  assert.ok(help.includes("`/permission full confirm`: 高风险完全权限；完成后建议切回 `/permission approval`。"));
+  assert.ok(help.includes("`/permission bypassPermissions confirm`: Claude Code 高风险模式，会跳过权限检查。"));
   assert.ok(help.includes("- `/cancel`: 取消当前等待中的交互，例如会话选择、压缩确认或待发送文件。"));
   assert.equal(help.includes("/approve [id]"), false);
   const allSessionsMessages = channel.sentMessages.filter((message) => message.text.includes("范围: 全部可发现"));
@@ -2482,12 +2484,23 @@ test("Bridge permission command shows and changes Codex run policy", async () =>
   await channel.emitText("/permission full confirm");
   await channel.emitText("/status");
   await channel.emitText("/permission approval");
+  await channel.emitText("/permission nope");
   await bridge.stop();
 
-  assert.ok(channel.sentMessages.some((message) => message.text.includes("当前模式: `approval sandbox=workspace-write`")));
-  assert.ok(channel.sentMessages.some((message) => message.text.includes("/permission full confirm")));
-  assert.ok(channel.sentMessages.some((message) => message.text.includes("已切换到完全权限。")));
-  assert.ok(channel.sentMessages.some((message) => message.text.includes("权限模式: 完全权限")));
+  const permissionText = channel.sentMessages.find((message) => message.text.includes("**权限模式**"))?.text ?? "";
+  assert.ok(permissionText.includes("**当前状态**"));
+  assert.ok(permissionText.includes("当前模式: `approval sandbox=workspace-write`"));
+  assert.ok(permissionText.includes("**Codex / bridge 权限模式**"));
+  assert.ok(permissionText.includes("workspace-write"));
+  assert.ok(permissionText.includes("**Claude Code 权限模式**"));
+  assert.ok(permissionText.includes("/permission acceptEdits"));
+  const fullWarning = channel.sentMessages.find((message) => message.text.includes("确认切换请直接发送:") && message.text.includes("/permission full confirm"))?.text ?? "";
+  assert.ok(fullWarning.includes("直接执行命令并修改文件"));
+  assert.ok(fullWarning.includes("不想切换请发送 /permission approval"));
+  assert.ok(channel.sentMessages.some((message) => message.text.includes("已切换到完全权限。") && message.text.includes("建议发送 /permission approval") && message.text.includes("下一步")));
+  assert.ok(channel.sentMessages.some((message) => message.text.includes("权限模式: 完全权限（跳过审批或权限检查）")));
+  assert.ok(channel.sentMessages.some((message) => message.text.includes("已切换到审批模式。") && message.text.includes("下一步：可以继续发送普通消息")));
+  assert.ok(channel.sentMessages.some((message) => message.text.includes("未知权限模式。") && message.text.includes("可用 Codex / bridge 模式") && message.text.includes("/permission bypassPermissions confirm")));
   assert.equal(codex.getRunPolicy().permissionMode, "approval");
 });
 
