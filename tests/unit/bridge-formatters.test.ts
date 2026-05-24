@@ -10,6 +10,7 @@ import {
   formatModelPolicy,
   formatRunPolicy,
   formatSessionChoiceLine,
+  invalidReasoningEffortText,
   isRouteBusyMutationCommand,
   parseModelCommandArgs,
   parseProgressDeliveryMode,
@@ -28,6 +29,9 @@ test("bridge formatters parse progress and model command values", () => {
   assert.deepEqual(parseModelCommandArgs([]), { type: "list" });
   assert.deepEqual(parseModelCommandArgs(["default"]), { type: "reset" });
   assert.deepEqual(parseModelCommandArgs(["effort", "high"]), { type: "effort", effort: "high" });
+  assert.deepEqual(parseModelCommandArgs(["thinking", "high"]), { type: "effort", effort: "high" });
+  assert.deepEqual(parseModelCommandArgs(["reasoning", "medium"]), { type: "effort", effort: "medium" });
+  assert.deepEqual(parseModelCommandArgs(["clear"]), { type: "reset" });
   assert.deepEqual(parseModelCommandArgs(["gpt-5.5", "effort", "xhigh"]), { type: "set", modelRef: "gpt-5.5", effort: "xhigh" });
   assert.equal(parseReasoningEffort("xhigh"), "xhigh");
   assert.equal(parseReasoningEffort("impossible"), undefined);
@@ -148,6 +152,9 @@ test("bridge formatters resolve model references and unsupported efforts", () =>
   assert.equal(missing.type, "error");
   assert.match(missing.message, /未找到模型/);
   assert.match(unsupportedReasoningEffortText(models[0], "high"), /不支持思考程度/);
+  assert.match(unsupportedReasoningEffortText(models[0], "high"), /使用默认思考程度/);
+  assert.match(invalidReasoningEffortText("impossible"), /Codex 可用值/);
+  assert.match(invalidReasoningEffortText("impossible"), /发送 `\/model` 查看当前可用模型和示例/);
 });
 
 function model(

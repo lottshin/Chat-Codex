@@ -345,7 +345,20 @@ export class BridgeStatusText {
         details: ["`/compact confirm`: 确认并开始压缩。", "`/cancel`: 取消等待中的压缩确认。"],
         feature: "compact",
       },
-      { command: "/model [模型|编号] [effort]", description: "查看可用模型，或切换当前会话后续任务的模型和思考程度。", feature: "model" },
+      {
+        command: "/model [list|all|模型|编号|default|effort]",
+        description: "查看可用模型，或切换当前会话后续任务的模型和思考程度。",
+        details: [
+          "`/model` 或 `/model list`: 查看常用模型列表。",
+          "`/model all`: 包含隐藏模型。",
+          "`/model 2 high`: 按上方列表编号选择模型并设置思考程度。",
+          "`/model <模型> <effort>`: 按模型名或 id 设置模型和思考程度。",
+          "`/model effort medium`: 只调整当前模型的后续思考程度。",
+          "`/model default`、`/model reset`、`/model clear`: 清除模型覆盖。",
+          "effort 关键字也支持 `thinking` / `reasoning`。",
+        ],
+        feature: "model",
+      },
       {
         command: "/permission [approval|full confirm|default|auto|acceptEdits|dontAsk|plan|bypassPermissions confirm]",
         description: "查看或切换当前绑定会话的权限模式。",
@@ -379,6 +392,14 @@ export class BridgeStatusText {
       aliases: entry.aliases?.map((alias) => commandForProfile(this.commandProfile, alias)),
       details: entry.details?.map((detail) => this.commandProfile === "claude"
         ? detail
+          .replaceAll("`/model` 或 `/model list`", "`/bridge-model` 或 `/bridge-model list`")
+          .replaceAll("`/model all`", "`/bridge-model all`")
+          .replaceAll("`/model 2 high`", "`/bridge-model 2 high`")
+          .replaceAll("`/model <模型> <effort>`", "`/bridge-model <模型> <effort>`")
+          .replaceAll("`/model effort medium`", "`/bridge-model effort medium`")
+          .replaceAll("`/model default`", "`/bridge-model default`")
+          .replaceAll("`/model reset`", "`/bridge-model reset`")
+          .replaceAll("`/model clear`", "`/bridge-model clear`")
           .replaceAll("`/permission approval`", "`/bridge-permission approval`")
           .replaceAll("`/permission full confirm`", "`/bridge-permission full confirm`")
           .replaceAll("`/permission bypassPermissions confirm`", "`/bridge-permission bypassPermissions confirm`")
@@ -442,18 +463,23 @@ export class BridgeStatusText {
     sessionId: string | undefined,
     includeHidden: boolean,
   ): string {
+    const modelCommand = commandForProfile(this.commandProfile, "/model");
     return [
       "**模型设置**",
       `- 作用范围: ${sessionId ? `当前会话 \`${sessionId}\`` : "默认策略（后续新会话）"}`,
       `- 当前模型: ${formatModelInfo(currentModel)}`,
       `- 模型覆盖: ${formatModelPolicy(policy)}`,
-      `- 列表来源: \`model/list${includeHidden ? " includeHidden=true" : ""}\``,
+      `- 显示范围: ${includeHidden ? "包含隐藏模型" : "常用模型"}`,
       "",
       "**可用模型**",
       ...(models.length > 0 ? models.map(formatModelOptionLine) : ["无可用模型。"]),
       "",
-      "用法: `/model gpt-5.5 xhigh`、`/model 2 high`、`/model effort medium`、`/model default`。",
-      "发送 `/model all` 可包含隐藏模型。",
+      "**用法**",
+      `- 发送 \`${modelCommand} all\` 可包含隐藏模型。`,
+      `- 发送 \`${modelCommand} 2 high\` 可按编号选择上方列表项。`,
+      `- 发送 \`${modelCommand} <模型或 id> <effort>\` 可按名称/id 选择。`,
+      `- 发送 \`${modelCommand} effort medium\` 只修改后续思考程度。`,
+      `- 发送 \`${modelCommand} default\` 清除模型覆盖。`,
     ].join("\n");
   }
 

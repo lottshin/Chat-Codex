@@ -390,7 +390,12 @@ export function parseReasoningEffort(value: string): CodexReasoningEffort | unde
 }
 
 export function invalidReasoningEffortText(value: string): string {
-  return `未知思考程度: \`${value}\`\n可用值: ${CODEX_REASONING_EFFORTS.map((effort) => `\`${effort}\``).join(", ")}。`;
+  return [
+    `未知思考程度: \`${value}\``,
+    `Codex 可用值: ${CODEX_REASONING_EFFORTS.map((effort) => `\`${effort}\``).join(", ")}。`,
+    "Claude Code effort 仅对 Claude 模型生效，可通过 `/model <Claude 模型> <effort>` 或 `/model effort <effort>` 使用。",
+    "下一步：发送 `/model` 查看当前可用模型和示例。",
+  ].join("\n");
 }
 
 export function modelSupportsEffort(model: CodexModelOption, effort: CodexReasoningEffort): boolean {
@@ -409,6 +414,7 @@ export function unsupportedReasoningEffortText(model: CodexModelOption, effort: 
   return [
     `模型 \`${model.model}\` 不支持思考程度 \`${effort}\`。`,
     `可用值: ${supported.length > 0 ? supported.map((value) => `\`${value}\``).join(", ") : "`default`"}。`,
+    `下一步：请选择上面列出的支持值，或发送 \`/model ${model.model}\` 使用默认思考程度。`,
   ].join("\n");
 }
 

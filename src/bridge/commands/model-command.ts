@@ -35,7 +35,10 @@ export async function handleModelCommand(
   const getModelPolicy = options.codex.getModelPolicy?.bind(options.codex);
   const setModelPolicy = options.codex.setModelPolicy?.bind(options.codex);
   if (!listModels || !getModelPolicy || !setModelPolicy) {
-    await options.delivery.sendText(target, "当前后端不支持模型列表或运行时模型切换。");
+    await options.delivery.sendText(target, [
+      "当前后端不支持模型列表或运行时模型切换。",
+      "下一步：发送 /status 查看当前后端，或继续按当前模型发送普通消息。",
+    ].join("\n"));
     return;
   }
 
@@ -53,7 +56,9 @@ export async function handleModelCommand(
     await options.delivery.sendText(target, [
       "已清除模型覆盖。",
       `作用范围: ${formatModelScope(sessionId)}`,
+      "后续任务将使用当前后端默认模型。",
       options.routeQueue.hasWorker(message.routeKey) ? "当前正在运行的任务不会被改写；需要立即生效请先 /stop。" : undefined,
+      "下一步：可以继续发送普通消息；如需确认状态，请发送 /status。",
     ].filter(Boolean).join("\n"));
     return;
   }
@@ -62,7 +67,10 @@ export async function handleModelCommand(
   try {
     models = await listModels({ includeHidden });
   } catch (error) {
-    await options.delivery.sendText(target, `获取模型列表失败: ${error instanceof Error ? error.message : String(error)}`);
+    await options.delivery.sendText(target, [
+      `获取模型列表失败: ${error instanceof Error ? error.message : String(error)}`,
+      "下一步：稍后重试 /model，或发送 /status 查看当前状态。",
+    ].join("\n"));
     return;
   }
   const policy = getModelPolicy(sessionId);
@@ -100,7 +108,9 @@ export async function handleModelCommand(
       `作用范围: ${formatModelScope(sessionId)}`,
       `Model: \`${nextPolicy.model ?? currentModel.model}\``,
       `Effort: \`${effort.value}\``,
+      "该设置只影响后续任务。",
       options.routeQueue.hasWorker(message.routeKey) ? "当前正在运行的任务不会被改写；需要立即生效请先 /stop。" : undefined,
+      "下一步：可以继续发送普通消息；如需改模型本身，请发送 /model 查看列表。",
     ].filter(Boolean).join("\n"));
     return;
   }
@@ -131,7 +141,9 @@ export async function handleModelCommand(
     `作用范围: ${formatModelScope(sessionId)}`,
     `Model: \`${model.model}\`${model.id !== model.model ? ` (id \`${model.id}\`)` : ""}`,
     `Effort: \`${requestedEffort?.value ?? "default"}\``,
+    "后续任务将使用该模型设置。",
     options.routeQueue.hasWorker(message.routeKey) ? "当前正在运行的任务不会被改写；需要立即生效请先 /stop。" : undefined,
+    "下一步：可以继续发送普通消息；如需只调整思考程度，请发送 /model effort <effort>。",
   ].filter(Boolean).join("\n"));
 }
 
