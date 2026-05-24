@@ -605,9 +605,11 @@ test("Bridge handles new session, prompt, status, and approval over mock channel
   const approvalMessage = channel.sentMessages.find((message) => message.text.includes("Codex 请求审批"));
   assert.ok(approvalMessage, "approval request should be sent to channel");
   assert.equal(/\[a[0-9a-z]+]/.test(approvalMessage.text), false, "approval id should not be exposed in normal channel prompt");
-  assert.ok(approvalMessage.text.includes("/OK 或 /1：通过当前审批"));
-  assert.ok(approvalMessage.text.includes("/P 或 /2：本会话通过"));
-  assert.ok(approvalMessage.text.includes("/NO 或 /3：拒绝当前审批"));
+  assert.ok(approvalMessage.text.includes("**请选择处理方式**"));
+  assert.ok(approvalMessage.text.includes("`/OK` 或 `/1`：通过当前审批"));
+  assert.ok(approvalMessage.text.includes("`/P` 或 `/2`：本会话通过"));
+  assert.ok(approvalMessage.text.includes("`/NO` 或 `/3`：拒绝当前审批"));
+  assert.ok(approvalMessage.text.includes("下一步：直接回复上面任一命令；不确定时发送 /status 查看当前待处理审批。"));
 
   await channel.emitText("/OK 好的");
   await bridge.waitForIdle();
@@ -622,6 +624,7 @@ test("Bridge handles new session, prompt, status, and approval over mock channel
   assert.ok(channel.sentMessages.some((message) => message.text.includes("**Codex 状态**") && message.text.includes("下一步：发送普通消息继续任务")));
   const approvalHandledMessage = channel.sentMessages.find((message) => message.text.startsWith("审批已处理："))?.text ?? "";
   assert.ok(approvalHandledMessage.includes("已通过"));
+  assert.ok(approvalHandledMessage.includes("等待当前任务继续输出"));
   assert.equal(/\[a[0-9a-z]+]/.test(approvalHandledMessage), false, "approval handled reply should not expose internal id");
   assert.equal(codex.resolvedApprovals.length, 1);
   assert.match(codex.resolvedApprovals[0].approvalKey, /^a[0-9a-z]+$/);
@@ -2049,7 +2052,7 @@ test("Bridge approves latest approval for the current session with /P", async ()
 
   assert.equal(codex.resolvedApprovals.length, 1);
   assert.equal(codex.resolvedApprovals[0].decision, "approve-session");
-  assert.ok(channel.sentMessages.some((message) => message.text.includes("审批已处理：已按本会话通过，当前操作将继续执行。")));
+  assert.ok(channel.sentMessages.some((message) => message.text.includes("审批已处理：已按本会话通过，当前操作将继续执行。") && message.text.includes("等待当前任务继续输出")));
 });
 
 test("Bridge retries approval notifications until one is delivered", async () => {
@@ -2065,7 +2068,8 @@ test("Bridge retries approval notifications until one is delivered", async () =>
   assert.equal(channel.approvalAttempts, 3);
   const deliveredApprovals = channel.sentMessages.filter((message) => message.text.includes("Codex 请求审批"));
   assert.equal(deliveredApprovals.length, 1);
-  assert.ok(deliveredApprovals[0].text.includes("/OK 或 /1：通过当前审批"));
+  assert.ok(deliveredApprovals[0].text.includes("`/OK` 或 `/1`：通过当前审批"));
+  assert.ok(deliveredApprovals[0].text.includes("下一步：直接回复上面任一命令"));
 });
 
 test("Bridge stops retrying approval notification after approval is resolved", async () => {
@@ -2083,6 +2087,9 @@ test("Bridge stops retrying approval notification after approval is resolved", a
   assert.ok(statusMessage.includes("```text\n/OK 或 /1\n```"));
   assert.ok(statusMessage.includes("```text\n/P 或 /2\n```"));
   assert.ok(statusMessage.includes("```text\n/NO 或 /3\n```"));
+  assert.ok(statusMessage.includes("`/OK` 或 `/1`：通过当前审批"));
+  assert.ok(statusMessage.includes("`/P` 或 `/2`：本会话通过"));
+  assert.ok(statusMessage.includes("`/NO` 或 `/3`：拒绝当前审批"));
   await channel.emitText("/OK");
   await bridge.waitForIdle();
   await bridge.stop();

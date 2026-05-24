@@ -28,6 +28,10 @@ export function formatApprovalChoiceLine(choice: ApprovalChoice): string {
   return `${choice.command} 或 ${choice.numeric}：${choice.description}`;
 }
 
+export function formatApprovalChoiceSummaryLine(choice: ApprovalChoice): string {
+  return `- \`${choice.command}\` 或 \`${choice.numeric}\`：${choice.description}`;
+}
+
 export function decisionForNumericApprovalChoice(
   approval: Pick<PendingApproval, "availableDecisions"> | undefined,
   numeric: string,
@@ -47,7 +51,7 @@ export function isApprovalDecisionAvailable(
 export function unavailableApprovalDecisionMessage(decision: ApprovalDecision): string {
   return [
     `当前审批不支持${descriptionForDecision(decision)}。`,
-    "下一步：请发送审批提示中列出的命令，例如 /OK、/NO 或数字选项。",
+    "下一步：请发送审批提示中实际列出的命令；不确定时发送 /status 查看当前待处理审批。",
   ].join("\n");
 }
 
