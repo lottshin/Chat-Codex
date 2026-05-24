@@ -1064,11 +1064,15 @@ test("Bridge switches persistent collaboration mode with /plan and /code", async
   await bridge.stop();
 
   const help = channel.sentMessages.find((message) => message.text.startsWith("**可用命令**"))?.text ?? "";
-  assert.ok(help.includes("- `/plan [任务]`: 进入 Chat-Codex 计划模式"));
+  assert.ok(help.includes("- `/plan [任务]`: 进入 Chat-Codex 计划模式；带任务时立即用计划模式处理"));
   assert.ok(help.includes("- `/code [任务]`: 切回默认执行模式，或用默认模式处理任务。"));
   assert.ok(help.includes("  - 别名：`/default [任务]`"));
   assert.ok(help.includes("- `/plan-execute`: 执行待处理计划"));
-  assert.ok(help.includes("  - 别名：`/plan-accept-edits`"));
+  assert.ok(help.includes("  - 别名：`/1`"));
+  assert.ok(help.includes("- `/plan-edit`: 按当前权限策略执行待处理计划"));
+  assert.ok(help.includes("如需 Claude acceptEdits，请先明确切换权限模式"));
+  assert.ok(help.includes("  - 别名：`/plan-accept-edits`、`/2`"));
+  assert.equal(help.includes("切到 Claude acceptEdits 语义"), false);
   assert.ok(channel.sentMessages.some((message) => message.text.includes("已进入 Plan mode")));
   assert.ok(channel.sentMessages.some((message) => message.text.includes("已切回默认执行模式")));
   assert.ok(channel.sentMessages.some((message) => message.text.includes("协作模式:")));
@@ -1110,7 +1114,13 @@ test("Bridge shows Chat-Codex plan workflow choices and executes accepted plan",
   const statusMessage = channel.sentMessages.find((message) => message.text.includes("**待处理计划**"))?.text ?? "";
   assert.ok(planMessage.includes("不是 Claude 原生 TUI 选项"));
   assert.ok(planMessage.includes("/plan-execute 或 /1"));
-  assert.ok(statusMessage.includes("下一步：请处理待计划项"));
+  assert.ok(planMessage.includes("/plan-edit 或 /2 按当前权限策略执行这个计划"));
+  assert.ok(planMessage.includes("/permission acceptEdits"));
+  assert.ok(planMessage.includes("/replan <补充> 或 /3 <补充> 继续规划/修改计划，不执行代码修改"));
+  assert.equal(planMessage.includes("切到 Claude acceptEdits 语义"), false);
+  assert.ok(statusMessage.includes("下一步：请处理待处理计划"));
+  assert.ok(statusMessage.includes("/2") && statusMessage.includes("按当前权限执行"));
+  assert.equal(statusMessage.includes("/2` 修改"), false);
   assert.ok(statusMessage.includes("/1") && statusMessage.includes("/4"));
   assert.deepEqual(codex.modeRuns, ["plan", "default"]);
   assert.match(codex.prompts[1], /请按以下已批准的计划执行/);
@@ -1133,7 +1143,7 @@ test("Bridge replans and cancels pending plan workflow", async () => {
   assert.deepEqual(codex.modeRuns, ["plan", "plan"]);
   assert.match(codex.prompts[1], /既有计划/);
   assert.match(codex.prompts[1], /增加测试/);
-  assert.ok(channel.sentMessages.some((message) => message.text.includes("已取消待执行计划")));
+  assert.ok(channel.sentMessages.some((message) => message.text.includes("已取消待处理计划")));
 });
 
 test("Bridge passes known backend slash commands through as prompts", async () => {
@@ -1207,6 +1217,13 @@ test("Bridge keeps Claude profile root approval and plan shortcuts local when pe
 
   assert.deepEqual(codex.modeRuns, ["plan", "default"]);
   assert.ok(channel.sentMessages.some((message) => message.text.includes("已接受计划")));
+  const planMessage = channel.sentMessages.find((message) => message.text.includes("Chat-Codex 计划快捷回复"))?.text ?? "";
+  assert.ok(planMessage.includes("/bridge-plan-execute 或 /1"));
+  assert.ok(planMessage.includes("/bridge-plan-edit 或 /2"));
+  assert.ok(planMessage.includes("/bridge-permission acceptEdits"));
+  assert.ok(planMessage.includes("/bridge-replan <补充> 或 /3 <补充>"));
+  assert.ok(planMessage.includes("/bridge-plan-cancel 或 /4"));
+  assert.equal(planMessage.includes("/plan-edit 或 /2"), false);
 });
 
 test("Bridge keeps first-party and unknown slash command handling ahead of backend passthrough", async () => {

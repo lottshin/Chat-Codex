@@ -1,3 +1,4 @@
+import type { CommandNamespaceProfile } from "../backend/metadata.js";
 import type { CodexPromptInput } from "../codex/types.js";
 import type { ChannelMessage, ChannelTarget } from "../protocol/channel.js";
 
@@ -34,14 +35,23 @@ export class PlanWorkflowStore {
   }
 }
 
-export function formatPlanWorkflowChoices(): string {
+export function formatPlanWorkflowChoices(commandProfile: CommandNamespaceProfile = "codex"): string {
+  const planExecute = bridgeCommand(commandProfile, "/plan-execute");
+  const planEdit = bridgeCommand(commandProfile, "/plan-edit");
+  const replan = bridgeCommand(commandProfile, "/replan");
+  const planCancel = bridgeCommand(commandProfile, "/plan-cancel");
+  const permission = bridgeCommand(commandProfile, "/permission");
   return [
     "Chat-Codex 计划快捷回复（不是 Claude 原生 TUI 选项）：",
-    "/plan-execute 或 /1 执行这个计划，继续按当前权限/审批策略处理工具请求",
-    "/plan-edit 或 /2 执行这个计划，并切到 Claude acceptEdits 语义（自动接受文件编辑，工具权限仍按当前策略）",
-    "/replan <补充> 或 /3 <补充> 继续规划/修改计划",
-    "/plan-cancel 或 /4 取消这个待执行计划",
+    `${planExecute} 或 /1 执行这个计划，继续按当前权限/审批策略处理工具请求`,
+    `${planEdit} 或 /2 按当前权限策略执行这个计划；如需 Claude acceptEdits，请先发送 ${permission} acceptEdits 明确切换`,
+    `${replan} <补充> 或 /3 <补充> 继续规划/修改计划，不执行代码修改`,
+    `${planCancel} 或 /4 取消这个待处理计划`,
   ].join("\n");
+}
+
+function bridgeCommand(commandProfile: CommandNamespaceProfile, command: string): string {
+  return commandProfile === "claude" ? `/bridge-${command.slice(1)}` : command;
 }
 
 export function planExecutionPrompt(workflow: PendingPlanWorkflow): string {

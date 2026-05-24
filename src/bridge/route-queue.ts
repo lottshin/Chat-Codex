@@ -1,5 +1,5 @@
 import type { ApprovalManager } from "../approvals/approval-manager.js";
-import { backendDisplayName, type AiBackend } from "../backend/metadata.js";
+import { backendDisplayName, type AiBackend, type CommandNamespaceProfile } from "../backend/metadata.js";
 import type { CodexAdapter, CodexCollaborationMode, CodexProgressKind, CodexPromptInput, CodexRunApprovalContextRegistration } from "../codex/types.js";
 import { codexInputPlainText, codexInputText, withCodexInputText } from "../codex/input.js";
 import type { TranscriptSink } from "../logging/transcript.js";
@@ -42,6 +42,7 @@ export interface BridgeRouteQueueOptions {
   contextRefresh?: SessionContextRefreshManager;
   onPlanWorkflowReady?(workflow: PendingPlanWorkflow): void;
   backend?: AiBackend;
+  commandProfile?: CommandNamespaceProfile;
 }
 
 export class BridgeRouteQueue {
@@ -58,6 +59,7 @@ export class BridgeRouteQueue {
   private readonly contextRefresh?: SessionContextRefreshManager;
   private readonly onPlanWorkflowReady?: BridgeRouteQueueOptions["onPlanWorkflowReady"];
   private readonly backendName: string;
+  private readonly commandProfile: CommandNamespaceProfile;
   private readonly progressDelivery: BridgeProgressDelivery;
   private readonly queues = new Map<string, QueuedPrompt[]>();
   private readonly workers = new Map<string, Promise<void>>();
@@ -77,6 +79,7 @@ export class BridgeRouteQueue {
     this.contextRefresh = options.contextRefresh;
     this.onPlanWorkflowReady = options.onPlanWorkflowReady;
     this.backendName = backendDisplayName(options.backend);
+    this.commandProfile = options.commandProfile ?? "codex";
     this.progressDelivery = options.progressDelivery ?? new BridgeProgressDelivery({
       delivery: this.delivery,
       transcript: this.transcript,
@@ -285,7 +288,7 @@ export class BridgeRouteQueue {
             const isPlanTurn = collaborationMode === "plan";
             const visibleText = sendFile ? stripBridgeSendFileRefs(composedFinalText) : composedFinalText;
             const deliveryText = isPlanTurn && visibleText
-              ? `${visibleText}\n\n${formatPlanWorkflowChoices()}`
+              ? `${visibleText}\n\n${formatPlanWorkflowChoices(this.commandProfile)}`
               : visibleText;
             if (deliveryText) await this.delivery.sendText(target, deliveryText);
             if (sendFile) {

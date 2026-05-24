@@ -50,7 +50,7 @@ import {
 import type { PendingPlanWorkflow } from "./plan-workflow.js";
 import { formatPlanWorkflowChoices } from "./plan-workflow.js";
 
-function commandForProfile(commandProfile: CommandNamespaceProfile, command: string, bridgeRootExceptions: readonly string[] = ["/stop", "/OK", "/P", "/NO"]): string {
+function commandForProfile(commandProfile: CommandNamespaceProfile, command: string, bridgeRootExceptions: readonly string[] = ["/stop", "/OK", "/P", "/NO", "/1", "/2", "/3", "/4"]): string {
   if (commandProfile !== "claude") return command;
   if (bridgeRootExceptions.includes(command)) return command;
   if (!command.startsWith("/")) return command;
@@ -172,7 +172,7 @@ export class BridgeStatusText {
       ...formatGoalStatusLines(goal),
       `- 待审批: \`${approvals.length}\``,
       ...formatPendingApprovalStatus(approvals.at(-1)),
-      ...formatPendingPlanWorkflowStatus(planWorkflow),
+      ...formatPendingPlanWorkflowStatus(planWorkflow, this.commandProfile),
       this.progressStatusLine(routeKey, deliveryPolicy),
       modelPolicy ? `- 模型覆盖: ${formatModelPolicyForStatus(modelPolicy)}` : undefined,
       policy ? `- 权限模式: ${formatRunPolicyForStatus(policy)}` : undefined,
@@ -311,12 +311,12 @@ export class BridgeStatusText {
       { command: "/cancel", description: "取消当前等待中的交互，例如会话选择、压缩确认或待发送文件。" },
       ...(isFeishuGroupMessage(message) ? [] : [{ command: "/whoami", description: "查看当前通道身份。" }]),
       { command: "/debug", description: "查看调试状态。" },
-      { command: "/plan [任务]", description: "进入 Chat-Codex 计划模式，或用计划模式处理任务；计划完成后会显示 Chat-Codex 快捷回复。", feature: "collaborationMode" },
+      { command: "/plan [任务]", description: "进入 Chat-Codex 计划模式；带任务时立即用计划模式处理，计划完成后会显示 Chat-Codex 快捷回复。", feature: "collaborationMode" },
       { command: "/code [任务]", description: "切回默认执行模式，或用默认模式处理任务。", aliases: ["/default [任务]"], feature: "collaborationMode" },
-      { command: "/plan-execute", description: "执行待处理计划，继续按当前权限/审批策略处理工具请求。", feature: "collaborationMode" },
-      { command: "/plan-edit", description: "执行待处理计划；如需 Claude acceptEdits，请先明确切换权限模式。", aliases: ["/plan-accept-edits"], feature: "collaborationMode" },
-      { command: "/replan <补充>", description: "基于待处理计划继续规划，不执行代码修改。", feature: "collaborationMode" },
-      { command: "/plan-cancel", description: "取消待执行计划。", feature: "collaborationMode" },
+      { command: "/plan-execute", description: "执行待处理计划，继续按当前权限/审批策略处理工具请求。", aliases: ["/1"], feature: "collaborationMode" },
+      { command: "/plan-edit", description: "按当前权限策略执行待处理计划；如需 Claude acceptEdits，请先明确切换权限模式。", aliases: ["/plan-accept-edits", "/2"], feature: "collaborationMode" },
+      { command: "/replan <补充>", description: "基于待处理计划继续规划/修改计划，不执行代码修改。", aliases: ["/3 <补充>"], feature: "collaborationMode" },
+      { command: "/plan-cancel", description: "取消待处理计划。", aliases: ["/4"], feature: "collaborationMode" },
       {
         command: "/goal [目标]",
         description: "查看或设置当前会话的实验 Goal 长期目标。",
@@ -652,20 +652,20 @@ function formatStatusNextStep(options: {
 }): string {
   if (options.compactState.type !== "none") return "- 下一步：按上下文压缩提示继续处理。";
   if (options.pendingApprovals > 0) return "- 下一步：请处理待审批项，可发送审批提示中的 `/OK`、`/P`、`/NO` 或数字选项。";
-  if (options.hasPlanWorkflow) return "- 下一步：请处理待计划项，可发送 `/1` 执行、`/2` 修改、`/3` 重新规划或 `/4` 取消。";
+  if (options.hasPlanWorkflow) return "- 下一步：请处理待处理计划，可发送 `/1` 执行、`/2` 按当前权限执行、`/3` 重新规划或 `/4` 取消。";
   if (options.workerRunning) return "- 下一步：当前任务正在执行；如需中断，请发送 `/stop`。";
   if (!options.binding) return "- 下一步：发送普通消息创建或绑定会话；如需明确选择，请发送 `/new` 或 `/resume`。";
   return "- 下一步：发送普通消息继续任务；如需查看命令，请发送 `/help`。";
 }
 
-function formatPendingPlanWorkflowStatus(workflow: PendingPlanWorkflow | undefined): string[] {
+function formatPendingPlanWorkflowStatus(workflow: PendingPlanWorkflow | undefined, commandProfile: CommandNamespaceProfile): string[] {
   if (!workflow) return [];
   return [
     "",
     "**待处理计划**",
     `- 生成时间: ${workflow.createdAt}`,
     `- 会话: \`${workflow.sessionId}\``,
-    "```text\n" + formatPlanWorkflowChoices() + "\n```",
+    "```text\n" + formatPlanWorkflowChoices(commandProfile) + "\n```",
   ];
 }
 

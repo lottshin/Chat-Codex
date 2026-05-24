@@ -201,6 +201,7 @@ export class Bridge {
       contextRefresh: this.contextRefresh,
       onPlanWorkflowReady: (workflow) => this.planWorkflows.set(workflow),
       backend: options.backend,
+      commandProfile: this.commandProfile,
     });
     this.backgroundTurns = new BridgeBackgroundTurns({
       state: this.state,
@@ -573,7 +574,7 @@ export class Bridge {
     }
     if (choice === "cancel") {
       this.planWorkflows.delete(message.routeKey);
-      await this.delivery.sendText(target, "已取消待执行计划，不会启动执行。");
+      await this.delivery.sendText(target, "已取消待处理计划，不会启动执行。");
       return;
     }
     if (choice === "replan") {
@@ -584,7 +585,7 @@ export class Bridge {
     }
     this.planWorkflows.delete(message.routeKey);
     if (choice === "edit") {
-      await this.delivery.sendText(target, "将按计划执行；如当前后端是 Claude Code，请先用 /permission acceptEdits 明确切换自动接受文件编辑模式。本次仍按当前权限策略执行。");
+      await this.delivery.sendText(target, "将按当前权限策略执行计划；不会自动切换权限模式。如需 Claude acceptEdits，请先用 /permission acceptEdits 明确切换。本次仍按当前权限策略执行。");
     } else {
       await this.delivery.sendText(target, "已接受计划，开始按当前权限/审批策略执行。");
     }
