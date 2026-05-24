@@ -671,6 +671,10 @@ test("Bridge handles compact confirmation and success over mock channel", async 
   const completed = channel.sentMessages.find((message) => message.text.includes("上下文压缩完成"))?.text ?? "";
   assert.equal(help.includes("```text"), false);
   assert.equal(help.includes("/new chat"), false);
+  assert.ok(help.includes("**常用下一步**"));
+  assert.ok(help.includes("- 查看状态：发送 `/status`。"));
+  assert.ok(help.includes("- 切换会话：发送 `/sessions` 查看列表，或发送 `/use` 进入编号选择。"));
+  assert.ok(help.includes("**完整命令**"));
   assert.ok(help.includes("- `/context-refresh [off|detect|reload|inherit]`: 设置当前聊天发送前是否检测本机会话上下文更新。"));
   assert.ok(help.includes("  - 别名：`/ctx-refresh`、`/context`、`/ctx`"));
   assert.ok(help.includes("  - `/context-refresh`: 查看当前聊天设置。"));
@@ -1107,6 +1111,11 @@ test("Bridge passes Claude profile root slash commands through and keeps /bridge
     "/unknown-native keep this too",
   ]);
   assert.ok(channel.sentMessages.some((message) => message.text.startsWith("**可用命令**")));
+  const bridgeHelp = channel.sentMessages.find((message) => message.text.startsWith("**可用命令**"))?.text ?? "";
+  assert.ok(bridgeHelp.includes("**常用下一步**"));
+  assert.ok(bridgeHelp.includes("发送 `/bridge-status`"));
+  assert.ok(bridgeHelp.includes("发送 `/bridge-sessions` 查看列表，或发送 `/bridge-use` 进入编号选择"));
+  assert.equal(bridgeHelp.includes("发送 `/status`"), false);
   assert.ok(channel.sentMessages.some((message) => message.text.includes("**Claude Code 状态**")));
   assert.equal(channel.sentMessages.some((message) => message.text.includes("即将压缩当前会话")), false);
 });
