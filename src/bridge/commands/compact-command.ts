@@ -29,14 +29,15 @@ export async function handleCompactCommand(
   if (!binding) {
     await options.delivery.sendText(target, [
       "当前聊天还没有绑定会话。",
-      "请先发送 /new 创建新会话，或发送 /resume 绑定已有会话。",
+      "下一步：请先发送 /new 创建新会话，或发送 /resume 绑定已有会话。",
     ].join("\n"));
     return;
   }
   if (!options.codex.compactSession) {
     await options.delivery.sendText(target, [
       "当前后端不支持 /compact。",
-      "请切换到支持上下文压缩的后端或接入方式。",
+      "这只表示当前接入方式不能压缩后端会话，不影响继续发送普通消息。",
+      "下一步：发送 /status 查看当前后端和会话，或直接发送普通消息继续任务。",
     ].join("\n"));
     return;
   }
@@ -61,7 +62,7 @@ export async function handleCompactCommand(
   if (compactState.type !== "confirming") {
     await options.delivery.sendText(target, [
       "当前没有待确认的上下文压缩。",
-      "请先发送 /compact 发起确认，再发送 /compact confirm。",
+      "下一步：请先发送 /compact 发起确认，再发送 /compact confirm 开始压缩。",
     ].join("\n"));
     return;
   }
@@ -71,7 +72,7 @@ export async function handleCompactCommand(
       "本次上下文压缩确认已过期。",
       `确认时 session: ${compactState.sessionId}`,
       `当前 session: ${binding.sessionId}`,
-      "请重新发送 /compact。",
+      "下一步：请重新发送 /compact 获取新的确认提示。",
     ].join("\n"));
     return;
   }
@@ -90,7 +91,10 @@ export async function handleCompactCommand(
     sessionId: binding.sessionId,
   });
   await options.delivery.sendTyping(target, true);
-  await options.delivery.sendText(target, "已开始压缩当前会话上下文。完成后会通知你。");
+  await options.delivery.sendText(target, [
+    "已开始压缩当前会话上下文。完成后会通知你。",
+    "压缩期间同一聊天的大多数操作会暂停；可发送 /status 查看进度。",
+  ].join("\n"));
   try {
     const result = await options.codex.compactSession(binding.sessionId);
     if (result.backend === "codex" || result.backend === "claude") {
@@ -112,7 +116,8 @@ export async function handleCompactCommand(
     await options.delivery.sendText(target, [
       `上下文压缩失败：${messageText}`,
       "",
-      "当前 session 绑定未改变。你可以稍后重试，或发送 /status 查看状态。",
+      "当前 session 绑定未改变，项目文件未修改。",
+      "下一步：可稍后重试 /compact，发送 /status 查看状态，或直接发送普通消息继续任务。",
     ].join("\n"));
   } finally {
     options.clearCompactState(message.routeKey);
@@ -127,14 +132,14 @@ export function isCompactConfirm(args: string[]): boolean {
 
 export function compactConfirmationText(sessionId: string, context: CodexSessionContextUsage | undefined): string {
   return [
-    "即将压缩当前会话的历史上下文。",
+    "即将压缩当前绑定的后端会话历史上下文。",
+    "不会修改项目文件、git 状态或工作目录。",
     "",
     `Session: ${sessionId}`,
     formatCompactContextLine("压缩前上下文", context),
     "说明: 压缩会把较早对话替换为摘要，释放上下文空间。当前绑定和工作目录不变。",
     "",
-    "发送 /compact confirm 开始压缩。",
-    "发送 /cancel 取消本次确认。",
+    "下一步：确认要压缩请发送 /compact confirm；不想压缩请发送 /cancel。",
   ].join("\n");
 }
 
@@ -154,6 +159,7 @@ function compactCompletedText(
     context ? formatCompactContextLine("压缩后上下文", context) : afterTokens !== undefined
       ? `压缩后上下文: \`${formatNumber(afterTokens)} token\``
       : "压缩后上下文: 暂无 token 数据。可发送 /status 查看后续状态。",
+    "下一步：可以继续发送普通消息；如需确认当前状态，请发送 /status。",
   ].filter(Boolean).join("\n");
 }
 
