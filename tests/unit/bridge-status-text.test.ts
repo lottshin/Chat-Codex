@@ -82,6 +82,10 @@ test("BridgeStatusText uses /bridge-* help commands in Claude profile", () => {
   assert.match(text, /\/bridge-mode/);
   assert.match(text, /\/bridge-ctx-refresh/);
   assert.match(text, /\/bridge-permissions/);
+  assert.match(text, /\/bridge-permission \[approval\|full confirm\|default\|auto\|acceptEdits\|dontAsk\|plan\|bypassPermissions confirm\]/);
+  assert.match(text, /`\/bridge-permission full confirm`: 高风险完全权限/);
+  assert.match(text, /`\/bridge-permission bypassPermissions confirm`: Claude Code 高风险模式/);
+  assert.doesNotMatch(text, /`\/permission full confirm`/);
   assert.match(text, /\/bridge-plan-accept-edits/);
   assert.match(text, /根 `\/\.\.\.` 优先发给 Claude Code/);
   assert.match(text, /\*\*常用下一步\*\*/);
@@ -247,6 +251,59 @@ test("BridgeStatusText shows actionable next step for pending plan workflows", a
   assert.match(text, /`\/2`/);
   assert.match(text, /`\/3`/);
   assert.match(text, /`\/4`/);
+});
+
+test("BridgeStatusText shows permission guidance by command profile", () => {
+  const codexText = new BridgeStatusText({
+    commandProfile: "codex",
+    channels: fakeChannels(),
+    codex: fakeCodex({ type: "idle" }),
+    state: new MemoryStateStore(),
+    approvals: new ApprovalManager(),
+    routeQueueLength: () => 0,
+    deliveryPolicyFor: () => DEFAULT_CHANNEL_DELIVERY_POLICY,
+    shouldConsumePendingInitialRouteBinding: () => false,
+    pendingInitialRouteBinding: () => undefined,
+    isRouteBusy: () => false,
+    routeSteerPendingCount: () => 0,
+    pendingMediaCount: () => 0,
+    compactStateForRoute: () => ({ type: "none" }),
+    collaborationModeForRoute: () => "default",
+    progressModeFor: () => "brief",
+    contextRefreshFor: () => ({ policy: { mode: "off" }, source: "route" }),
+    runPolicyStatus: () => undefined,
+    planWorkflowForRoute: () => undefined,
+  }).permissionText();
+  const claudeText = new BridgeStatusText({
+    backend: "claude",
+    commandProfile: "claude",
+    channels: fakeChannels(),
+    codex: fakeCodex({ type: "idle" }),
+    state: new MemoryStateStore(),
+    approvals: new ApprovalManager(),
+    routeQueueLength: () => 0,
+    deliveryPolicyFor: () => DEFAULT_CHANNEL_DELIVERY_POLICY,
+    shouldConsumePendingInitialRouteBinding: () => false,
+    pendingInitialRouteBinding: () => undefined,
+    isRouteBusy: () => false,
+    routeSteerPendingCount: () => 0,
+    pendingMediaCount: () => 0,
+    compactStateForRoute: () => ({ type: "none" }),
+    collaborationModeForRoute: () => "default",
+    progressModeFor: () => "brief",
+    contextRefreshFor: () => ({ policy: { mode: "off" }, source: "route" }),
+    runPolicyStatus: () => undefined,
+    planWorkflowForRoute: () => undefined,
+  }).permissionText();
+
+  assert.match(codexText, /\*\*当前状态\*\*/);
+  assert.match(codexText, /`\/permission approval`/);
+  assert.match(codexText, /`\/permission full confirm`/);
+  assert.match(codexText, /`\/permission bypassPermissions confirm`/);
+  assert.match(claudeText, /`\/bridge-permission approval`/);
+  assert.match(claudeText, /`\/bridge-permission full confirm`/);
+  assert.match(claudeText, /`\/bridge-permission bypassPermissions confirm`/);
+  assert.doesNotMatch(claudeText, /`\/permission full confirm`/);
 });
 
 test("BridgeStatusText shows compact status actions by command profile", async () => {

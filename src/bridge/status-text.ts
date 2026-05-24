@@ -347,9 +347,15 @@ export class BridgeStatusText {
       },
       { command: "/model [模型|编号] [effort]", description: "查看可用模型，或切换当前会话后续任务的模型和思考程度。", feature: "model" },
       {
-        command: "/permission [approval|full confirm]",
+        command: "/permission [approval|full confirm|default|auto|acceptEdits|dontAsk|plan|bypassPermissions confirm]",
         description: "查看或切换当前绑定会话的权限模式。",
         aliases: ["/permissions", "/perm", "/policy"],
+        details: [
+          "`/permission approval`: 切回较安全的审批模式，使用 `workspace-write` sandbox。",
+          "`/permission full confirm`: 高风险完全权限；完成后建议切回 `/permission approval`。",
+          "Claude Code modes 会映射到 `--permission-mode`：`default`、`auto`、`acceptEdits`、`dontAsk`、`plan`。",
+          "`/permission bypassPermissions confirm`: Claude Code 高风险模式，会跳过权限检查。",
+        ],
         feature: "runtimePermissionSwitch",
       },
       {
@@ -373,6 +379,9 @@ export class BridgeStatusText {
       aliases: entry.aliases?.map((alias) => commandForProfile(this.commandProfile, alias)),
       details: entry.details?.map((detail) => this.commandProfile === "claude"
         ? detail
+          .replaceAll("`/permission approval`", "`/bridge-permission approval`")
+          .replaceAll("`/permission full confirm`", "`/bridge-permission full confirm`")
+          .replaceAll("`/permission bypassPermissions confirm`", "`/bridge-permission bypassPermissions confirm`")
           .replaceAll("`/compact confirm`", "`/bridge-compact confirm`")
           .replaceAll("`/context-refresh`", "`/bridge-context-refresh`")
           .replaceAll("`/context-refresh off`", "`/bridge-context-refresh off`")
@@ -451,16 +460,29 @@ export class BridgeStatusText {
   permissionText(sessionId?: string): string {
     const policyStatus = this.runPolicyStatus(sessionId);
     const policy = policyStatus?.policy ?? this.codex.getRunPolicy?.(sessionId);
+    const permissionCommand = commandForProfile(this.commandProfile, "/permission");
     return [
       "**权限模式**",
+      "",
+      "**当前状态**",
       `- 作用范围: ${sessionId ? `当前会话 \`${sessionId}\`` : "默认策略（后续新会话）"}`,
       `- 当前模式: \`${policy ? formatRunPolicy(policy) : "unknown"}\``,
       policyStatus ? `- 审批支持: ${formatApprovalSupport(policyStatus)}` : undefined,
-      "- `approval`: 使用 `workspace-write` sandbox；如当前后端支持，会在聊天里发起审批。",
-      "- `full`: 完全权限，跳过审批或权限检查，风险很高。",
-      "- 切回审批模式: `/permission approval`",
-      "- 切到完全权限: `/permission full confirm`",
       policyStatus?.note ? `- 说明: ${policyStatus.note}` : undefined,
+      "",
+      "**Codex / bridge 权限模式**",
+      "- `approval`: 使用 `workspace-write` sandbox；如当前后端支持，会在聊天里发起审批。",
+      "- `full`: 完全权限，会跳过审批或权限检查，当前后端可以直接执行命令并修改文件，风险很高，需要 `confirm`。",
+      "",
+      "**Claude Code 权限模式**",
+      "- `default`、`auto`、`acceptEdits`、`dontAsk`、`plan`: 映射到 Claude Code `--permission-mode`。",
+      "- `bypassPermissions`: 高风险模式，会跳过 Claude Code 权限检查，需要 `confirm`。",
+      "",
+      "**下一步**",
+      `- 切回审批模式: \`${permissionCommand} approval\``,
+      `- 切到完全权限: \`${permissionCommand} full confirm\``,
+      `- Claude acceptEdits: \`${permissionCommand} acceptEdits\``,
+      `- Claude bypassPermissions: \`${permissionCommand} bypassPermissions confirm\``,
     ].filter(Boolean).join("\n");
   }
 

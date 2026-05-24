@@ -244,15 +244,17 @@ function formatStatusDetailForUser(detail: string): string {
 }
 
 export function formatRunPolicy(policy: CodexRunPolicy): string {
+  const claudeMode = policy.claudePermissionMode ? ` claude=${policy.claudePermissionMode}` : "";
   return policy.permissionMode === "full"
-    ? "full"
-    : `approval sandbox=${policy.sandbox ?? "workspace-write"}`;
+    ? `full${claudeMode}`
+    : `approval sandbox=${policy.sandbox ?? "workspace-write"}${claudeMode}`;
 }
 
 export function formatRunPolicyForStatus(policy: CodexRunPolicy): string {
+  const claudeMode = policy.claudePermissionMode ? `，Claude \`${policy.claudePermissionMode}\`` : "";
   return policy.permissionMode === "full"
-    ? "完全权限（跳过审批或权限检查）"
-    : `审批模式（沙箱 \`${policy.sandbox ?? "workspace-write"}\`）`;
+    ? `完全权限（跳过审批或权限检查${claudeMode}）`
+    : `审批模式（沙箱 \`${policy.sandbox ?? "workspace-write"}\`${claudeMode}）`;
 }
 
 export function formatGoalStatusLines(goal: CodexGoal | null | undefined): string[] {
