@@ -17,6 +17,7 @@ class PolicyChannelAdapter extends MockChannelAdapter {
     return {
       taskStart: "suppress",
       progress: "suppress",
+      taskLifecycle: "separate",
       progressCommand: "disabled",
       refreshCommands: [],
     };

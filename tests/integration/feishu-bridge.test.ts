@@ -49,9 +49,11 @@ test("Feishu private chat uses Bridge commands and default progress delivery", a
   assert.ok(texts.some((text) => text.includes("Codex 正在处理这条消息。")));
   assert.ok(texts.some((text) => text.includes("正在分析飞书私聊消息。")));
   assert.equal(texts.some((text) => text.includes("正在整理飞书处理结果。")), false);
-  assert.equal(factory.client.requestPayloads.filter((payload) => payload.method === "PATCH").length, 1);
-  assert.match(JSON.stringify(factory.client.requestPayloads.find((payload) => payload.method === "PATCH")?.data), /正在整理飞书处理结果/);
-  assert.ok(texts.some((text) => text.includes("完成: 请处理这个任务")));
+  assert.equal(factory.client.requestPayloads.filter((payload) => payload.method === "PATCH").length, 2);
+  const patchPayloads = factory.client.requestPayloads.filter((payload) => payload.method === "PATCH");
+  assert.match(JSON.stringify(patchPayloads[0]?.data), /正在整理飞书处理结果/);
+  assert.match(JSON.stringify(patchPayloads[1]?.data), /完成: 请处理这个任务/);
+  assert.equal(texts.some((text) => text.includes("完成: 请处理这个任务")), false);
   assert.ok(texts.some((text) => text.includes("**Codex 状态**") && text.includes("- 渠道: `feishu`")));
   assert.deepEqual(factory.client.reactionCreatePayloads.map((payload) => payload.path.message_id), ["om_prompt"]);
   assert.equal(factory.client.reactionCreatePayloads[0].data.reaction_type.emoji_type, "Typing");

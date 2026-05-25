@@ -225,6 +225,7 @@ export class FeishuAdapter implements ChannelAdapter {
     return {
       ...DEFAULT_CHANNEL_DELIVERY_POLICY,
       progress: "aggregate",
+      taskLifecycle: "update-progress",
     };
   }
 
