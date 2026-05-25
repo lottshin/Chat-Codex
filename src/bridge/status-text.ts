@@ -50,11 +50,8 @@ import {
 import type { PendingPlanWorkflow } from "./plan-workflow.js";
 import { formatPlanWorkflowChoices } from "./plan-workflow.js";
 
-function commandForProfile(commandProfile: CommandNamespaceProfile, command: string, bridgeRootExceptions: readonly string[] = ["/stop", "/OK", "/P", "/NO", "/1", "/2", "/3", "/4"]): string {
-  if (commandProfile !== "claude") return command;
-  if (bridgeRootExceptions.includes(command)) return command;
-  if (!command.startsWith("/")) return command;
-  return `/bridge-${command.slice(1)}`;
+function commandForProfile(_commandProfile: CommandNamespaceProfile, command: string): string {
+  return command;
 }
 
 export interface BridgeStatusTextOptions {
@@ -401,37 +398,11 @@ export class BridgeStatusText {
       ...entry,
       command: commandForProfile(this.commandProfile, entry.command),
       aliases: entry.aliases?.map((alias) => commandForProfile(this.commandProfile, alias)),
-      details: entry.details?.map((detail) => this.commandProfile === "claude"
-        ? detail
-          .replaceAll("`/progress brief`", "`/bridge-progress brief`")
-          .replaceAll("`/progress detailed`", "`/bridge-progress detailed`")
-          .replaceAll("`/progress silent`", "`/bridge-progress silent`")
-          .replaceAll("`/mode`", "`/bridge-mode`")
-          .replaceAll("`/model` 或 `/model list`", "`/bridge-model` 或 `/bridge-model list`")
-          .replaceAll("`/model all`", "`/bridge-model all`")
-          .replaceAll("`/model 2 high`", "`/bridge-model 2 high`")
-          .replaceAll("`/model <模型> <effort>`", "`/bridge-model <模型> <effort>`")
-          .replaceAll("`/model effort medium`", "`/bridge-model effort medium`")
-          .replaceAll("`/model default`", "`/bridge-model default`")
-          .replaceAll("`/model reset`", "`/bridge-model reset`")
-          .replaceAll("`/model clear`", "`/bridge-model clear`")
-          .replaceAll("`/permission approval`", "`/bridge-permission approval`")
-          .replaceAll("`/permission full confirm`", "`/bridge-permission full confirm`")
-          .replaceAll("`/permission bypassPermissions confirm`", "`/bridge-permission bypassPermissions confirm`")
-          .replaceAll("`/compact confirm`", "`/bridge-compact confirm`")
-          .replaceAll("`/context-refresh`", "`/bridge-context-refresh`")
-          .replaceAll("`/context-refresh off`", "`/bridge-context-refresh off`")
-          .replaceAll("`/context-refresh detect`", "`/bridge-context-refresh detect`")
-          .replaceAll("`/context-refresh reload`", "`/bridge-context-refresh reload`")
-          .replaceAll("`/context-refresh inherit`", "`/bridge-context-refresh inherit`")
-          .replaceAll("`/goal pause`", "`/bridge-goal pause`")
-          .replaceAll("`/goal resume`", "`/bridge-goal resume`")
-          .replaceAll("`/goal clear`", "`/bridge-goal clear`")
-        : detail),
+      details: entry.details,
     }));
     return [
       "**可用命令**",
-      this.commandProfile === "claude" ? "Claude profile：根 `/...` 优先发给 Claude Code；桥接管理命令请使用 `/bridge-*`。" : undefined,
+      this.commandProfile === "claude" ? "Claude profile：已知 Chat-Codex 命令可直接使用根 `/...`；旧 `/bridge-*` 别名仍兼容；未知 slash 命令会在 Claude Code 支持时转发。" : undefined,
       "",
       "**常用下一步**",
       ...formatHelpNextStepLines(this.commandProfile),

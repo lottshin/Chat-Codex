@@ -334,21 +334,7 @@ export class BridgeCommandRouter {
   }
   isBridgeCommand(message: ChannelMessage, name: string): boolean {
     if (refreshCommandFor(this.deliveryPolicyFor(message), name)) return true;
-    if (this.commandProfile === "claude") {
-      return this.isClaudeRootBridgeException(message, name) || isBridgeAliasCommandName(name);
-    }
     return Boolean(canonicalBridgeCommandName(name));
-  }
-
-  private isClaudeRootBridgeException(message: ChannelMessage, name: string): boolean {
-    const normalized = name.toLowerCase();
-    if (normalized === "stop") return true;
-    if (isApprovalAlias(normalized)) return Boolean(this.handlers.latestApprovalDecisions?.(message.routeKey));
-    if (isNumericShortcut(normalized)) {
-      return Boolean(this.handlers.latestApprovalDecisions?.(message.routeKey))
-        || Boolean(this.handlers.hasPlanWorkflow?.(message.routeKey));
-    }
-    return false;
   }
 
   private async rejectUnsupported(
@@ -367,7 +353,7 @@ function unknownCommandMessage(name: string, commandProfile: CommandNamespacePro
   if (commandProfile === "claude") {
     return [
       `未知 Chat-Codex 命令: /${name}`,
-      "下一步：发送 /bridge-help 查看 Chat-Codex 可用命令；Claude Code 原生命令请直接发送根命令。",
+      "下一步：发送 /help 查看 Chat-Codex 可用命令；未知根 slash 命令会在 Claude Code 支持时转发。",
     ].join("\n");
   }
   return `未知命令: /${name}\n下一步：发送 /help 查看可用命令。`;

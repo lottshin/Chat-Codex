@@ -23,25 +23,24 @@ test("BridgeCommandRouter supports /bridge-* aliases in Claude profile", async (
   assert.equal(fixture.calls.model, 0);
 });
 
-test("BridgeCommandRouter leaves root bridge names to Claude profile unless they are active shortcuts", async () => {
+test("BridgeCommandRouter treats known root commands as local in Claude profile", async () => {
   const fixture = routerFixture({ backend: "claude", commandProfile: "claude" });
 
-  assert.equal(fixture.router.isBridgeCommand(message(), "help"), false);
-  assert.equal(fixture.router.isBridgeCommand(message(), "status"), false);
-  assert.equal(fixture.router.isBridgeCommand(message(), "compact"), false);
-  assert.equal(fixture.router.isBridgeCommand(message(), "plan"), false);
-  assert.equal(fixture.router.isBridgeCommand(message(), "ok"), false);
-  assert.equal(fixture.router.isBridgeCommand(message(), "1"), false);
+  assert.equal(fixture.router.isBridgeCommand(message(), "help"), true);
+  assert.equal(fixture.router.isBridgeCommand(message(), "status"), true);
+  assert.equal(fixture.router.isBridgeCommand(message(), "sendfile"), true);
+  assert.equal(fixture.router.isBridgeCommand(message(), "model"), true);
+  assert.equal(fixture.router.isBridgeCommand(message(), "permission"), true);
+  assert.equal(fixture.router.isBridgeCommand(message(), "compact"), true);
+  assert.equal(fixture.router.isBridgeCommand(message(), "progress"), true);
+  assert.equal(fixture.router.isBridgeCommand(message(), "plan"), true);
+  assert.equal(fixture.router.isBridgeCommand(message(), "ok"), true);
+  assert.equal(fixture.router.isBridgeCommand(message(), "1"), true);
   assert.equal(fixture.router.isBridgeCommand(message(), "bridge-help"), true);
-  assert.equal(fixture.router.isBridgeCommand(message(), "stop"), true);
-
-  const approval = routerFixture({ backend: "claude", commandProfile: "claude", latestApprovalDecisions: ["approve", "deny"] });
-  assert.equal(approval.router.isBridgeCommand(message(), "ok"), true);
-  assert.equal(approval.router.isBridgeCommand(message(), "1"), true);
-
-  const plan = routerFixture({ backend: "claude", commandProfile: "claude", hasPlanWorkflow: true });
-  assert.equal(plan.router.isBridgeCommand(message(), "1"), true);
-  assert.equal(plan.router.isBridgeCommand(message(), "4"), true);
+  assert.equal(fixture.router.isBridgeCommand(message(), "bridge-status"), true);
+  assert.equal(fixture.router.isBridgeCommand(message(), "bridge-sendfile"), true);
+  assert.equal(fixture.router.isBridgeCommand(message(), "claude-api"), false);
+  assert.equal(fixture.router.isBridgeCommand(message(), "missing"), false);
 });
 
 test("BridgeCommandRouter classifies bridge-owned command names", () => {
@@ -58,10 +57,10 @@ test("BridgeCommandRouter sends unknown command help text", async () => {
   assert.equal(fixture.sent.at(-1), "未知命令: /missing\n下一步：发送 /help 查看可用命令。");
 });
 
-test("BridgeCommandRouter points Claude profile bridge errors to /bridge-help", async () => {
+test("BridgeCommandRouter points Claude profile bridge errors to root help", async () => {
   const fixture = routerFixture({ backend: "claude", commandProfile: "claude" });
   await fixture.router.handle(message(), target(), "bridge-missing", [], "/bridge-missing");
-  assert.equal(fixture.sent.at(-1), "未知 Chat-Codex 命令: /bridge-missing\n下一步：发送 /bridge-help 查看 Chat-Codex 可用命令；Claude Code 原生命令请直接发送根命令。");
+  assert.equal(fixture.sent.at(-1), "未知 Chat-Codex 命令: /bridge-missing\n下一步：发送 /help 查看 Chat-Codex 可用命令；未知根 slash 命令会在 Claude Code 支持时转发。");
 });
 
 test("BridgeCommandRouter handles refresh commands before normal dispatch", async () => {
@@ -254,11 +253,17 @@ test("BridgeCommandRouter routes sendfile with the original command name", async
   assert.equal(codex.calls.sendFile, 1);
   assert.deepEqual(codex.sendFileCall, { rawText: "/sendfile 生成报告", commandName: "sendfile" });
 
-  const claude = routerFixture({ backend: "claude", commandProfile: "claude" });
-  await claude.router.handle(message(), target(), "bridge-sendfile", ["生成报告"], "/bridge-sendfile 生成报告");
+  const claudeRoot = routerFixture({ backend: "claude", commandProfile: "claude" });
+  await claudeRoot.router.handle(message(), target(), "sendfile", ["生成报告"], "/sendfile 生成报告");
 
-  assert.equal(claude.calls.sendFile, 1);
-  assert.deepEqual(claude.sendFileCall, { rawText: "/bridge-sendfile 生成报告", commandName: "bridge-sendfile" });
+  assert.equal(claudeRoot.calls.sendFile, 1);
+  assert.deepEqual(claudeRoot.sendFileCall, { rawText: "/sendfile 生成报告", commandName: "sendfile" });
+
+  const claudeAlias = routerFixture({ backend: "claude", commandProfile: "claude" });
+  await claudeAlias.router.handle(message(), target(), "bridge-sendfile", ["生成报告"], "/bridge-sendfile 生成报告");
+
+  assert.equal(claudeAlias.calls.sendFile, 1);
+  assert.deepEqual(claudeAlias.sendFileCall, { rawText: "/bridge-sendfile 生成报告", commandName: "bridge-sendfile" });
 });
 
 test("BridgeCommandRouter allows supported Claude command handlers", async () => {
