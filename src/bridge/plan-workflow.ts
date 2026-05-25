@@ -1,6 +1,6 @@
 import type { CommandNamespaceProfile } from "../backend/metadata.js";
 import type { CodexPromptInput } from "../codex/types.js";
-import type { ChannelMessage, ChannelTarget } from "../protocol/channel.js";
+import type { ChannelActionMessage, ChannelMessage, ChannelTarget } from "../protocol/channel.js";
 
 export type PlanWorkflowChoice = "execute" | "edit" | "replan" | "cancel";
 
@@ -48,6 +48,18 @@ export function formatPlanWorkflowChoices(_commandProfile: CommandNamespaceProfi
     `${replan} <补充> 或 /3 <补充> 继续规划/修改计划，不执行代码修改`,
     `${planCancel} 或 /4 取消这个待处理计划`,
   ].join("\n");
+}
+
+export function formatPlanWorkflowActionMessage(commandProfile: CommandNamespaceProfile = "codex"): ChannelActionMessage {
+  return {
+    text: formatPlanWorkflowChoices(commandProfile),
+    buttonGroups: [[
+      { text: "执行", action: "cmd:/plan-execute", style: "primary" },
+      { text: "按当前权限执行", action: "cmd:/plan-edit", style: "default" },
+      { text: "重新规划", action: "cmd:/replan", style: "default" },
+      { text: "取消", action: "cmd:/plan-cancel", style: "danger" },
+    ]],
+  };
 }
 
 export function planExecutionPrompt(workflow: PendingPlanWorkflow): string {

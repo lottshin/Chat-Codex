@@ -1151,6 +1151,29 @@ test("Bridge shows Chat-Codex plan workflow choices and executes accepted plan",
   assert.match(codex.prompts[1], /实现小功能/);
 });
 
+test("Bridge sends plan workflow action buttons when channel supports buttons", async () => {
+  const channel = new MockChannelAdapter({ buttons: true });
+  const codex = new PlanWorkflowCodexAdapter();
+  const bridge = new Bridge({ channel, codex, cwd: process.cwd() });
+
+  await bridge.start();
+  await channel.emitText("/plan 实现小功能");
+  await bridge.waitForIdle();
+
+  const planActions = channel.sentActionMessages.find((message) => message.message.text.includes("Chat-Codex 计划快捷回复"))?.message;
+  assert.ok(planActions);
+  assert.ok(planActions.text.includes("实现小功能"));
+  assert.deepEqual(planActions.buttonGroups[0]?.map((button) => button.action), ["cmd:/plan-execute", "cmd:/plan-edit", "cmd:/replan", "cmd:/plan-cancel"]);
+  assert.equal(channel.sentMessages.some((message) => message.text.includes("Chat-Codex 计划快捷回复")), false);
+
+  await channel.emitText("/plan-execute");
+  await bridge.waitForIdle();
+  await bridge.stop();
+
+  assert.deepEqual(codex.modeRuns, ["plan", "default"]);
+  assert.match(codex.prompts[1], /请按以下已批准的计划执行/);
+});
+
 test("Bridge replans and cancels pending plan workflow", async () => {
   const channel = new MockChannelAdapter();
   const codex = new PlanWorkflowCodexAdapter();
