@@ -104,6 +104,22 @@ export interface ChannelMedia {
   caption?: string;
 }
 
+export type ChannelButtonStyle = "primary" | "default" | "danger";
+
+export interface ChannelButton {
+  text: string;
+  action: string;
+  style?: ChannelButtonStyle;
+}
+
+export type ChannelButtonGroup = ChannelButton[];
+
+export interface ChannelActionMessage {
+  text: string;
+  buttonGroups: ChannelButtonGroup[];
+  format?: "text" | "markdown";
+}
+
 export interface SendOptions {
   replyToMessageId?: string;
   metadata?: Record<string, unknown>;
@@ -129,6 +145,7 @@ export interface ChannelAdapter {
   getDeliveryPolicy?(message?: ChannelMessage): ChannelDeliveryPolicy;
   onMessage(handler: ChannelMessageHandler): void;
   sendText(target: ChannelTarget, text: string, options?: SendOptions): Promise<SendResult>;
+  sendActionMessage?(target: ChannelTarget, message: ChannelActionMessage, options?: SendOptions): Promise<SendResult>;
   sendMedia?(target: ChannelTarget, media: ChannelMedia, options?: SendOptions): Promise<SendResult>;
   sendTyping?(target: ChannelTarget, typing: boolean, options?: SendOptions): Promise<void>;
 }

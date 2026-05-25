@@ -1,6 +1,7 @@
 import type { Logger } from "../logging/logger.js";
 import { SilentLogger } from "../logging/logger.js";
 import type {
+  ChannelActionMessage,
   ChannelAdapter,
   ChannelCapabilities,
   ChannelMedia,
@@ -149,6 +150,15 @@ export class ChannelRegistry {
 
   async sendText(target: ChannelTarget, text: string, options?: SendOptions): Promise<SendResult> {
     return this.requireTargetChannel(target).sendText(target, text, options);
+  }
+
+  async sendActionMessage(target: ChannelTarget, message: ChannelActionMessage, options?: SendOptions): Promise<SendResult> {
+    const channel = this.requireTargetChannel(target);
+    const capabilities = channel.getCapabilities();
+    if (!capabilities.buttons || !channel.sendActionMessage) {
+      throw new Error(`channel does not support action messages: ${target.channelId}`);
+    }
+    return channel.sendActionMessage(target, message, options);
   }
 
   async sendMedia(target: ChannelTarget, media: ChannelMedia, options?: SendOptions): Promise<SendResult> {

@@ -1,4 +1,5 @@
 import type {
+  ChannelActionMessage,
   ChannelAdapter,
   ChannelAttachment,
   ChannelCapabilities,
@@ -36,6 +37,13 @@ export interface SentMockTyping {
   options?: SendOptions;
 }
 
+export interface SentMockActionMessage {
+  target: ChannelTarget;
+  message: ChannelActionMessage;
+  options?: SendOptions;
+  result: SendResult;
+}
+
 export interface MockChannelAdapterOptions {
   id?: string;
   label?: string;
@@ -45,12 +53,14 @@ export interface MockChannelAdapterOptions {
   direct?: boolean;
   group?: boolean;
   thread?: boolean;
+  buttons?: boolean;
 }
 
 export class MockChannelAdapter implements ChannelAdapter {
   readonly id: string;
   readonly label: string;
   readonly sentMessages: SentMockMessage[] = [];
+  readonly sentActionMessages: SentMockActionMessage[] = [];
   readonly sentMedia: SentMockMedia[] = [];
   readonly sentTyping: SentMockTyping[] = [];
   private handler?: ChannelMessageHandler;
@@ -90,6 +100,7 @@ export class MockChannelAdapter implements ChannelAdapter {
       login: "none",
       messageUpdate: false,
       streamingHint: false,
+      buttons: this.options.buttons ?? false,
     };
   }
 
@@ -108,6 +119,17 @@ export class MockChannelAdapter implements ChannelAdapter {
       deliveredAt: new Date().toISOString(),
     };
     this.sentMessages.push({ target, text, options, result });
+    this.state = { ...this.state, lastOutboundAt: result.deliveredAt };
+    return result;
+  }
+
+  async sendActionMessage(target: ChannelTarget, message: ChannelActionMessage, options?: SendOptions): Promise<SendResult> {
+    const result: SendResult = {
+      channelId: this.id,
+      messageId: `mock-action-${this.sentActionMessages.length + 1}`,
+      deliveredAt: new Date().toISOString(),
+    };
+    this.sentActionMessages.push({ target, message, options, result });
     this.state = { ...this.state, lastOutboundAt: result.deliveredAt };
     return result;
   }
