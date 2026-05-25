@@ -19,7 +19,7 @@ import {
   truncateForChannel,
   withSendFileInstruction,
 } from "./formatters.js";
-import { formatPlanWorkflowChoices } from "./plan-workflow.js";
+import { formatPlanWorkflowActionMessage, formatPlanWorkflowChoices } from "./plan-workflow.js";
 import type { PendingPlanWorkflow } from "./plan-workflow.js";
 
 export interface BridgeRouteQueueOptions {
@@ -290,7 +290,16 @@ export class BridgeRouteQueue {
             const deliveryText = isPlanTurn && visibleText
               ? `${visibleText}\n\n${formatPlanWorkflowChoices(this.commandProfile)}`
               : visibleText;
-            if (deliveryText) await this.delivery.sendText(target, deliveryText);
+            if (deliveryText) {
+              if (isPlanTurn && visibleText) {
+                await this.delivery.deliverActionMessage(target, {
+                  ...formatPlanWorkflowActionMessage(this.commandProfile),
+                  text: deliveryText,
+                }, deliveryText);
+              } else {
+                await this.delivery.sendText(target, deliveryText);
+              }
+            }
             if (sendFile) {
               await this.delivery.sendRequestedFiles(target, composedFinalText, session.cwd);
             }
