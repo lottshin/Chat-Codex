@@ -1163,7 +1163,7 @@ test("Bridge passes known backend slash commands through as prompts", async () =
   assert.equal(channel.sentMessages.some((message) => message.text.includes("未知命令: /claude-api")), false);
 });
 
-test("Bridge passes Claude profile root slash commands through and keeps /bridge-* local", async () => {
+test("Bridge keeps Claude profile known root commands local and unknown slash commands pass through", async () => {
   const channel = new MockChannelAdapter();
   const codex = new PromptSlashCodexAdapter(["help", "status", "compact", "plan", "simplify"]);
   const bridge = new Bridge({ channel, codex, cwd: process.cwd(), backend: "claude", commandProfile: "claude" });
@@ -1186,21 +1186,19 @@ test("Bridge passes Claude profile root slash commands through and keeps /bridge
   await bridge.stop();
 
   assert.deepEqual(codex.runs.map((run) => run.prompt), [
-    "/help",
-    "/status",
-    "/compact",
-    "/plan make a plan",
+    "make a plan",
     "/simplify keep this",
     "/unknown-native keep this too",
   ]);
   assert.ok(channel.sentMessages.some((message) => message.text.startsWith("**可用命令**")));
-  const bridgeHelp = channel.sentMessages.find((message) => message.text.startsWith("**可用命令**"))?.text ?? "";
+  const bridgeHelp = channel.sentMessages.find((message) => message.text.startsWith("**可用命令**") && message.text.includes("旧 `/bridge-*` 别名仍兼容"))?.text ?? "";
   assert.ok(bridgeHelp.includes("**常用下一步**"));
-  assert.ok(bridgeHelp.includes("发送 `/bridge-status`"));
-  assert.ok(bridgeHelp.includes("发送 `/bridge-sessions` 查看列表，或发送 `/bridge-use` 进入编号选择"));
-  assert.equal(bridgeHelp.includes("发送 `/status`"), false);
+  assert.ok(bridgeHelp.includes("发送 `/status`"));
+  assert.ok(bridgeHelp.includes("发送 `/sessions` 查看列表，或发送 `/use` 进入编号选择"));
+  assert.ok(bridgeHelp.includes("旧 `/bridge-*` 别名仍兼容"));
+  assert.equal(bridgeHelp.includes("发送 `/bridge-status`"), false);
   assert.ok(channel.sentMessages.some((message) => message.text.includes("**Claude Code 状态**")));
-  assert.equal(channel.sentMessages.some((message) => message.text.includes("即将压缩当前绑定")), false);
+  assert.ok(channel.sentMessages.some((message) => message.text.includes("当前聊天还没有绑定会话")));
 });
 
 test("Bridge keeps Claude profile root approval and plan shortcuts local when pending", async () => {
@@ -2265,27 +2263,30 @@ test("Bridge sends final declared files for /sendfile and strips bridge protocol
   assert.equal(channel.sentMessages.some((message) => message.text.includes("BRIDGE_SEND_FILE")), false);
 });
 
-test("Bridge sends final declared files for /bridge-sendfile without leaking the alias into the prompt", async () => {
+test("Bridge sends final declared files for Claude profile root /sendfile and /bridge-sendfile alias", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "bridge-sendfile-claude-test-"));
   const imagePath = path.join(root, "result.png");
   fs.writeFileSync(imagePath, "png");
-  const channel = new MockChannelAdapter({ media: true });
-  const codex = new SendFileCodexAdapter(imagePath);
-  const bridge = new Bridge({ channel, codex, cwd: root, backend: "claude", commandProfile: "claude" });
 
-  await bridge.start();
-  await channel.emitText("/bridge-sendfile 生成结果图并发给我");
-  await bridge.waitForIdle();
-  await bridge.stop();
+  for (const command of ["/sendfile", "/bridge-sendfile"]) {
+    const channel = new MockChannelAdapter({ media: true });
+    const codex = new SendFileCodexAdapter(imagePath);
+    const bridge = new Bridge({ channel, codex, cwd: root, backend: "claude", commandProfile: "claude" });
 
-  assert.equal(codex.prompts.length, 1);
-  assert.ok(codex.prompts[0].includes("生成结果图并发给我"));
-  assert.equal(codex.prompts[0].includes("/bridge-sendfile"), false);
-  assert.ok(codex.prompts[0].includes("BRIDGE_SEND_FILE: /absolute/path/to/file"));
-  assert.equal(channel.sentMedia.length, 1);
-  assert.equal(channel.sentMedia[0].media.path, imagePath);
-  assert.ok(channel.sentMessages.some((message) => message.text === "文件已准备好。"));
-  assert.equal(channel.sentMessages.some((message) => message.text.includes("BRIDGE_SEND_FILE")), false);
+    await bridge.start();
+    await channel.emitText(`${command} 生成结果图并发给我`);
+    await bridge.waitForIdle();
+    await bridge.stop();
+
+    assert.equal(codex.prompts.length, 1);
+    assert.ok(codex.prompts[0].includes("生成结果图并发给我"));
+    assert.equal(codex.prompts[0].includes(`${command} 生成结果图并发给我`), false);
+    assert.ok(codex.prompts[0].includes("BRIDGE_SEND_FILE: /absolute/path/to/file"));
+    assert.equal(channel.sentMedia.length, 1);
+    assert.equal(channel.sentMedia[0].media.path, imagePath);
+    assert.ok(channel.sentMessages.some((message) => message.text === "文件已准备好。"));
+    assert.equal(channel.sentMessages.some((message) => message.text.includes("BRIDGE_SEND_FILE")), false);
+  }
 });
 
 test("Bridge aggregates /sendfile media failures without per-file fallback spam", async () => {

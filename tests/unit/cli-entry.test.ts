@@ -31,12 +31,13 @@ test("chat-claude mock terminal starts in Claude profile without double boot", (
   const output = execFileSync(process.execPath, ["dist/src/cli-claude.js", "terminal", "mock", "--no-tui"], {
     cwd: process.cwd(),
     encoding: "utf8",
-    input: "/bridge-help\n/stop\n",
+    input: "/help\n/stop\n",
     timeout: 15000,
   });
 
-  assert.match(output, /Claude profile：根 `\/\.\.\.` 优先发给 Claude Code/);
-  assert.match(output, /\/bridge-help/);
+  assert.match(output, /Claude profile：已知 Chat-Codex 命令可直接使用根 `\/\.\.\.`/);
+  assert.match(output, /旧 `\/bridge-\*` 别名仍兼容/);
+  assert.match(output, /\/help/);
   assert.equal((output.match(/本地终端通道已启动/g) ?? []).length, 1);
   assert.doesNotMatch(output, /命令空间: Chat-Codex root slash/);
 });

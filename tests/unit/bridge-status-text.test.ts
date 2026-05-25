@@ -50,7 +50,7 @@ test("BridgeStatusText shows Claude backend session id in status", async () => {
   assert.match(text, /Claude session: `claude-actual-123`/);
 });
 
-test("BridgeStatusText uses /bridge-* help commands in Claude profile", () => {
+test("BridgeStatusText uses root help commands in Claude profile", () => {
   const text = new BridgeStatusText({
     backend: "claude",
     commandProfile: "claude",
@@ -73,34 +73,36 @@ test("BridgeStatusText uses /bridge-* help commands in Claude profile", () => {
     planWorkflowForRoute: () => undefined,
   }).helpText(message());
 
-  assert.match(text, /\/bridge-help/);
-  assert.match(text, /\/bridge-status/);
-  assert.match(text, /\/bridge-compact/);
-  assert.match(text, /\/bridge-session/);
-  assert.match(text, /\/bridge-all-sessions/);
-  assert.match(text, /\/bridge-default \[任务\]/);
-  assert.match(text, /\/bridge-progress \[brief\|detailed\|silent\]/);
-  assert.match(text, /\/bridge-mode/);
-  assert.match(text, /\/bridge-sendfile <任务内容>/);
+  assert.match(text, /已知 Chat-Codex 命令可直接使用根 `\/\.\.\.`/);
+  assert.match(text, /旧 `\/bridge-\*` 别名仍兼容/);
+  assert.match(text, /\/help/);
+  assert.match(text, /\/status/);
+  assert.match(text, /\/compact/);
+  assert.match(text, /\/session/);
+  assert.match(text, /\/all-sessions/);
+  assert.match(text, /\/default \[任务\]/);
+  assert.match(text, /\/progress \[brief\|detailed\|silent\]/);
+  assert.match(text, /\/mode/);
+  assert.match(text, /\/sendfile <任务内容>/);
   assert.match(text, /普通消息里的本地路径、Markdown 链接或 file:\/\/ 引用不会自动作为附件发送/);
   assert.match(text, /渠道必须支持图片\/文件发送/);
-  assert.doesNotMatch(text, /\/sendfile <任务内容>/);
-  assert.doesNotMatch(text, /`\/progress brief`/);
-  assert.match(text, /\/bridge-ctx-refresh/);
-  assert.match(text, /\/bridge-permissions/);
+  assert.doesNotMatch(text, /\/bridge-sendfile <任务内容>/);
+  assert.match(text, /`\/progress brief`/);
+  assert.match(text, /\/ctx-refresh/);
+  assert.match(text, /\/permissions/);
   assert.doesNotMatch(text, /\/bridge-1/);
-  assert.match(text, /\/bridge-permission \[approval\|full confirm\|default\|auto\|acceptEdits\|dontAsk\|plan\|bypassPermissions confirm\]/);
-  assert.match(text, /`\/bridge-permission full confirm`: 高风险完全权限/);
-  assert.match(text, /`\/bridge-permission bypassPermissions confirm`: Claude Code 高风险模式/);
-  assert.doesNotMatch(text, /`\/permission full confirm`/);
-  assert.match(text, /\/bridge-plan-accept-edits/);
-  assert.match(text, /\/bridge-plan-execute/);
+  assert.match(text, /\/permission \[approval\|full confirm\|default\|auto\|acceptEdits\|dontAsk\|plan\|bypassPermissions confirm\]/);
+  assert.match(text, /`\/permission full confirm`: 高风险完全权限/);
+  assert.match(text, /`\/permission bypassPermissions confirm`: Claude Code 高风险模式/);
+  assert.doesNotMatch(text, /`\/bridge-permission full confirm`/);
+  assert.match(text, /\/plan-accept-edits/);
+  assert.match(text, /\/plan-execute/);
   assert.match(text, /别名：`\/1`/);
   assert.doesNotMatch(text, /\/bridge-1/);
-  assert.match(text, /根 `\/\.\.\.` 优先发给 Claude Code/);
+  assert.doesNotMatch(text, /根 `\/\.\.\.` 优先发给 Claude Code/);
   assert.match(text, /\*\*常用下一步\*\*/);
-  assert.match(text, /发送 `\/bridge-status`/);
-  assert.match(text, /发送 `\/bridge-sessions` 查看列表，或发送 `\/bridge-use` 进入编号选择/);
+  assert.match(text, /发送 `\/status`/);
+  assert.match(text, /发送 `\/sessions` 查看列表，或发送 `\/use` 进入编号选择/);
   assert.match(text, /`\/OK`、`\/P`、`\/NO`/);
 });
 
@@ -352,10 +354,10 @@ test("BridgeStatusText shows permission guidance by command profile", () => {
   assert.match(codexText, /`\/permission approval`/);
   assert.match(codexText, /`\/permission full confirm`/);
   assert.match(codexText, /`\/permission bypassPermissions confirm`/);
-  assert.match(claudeText, /`\/bridge-permission approval`/);
-  assert.match(claudeText, /`\/bridge-permission full confirm`/);
-  assert.match(claudeText, /`\/bridge-permission bypassPermissions confirm`/);
-  assert.doesNotMatch(claudeText, /`\/permission full confirm`/);
+  assert.match(claudeText, /`\/permission approval`/);
+  assert.match(claudeText, /`\/permission full confirm`/);
+  assert.match(claudeText, /`\/permission bypassPermissions confirm`/);
+  assert.doesNotMatch(claudeText, /`\/bridge-permission full confirm`/);
 });
 
 test("BridgeStatusText shows progress guidance by command profile", () => {
@@ -375,15 +377,15 @@ test("BridgeStatusText shows progress guidance by command profile", () => {
   assert.match(codexProgress, /`\/progress detailed` 查看命令和工具细节/);
   assert.match(codexProgress, /`\/mode <模式>`/);
   assert.match(codexProgress, /`\/sendfile <任务内容>`/);
-  assert.match(claudeProgress, /`\/bridge-progress detailed` 查看命令和工具细节/);
-  assert.match(claudeProgress, /`\/bridge-mode <模式>`/);
-  assert.match(claudeProgress, /`\/bridge-sendfile <任务内容>`/);
-  assert.doesNotMatch(claudeProgress, /`\/progress detailed`/);
+  assert.match(claudeProgress, /`\/progress detailed` 查看命令和工具细节/);
+  assert.match(claudeProgress, /`\/mode <模式>`/);
+  assert.match(claudeProgress, /`\/sendfile <任务内容>`/);
+  assert.doesNotMatch(claudeProgress, /`\/bridge-progress detailed`/);
   assert.match(codexInvalid, /未知进度模式: `impossible`/);
   assert.match(codexInvalid, /可用值: `brief`、`detailed`、`silent`/);
   assert.match(codexInvalid, /`quiet`\/`off`\/`none`=`silent`/);
   assert.match(codexInvalid, /发送 `\/progress` 查看当前模式和示例/);
-  assert.match(claudeInvalid, /发送 `\/bridge-progress` 查看当前模式和示例/);
+  assert.match(claudeInvalid, /发送 `\/progress` 查看当前模式和示例/);
 });
 
 test("BridgeStatusText shows compact status actions by command profile", async () => {
