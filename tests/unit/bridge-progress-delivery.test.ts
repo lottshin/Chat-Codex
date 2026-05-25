@@ -175,6 +175,80 @@ test("BridgeProgressDelivery falls back to sending when aggregate update fails",
   assert.match(fixture.sentTexts[1], /第二段进度/);
   assert.match(fixture.sentTexts[2], /第三段进度/);
 });
+test("BridgeProgressDelivery updates aggregate progress with final lifecycle text", async () => {
+  const fixture = progressFixture({
+    shouldDeliverProgress: () => true,
+    minIntervalMs: 0,
+    messageUpdate: true,
+    policy: { ...DEFAULT_CHANNEL_DELIVERY_POLICY, progress: "aggregate", taskLifecycle: "update-progress" },
+  });
+
+  await fixture.progress.handleProgress({
+    routeKey: "route",
+    target: target(),
+    policy: fixture.policy,
+    text: "第一段进度。",
+    kind: "reasoning",
+  });
+
+  assert.equal(await fixture.progress.finishRoute("route", target(), fixture.policy, "最终结果。"), true);
+  assert.equal(fixture.updatedTexts.length, 1);
+  assert.equal(fixture.updatedTexts[0].messageId, "m-1");
+  assert.equal(fixture.updatedTexts[0].text, "最终结果。");
+});
+
+test("BridgeProgressDelivery does not finish lifecycle without aggregate message", async () => {
+  const fixture = progressFixture({
+    shouldDeliverProgress: () => true,
+    messageUpdate: true,
+    policy: { ...DEFAULT_CHANNEL_DELIVERY_POLICY, progress: "aggregate", taskLifecycle: "update-progress" },
+  });
+
+  assert.equal(await fixture.progress.finishRoute("route", target(), fixture.policy, "最终结果。"), false);
+  assert.deepEqual(fixture.updatedTexts, []);
+});
+
+test("BridgeProgressDelivery keeps default lifecycle separate", async () => {
+  const fixture = progressFixture({
+    shouldDeliverProgress: () => true,
+    minIntervalMs: 0,
+    messageUpdate: true,
+    policy: { ...DEFAULT_CHANNEL_DELIVERY_POLICY, progress: "aggregate" },
+  });
+
+  await fixture.progress.handleProgress({
+    routeKey: "route",
+    target: target(),
+    policy: fixture.policy,
+    text: "第一段进度。",
+    kind: "reasoning",
+  });
+
+  assert.equal(await fixture.progress.finishRoute("route", target(), fixture.policy, "最终结果。"), false);
+  assert.deepEqual(fixture.updatedTexts, []);
+});
+
+test("BridgeProgressDelivery returns false when final lifecycle update fails", async () => {
+  const fixture = progressFixture({
+    shouldDeliverProgress: () => true,
+    minIntervalMs: 0,
+    messageUpdate: true,
+    failUpdate: true,
+    policy: { ...DEFAULT_CHANNEL_DELIVERY_POLICY, progress: "aggregate", taskLifecycle: "update-progress" },
+  });
+
+  await fixture.progress.handleProgress({
+    routeKey: "route",
+    target: target(),
+    policy: fixture.policy,
+    text: "第一段进度。",
+    kind: "reasoning",
+  });
+
+  assert.equal(await fixture.progress.finishRoute("route", target(), fixture.policy, "最终结果。"), false);
+  assert.equal(fixture.updatedTexts.length, 1);
+});
+
 test("BridgeProgressDelivery records suppressed channel progress locally", async () => {
   const fixture = progressFixture({ shouldDeliverProgress: () => true });
   const suppressPolicy = {

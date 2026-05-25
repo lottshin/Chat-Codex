@@ -178,7 +178,9 @@ export class BridgeRouteQueue {
         await this.forwardPrompt(task.message, task.target, task.input, queue?.length ?? 0, task.sendFile, task.collaborationMode);
       } catch (error) {
         if (error instanceof TurnSchedulerAbortError) continue;
-        await this.delivery.sendText(task.target, `Codex 执行失败: ${error instanceof Error ? error.message : String(error)}`);
+        const errorText = `Codex 执行失败: ${error instanceof Error ? error.message : String(error)}`;
+        const updated = await this.progressDelivery.finishRoute(task.message.routeKey, task.target, this.deliveryPolicyFor(task.message), errorText);
+        if (!updated) await this.delivery.sendText(task.target, errorText);
       }
     }
   }
@@ -279,8 +281,9 @@ export class BridgeRouteQueue {
                 this.state.setSessionStatus(session.id, { type: "idle" });
               } else if (event.type === "turn.failed") {
                 this.state.setSessionStatus(session.id, { type: "failed", error: event.error });
-                await this.progressDelivery.flushRoute(message.routeKey);
-                await this.delivery.sendText(target, `Codex 执行失败: ${event.error}`);
+                const errorText = `Codex 执行失败: ${event.error}`;
+                const updated = await this.progressDelivery.finishRoute(message.routeKey, target, deliveryPolicy, errorText);
+                if (!updated) await this.delivery.sendText(target, errorText);
               }
             }
           } finally {
@@ -311,7 +314,8 @@ export class BridgeRouteQueue {
                   actionMessageId: actionResult.messageId,
                 });
               } else {
-                await this.delivery.sendText(target, deliveryText);
+                const updated = await this.progressDelivery.finishRoute(message.routeKey, target, deliveryPolicy, deliveryText);
+                if (!updated) await this.delivery.sendText(target, deliveryText);
               }
             }
             if (sendFile) {

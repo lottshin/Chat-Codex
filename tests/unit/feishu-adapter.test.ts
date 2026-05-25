@@ -35,6 +35,7 @@ test("FeishuAdapter starts websocket and declares private media capabilities", a
   assert.deepEqual(adapter.getDeliveryPolicy(), {
     ...DEFAULT_CHANNEL_DELIVERY_POLICY,
     progress: "aggregate",
+    taskLifecycle: "update-progress",
   });
   assert.deepEqual(adapter.getCapabilities(), {
     text: true,

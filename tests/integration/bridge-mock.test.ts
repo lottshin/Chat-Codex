@@ -9,7 +9,7 @@ import { codexInputPlainText, normalizeCodexInput } from "../../src/codex/input.
 import type { CodexAdapter, CodexBackgroundEventHandler, CodexCollaborationMode, CodexCompactResult, CodexEvent, CodexGoal, CodexPromptInput, CodexRunOptions, CodexSession, CodexSessionContextUsage, CodexSessionStatus, CodexSessionSummary, CodexTurnInput, StartSessionInput } from "../../src/codex/types.js";
 import type { TranscriptSink } from "../../src/logging/transcript.js";
 import type { ChannelAttachment, ChannelCapabilities, ChannelMedia, ChannelMessage, ChannelTarget, SendResult } from "../../src/protocol/channel.js";
-import type { ChannelDeliveryPolicy } from "../../src/protocol/delivery-policy.js";
+import { DEFAULT_CHANNEL_DELIVERY_POLICY, type ChannelDeliveryPolicy } from "../../src/protocol/delivery-policy.js";
 import { currentTimeZone, formatLocalDateTimeWithZone } from "../../src/time/display-time.js";
 import fs from "node:fs";
 import os from "node:os";
@@ -167,6 +167,15 @@ class ManualBackgroundCodexAdapter extends MockCodexAdapter {
   }
 }
 
+class ProgressFailedTurnCodexAdapter extends MockCodexAdapter {
+  override async *run(sessionId: string, _prompt: string): AsyncIterable<CodexEvent> {
+    const turnId = `progress-failed-turn-${Date.now()}`;
+    yield { type: "turn.started", sessionId, turnId };
+    yield { type: "assistant.progress", sessionId, turnId, kind: "reasoning", text: "失败前的进度。" };
+    yield { type: "turn.failed", sessionId, turnId, error: "模拟失败" };
+  }
+}
+
 class FailedTurnCodexAdapter extends MockCodexAdapter {
   override async *run(sessionId: string, _prompt: string): AsyncIterable<CodexEvent> {
     const turnId = `failed-turn-${Date.now()}`;
@@ -178,6 +187,20 @@ class FailedTurnCodexAdapter extends MockCodexAdapter {
 class WeixinIdOnlyChannelAdapter extends MockChannelAdapter {
   override readonly id = "weixin";
   override readonly label = "Weixin-id-only Channel";
+}
+
+class LifecycleUpdateChannelAdapter extends MockChannelAdapter {
+  constructor() {
+    super({ messageUpdate: true });
+  }
+
+  override getDeliveryPolicy(): ChannelDeliveryPolicy {
+    return {
+      ...DEFAULT_CHANNEL_DELIVERY_POLICY,
+      progress: "aggregate",
+      taskLifecycle: "update-progress",
+    };
+  }
 }
 
 class WeixinLikeChannelAdapter extends MockChannelAdapter {
@@ -198,6 +221,7 @@ class WeixinLikeChannelAdapter extends MockChannelAdapter {
     return {
       taskStart: "suppress",
       progress: "suppress",
+      taskLifecycle: "separate",
       progressCommand: "disabled",
       progressDisabledMessage: "微信渠道已禁用进度投递，/progress 和 /mode 在微信中不可用。",
       statusProgressLabel: "disabled",
@@ -2377,6 +2401,35 @@ test("Bridge default progress mode suppresses command details but keeps reasonin
   assert.equal(channel.sentMessages.some((message) => message.text.includes("正在执行命令: npm test")), false);
 });
 
+test("Bridge updates aggregate progress with final lifecycle replies", async () => {
+  const channel = new LifecycleUpdateChannelAdapter();
+  const codex = new ProgressCodexAdapter();
+  const bridge = new Bridge({ channel, codex, cwd: process.cwd() });
+
+  await bridge.start();
+  await channel.emitText("跑一个带进度的任务");
+  await bridge.waitForIdle();
+  await bridge.stop();
+
+  assert.equal(channel.updatedMessages.at(-1)?.messageId, "mock-out-2");
+  assert.equal(channel.updatedMessages.at(-1)?.text, "完成");
+  assert.equal(channel.sentMessages.filter((message) => message.text === "完成").length, 0);
+});
+
+test("Bridge updates aggregate progress with failed lifecycle replies", async () => {
+  const channel = new LifecycleUpdateChannelAdapter();
+  const codex = new ProgressFailedTurnCodexAdapter();
+  const bridge = new Bridge({ channel, codex, cwd: process.cwd() });
+
+  await bridge.start();
+  await channel.emitText("跑一个失败任务");
+  await bridge.waitForIdle();
+  await bridge.stop();
+
+  assert.equal(channel.updatedMessages.at(-1)?.messageId, "mock-out-2");
+  assert.equal(channel.updatedMessages.at(-1)?.text, "Codex 执行失败: 模拟失败");
+  assert.equal(channel.sentMessages.filter((message) => message.text === "Codex 执行失败: 模拟失败").length, 0);
+});
 test("Bridge progress command enables detailed progress for the current route", async () => {
   const channel = new MockChannelAdapter();
   const codex = new ProgressCodexAdapter();

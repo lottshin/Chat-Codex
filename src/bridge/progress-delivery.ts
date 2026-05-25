@@ -94,6 +94,14 @@ export class BridgeProgressDelivery {
     await this.sendNow(routeKey, pending.target, pending.policy, pending.texts, this.now());
   }
 
+  async finishRoute(routeKey: string, target: ChannelTarget, policy: ChannelDeliveryPolicy, text: string): Promise<boolean> {
+    await this.flushRoute(routeKey);
+    if (policy.taskLifecycle !== "update-progress" || policy.progress !== "aggregate") return false;
+    const state = this.routes.get(routeKey);
+    if (!state?.messageId || state.updateDisabled) return false;
+    return this.delivery.updateProgressText(routeKey, target, state.messageId, text);
+  }
+
   clearRoute(routeKey: string): void {
     this.routes.delete(routeKey);
   }

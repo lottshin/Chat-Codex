@@ -89,6 +89,7 @@ const DEFAULT_MEDIA_REQUEST_TIMEOUT_MS = 60_000;
 const WEIXIN_DELIVERY_POLICY: ChannelDeliveryPolicy = {
   taskStart: "suppress",
   progress: "suppress",
+  taskLifecycle: "separate",
   progressCommand: "disabled",
   progressDisabledMessage: "微信渠道已禁用进度投递，/progress 和 /mode 在微信中不可用。",
   statusProgressLabel: "disabled",
