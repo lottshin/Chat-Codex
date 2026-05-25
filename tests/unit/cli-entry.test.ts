@@ -53,7 +53,9 @@ test("CLI help documents the chat-codex main entry", () => {
 
   assert.match(help, new RegExp(`Chat-Codex v${escapeRegExp(packageJson.version ?? "")}`));
   assert.match(help, /chat-codex\s+启动 Codex\/Chat-Codex 命令空间/);
-  assert.match(help, /chat-claude\s+启动 Claude Code 命令空间/);
+  assert.match(help, /chat-claude\s+启动 Claude Code 后端，已知 Chat-Codex 根命令本地处理/);
+  assert.match(help, /--command-profile codex\|claude\s+选择命令空间；claude 下已知 Chat-Codex 根命令优先本地处理/);
+  assert.doesNotMatch(help, /桥命令使用 \/bridge-\*/);
   assert.match(help, /chat-codex version\s+查看 Chat-Codex 和 Node\.js 版本/);
   assert.match(help, /-v, --version\s+输出版本号/);
   assert.doesNotMatch(help, /codex-wechat-bridge codex/);

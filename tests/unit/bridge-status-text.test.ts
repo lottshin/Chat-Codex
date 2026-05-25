@@ -298,13 +298,13 @@ test("BridgeStatusText shows pending plan guidance by command profile", async ()
 
   const text = await statusText({ state, commandProfile: "claude", planWorkflow: workflow });
 
-  assert.match(text, /\/bridge-plan-execute 或 \/1/);
-  assert.match(text, /\/bridge-plan-edit 或 \/2/);
-  assert.match(text, /\/bridge-permission acceptEdits/);
-  assert.match(text, /\/bridge-replan <补充> 或 \/3 <补充>/);
-  assert.match(text, /\/bridge-plan-cancel 或 \/4/);
-  assert.doesNotMatch(text, /\/plan-edit 或 \/2/);
-  assert.doesNotMatch(text, /\/permission acceptEdits/);
+  assert.match(text, /\/plan-execute 或 \/1/);
+  assert.match(text, /\/plan-edit 或 \/2/);
+  assert.match(text, /\/permission acceptEdits/);
+  assert.match(text, /\/replan <补充> 或 \/3 <补充>/);
+  assert.match(text, /\/plan-cancel 或 \/4/);
+  assert.doesNotMatch(text, /\/bridge-plan-execute/);
+  assert.doesNotMatch(text, /\/bridge-permission acceptEdits/);
 });
 
 test("BridgeStatusText shows permission guidance by command profile", () => {
@@ -407,7 +407,8 @@ test("BridgeStatusText shows compact status actions by command profile", async (
 
   assert.match(codexText, /发送 `\/compact confirm` 开始/);
   assert.match(codexText, /确认要压缩请发送确认命令/);
-  assert.match(claudeText, /发送 `\/bridge-compact confirm` 开始/);
+  assert.match(claudeText, /发送 `\/compact confirm` 开始/);
+  assert.doesNotMatch(claudeText, /发送 `\/bridge-compact confirm` 开始/);
   assert.match(runningText, /上下文压缩: 进行中/);
   assert.match(runningText, /当前不支持中途取消 `\/compact`/);
   assert.match(runningText, /可发送 `\/status` 刷新查看/);
