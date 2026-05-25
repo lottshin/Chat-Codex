@@ -45,6 +45,7 @@ import { handleCancelCommand } from "./commands/cancel-command.js";
 import { handleCollaborationModeCommand } from "./commands/collaboration-command.js";
 import { handleCompactCommand } from "./commands/compact-command.js";
 import { handleContextRefreshCommand } from "./commands/context-refresh-command.js";
+import { handleDirCommand } from "./commands/dir-command.js";
 import { handleGoalCommand } from "./commands/goal-command.js";
 import {
   feishuGroupMemberRefFromMessage,
@@ -271,6 +272,12 @@ export class Bridge {
           }, message, target, args, rawText);
         },
         status: (message) => this.statusTextRenderer.statusText(message),
+        dir: (message, target, args) => handleDirCommand({
+          delivery: this.delivery,
+          getDefaultWorkdir: () => this.sessionFlow.defaultWorkdir(),
+          setDefaultWorkdir: (cwd) => this.sessionFlow.setDefaultWorkdir(cwd),
+          hasActiveSession: (routeKey) => Boolean(this.state.getBinding(routeKey)),
+        }, message, target, args),
         show: (message, args, commandName) => this.statusTextRenderer.showText(message, args, commandName),
         sessions: (message, args, commandName) => this.statusTextRenderer.sessionsText(message, args, commandName),
         resumeOrUseSession: async (message, target, sessionRef) => {

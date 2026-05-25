@@ -20,6 +20,18 @@ test("BridgeSessionFlow creates new sessions in the startup cwd", async () => {
   assert.match(fixture.sentTexts.at(-1) ?? "", /Cwd: \/repo/);
 });
 
+test("BridgeSessionFlow updates default workdir only for future sessions", async () => {
+  const fixture = sessionFlowFixture({ cwd: "/repo-a" });
+
+  const first = await fixture.flow.createNewSession(message("route-a"), target("route-a"));
+  fixture.flow.setDefaultWorkdir("/repo-b");
+  const second = await fixture.flow.createNewSession(message("route-b"), target("route-b"));
+
+  assert.equal(fixture.flow.defaultWorkdir(), "/repo-b");
+  assert.equal(first.cwd, "/repo-a");
+  assert.equal(second.cwd, "/repo-b");
+});
+
 test("BridgeSessionFlow creates Codex App chat sessions and syncs title", async () => {
   const fixture = sessionFlowFixture({ cwd: "/repo" });
 

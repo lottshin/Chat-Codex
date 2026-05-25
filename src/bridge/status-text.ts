@@ -384,6 +384,7 @@ export class BridgeStatusText {
     const commands: HelpCommand[] = [
       { command: "/help", description: "查看命令。" },
       { command: "/new", description: "创建新会话。" },
+      { command: "/dir [path|set path|create path]", description: "查看或设置后续新会话默认工作目录；不会切换当前已绑定会话。" },
       { command: "/clear", description: "清空当前聊天上下文并创建新会话；需 `/clear confirm` 确认。" },
       { command: "/status", description: "查看状态、运行耗时、队列、审批和上下文 token 用量。" },
       { command: "/show [status|sessions|files|approvals|plan|whoami|debug]", description: "查看当前聊天上下文、会话、文件、审批和计划信息。" },
