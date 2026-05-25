@@ -12,6 +12,7 @@ export interface PendingPlanWorkflow {
   planText: string;
   sessionId: string;
   createdAt: string;
+  actionMessageId?: string;
 }
 
 export class PlanWorkflowStore {

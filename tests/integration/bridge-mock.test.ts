@@ -632,7 +632,7 @@ test("Bridge handles new session, prompt, status, and approval over mock channel
 });
 
 test("Bridge sends approval action buttons when channel supports buttons", async () => {
-  const channel = new MockChannelAdapter({ buttons: true });
+  const channel = new MockChannelAdapter({ buttons: true, messageUpdate: true });
   const codex = new MockCodexAdapter();
   const bridge = new Bridge({ channel, codex, cwd: process.cwd() });
 
@@ -653,6 +653,10 @@ test("Bridge sends approval action buttons when channel supports buttons", async
 
   assert.equal(codex.resolvedApprovals.length, 1);
   assert.equal(codex.resolvedApprovals[0].decision, "approve");
+  assert.equal(channel.updatedMessages.length, 1);
+  assert.equal(channel.updatedMessages[0]?.messageId, "mock-action-1");
+  assert.match(channel.updatedMessages[0]?.text ?? "", /审批已处理/);
+  assert.match(channel.updatedMessages[0]?.text ?? "", /已由 Mock User 批准/);
 });
 
 test("Bridge creates Codex App chat sessions with optional first prompt", async () => {
@@ -1152,7 +1156,7 @@ test("Bridge shows Chat-Codex plan workflow choices and executes accepted plan",
 });
 
 test("Bridge sends plan workflow action buttons when channel supports buttons", async () => {
-  const channel = new MockChannelAdapter({ buttons: true });
+  const channel = new MockChannelAdapter({ buttons: true, messageUpdate: true });
   const codex = new PlanWorkflowCodexAdapter();
   const bridge = new Bridge({ channel, codex, cwd: process.cwd() });
 
@@ -1172,6 +1176,9 @@ test("Bridge sends plan workflow action buttons when channel supports buttons", 
 
   assert.deepEqual(codex.modeRuns, ["plan", "default"]);
   assert.match(codex.prompts[1], /请按以下已批准的计划执行/);
+  assert.equal(channel.updatedMessages.length, 1);
+  assert.equal(channel.updatedMessages[0]?.messageId, "mock-action-1");
+  assert.match(channel.updatedMessages[0]?.text ?? "", /计划已接受/);
 });
 
 test("Bridge replans and cancels pending plan workflow", async () => {

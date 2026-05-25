@@ -110,6 +110,7 @@ export class Bridge {
   private readonly routeProgressModes = new Map<string, ProgressDeliveryMode>();
   private readonly routeCollaborationModes = new Map<string, CodexCollaborationMode>();
   private readonly planWorkflows = new PlanWorkflowStore();
+  private readonly approvalActionMessageIds = new Map<string, string>();
   private readonly routeCompactStates = new Map<string, CompactState>();
   private readonly routeMessages = new Map<string, ChannelMessage>();
   private readonly routeTargets = new Map<string, ChannelTarget>();
@@ -200,6 +201,7 @@ export class Bridge {
       progressDelivery: this.progressDelivery,
       contextRefresh: this.contextRefresh,
       onPlanWorkflowReady: (workflow) => this.planWorkflows.set(workflow),
+      onApprovalActionMessageSent: (approvalKey, messageId) => this.approvalActionMessageIds.set(approvalKey, messageId),
       backend: options.backend,
       commandProfile: this.commandProfile,
     });
@@ -555,11 +557,18 @@ export class Bridge {
         return;
       }
     }
-    await handleApprovalCommand({
+    const result = await handleApprovalCommand({
       approvals: this.approvals,
       codex: this.codex,
       delivery: this.delivery,
     }, message, target, args, decision);
+    if (result.handled && result.approvalKey) {
+      const messageId = this.approvalActionMessageIds.get(result.approvalKey);
+      this.approvalActionMessageIds.delete(result.approvalKey);
+      if (messageId) {
+        await this.delivery.updateActionMessage(target, messageId, `审批已处理：${approvalActionStatusText(result.decision ?? decision, message.sender.displayName ?? message.sender.id)}`);
+      }
+    }
   }
 
   private async handlePlanWorkflowCommand(
@@ -575,22 +584,30 @@ export class Bridge {
     }
     if (choice === "cancel") {
       this.planWorkflows.delete(message.routeKey);
+      await this.updatePlanActionMessage(workflow, choice);
       await this.delivery.sendText(target, "已取消待处理计划，不会启动执行。");
       return;
     }
     if (choice === "replan") {
       const notes = args.join(" ").trim();
+      await this.updatePlanActionMessage(workflow, choice);
       await this.routeQueue.enqueuePrompt(message, target, planReplanPrompt(workflow, notes), { collaborationMode: "plan" });
       await this.delivery.sendText(target, "已按补充要求继续规划。");
       return;
     }
     this.planWorkflows.delete(message.routeKey);
+    await this.updatePlanActionMessage(workflow, choice);
     if (choice === "edit") {
       await this.delivery.sendText(target, "将按当前权限策略执行计划；不会自动切换权限模式。如需 Claude acceptEdits，请先用 /permission acceptEdits 明确切换。本次仍按当前权限策略执行。");
     } else {
       await this.delivery.sendText(target, "已接受计划，开始按当前权限/审批策略执行。");
     }
     await this.routeQueue.enqueuePrompt(message, target, planExecutionPrompt(workflow), { collaborationMode: "default" });
+  }
+
+  private async updatePlanActionMessage(workflow: { target: ChannelTarget; actionMessageId?: string }, choice: PlanWorkflowChoice): Promise<void> {
+    if (!workflow.actionMessageId) return;
+    await this.delivery.updateActionMessage(workflow.target, workflow.actionMessageId, planActionStatusText(choice));
   }
 
   async waitForIdle(): Promise<void> {
@@ -770,4 +787,17 @@ function groupApprovalDeniedText(reason: string | undefined): string {
   if (reason === "missing_super_admin") return "当前群还没有超级管理员，暂不能处理 Codex 审批。请在本机 TUI 设置超级管理员。";
   if (reason === "missing_group_access") return "当前群权限记录还没有初始化，暂不能处理 Codex 审批。请重新完成群配对。";
   return "当前群默认只允许超级管理员处理 Codex 审批。";
+}
+
+function approvalActionStatusText(decision: ApprovalDecision, actor: string): string {
+  if (decision === "approve") return `已由 ${actor} 批准。`;
+  if (decision === "approve-session") return `已由 ${actor} 按当前会话批准。`;
+  return `已由 ${actor} 拒绝。`;
+}
+
+function planActionStatusText(choice: PlanWorkflowChoice): string {
+  if (choice === "execute") return "计划已接受，开始按当前权限/审批策略执行。";
+  if (choice === "edit") return "计划已按当前权限策略开始执行。";
+  if (choice === "replan") return "计划已进入重新规划。";
+  return "计划已取消。";
 }

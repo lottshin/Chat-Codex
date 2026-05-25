@@ -27,8 +27,9 @@ test("BridgeDelivery suppresses progress briefly after a progress send failure",
 
 test("BridgeDelivery sends action messages when buttons are supported", async () => {
   const fixture = deliveryFixture({ buttons: true, actionMessages: true });
-  await fixture.delivery.deliverActionMessage(target(), approvalActionMessage(), "fallback /OK /P /NO");
+  const result = await fixture.delivery.deliverActionMessage(target(), approvalActionMessage(), "fallback /OK /P /NO");
 
+  assert.equal(result.messageId, "action-1");
   assert.equal(fixture.sentActionMessages.length, 1);
   assert.deepEqual(fixture.sentActionMessages[0]?.buttonGroups[0]?.map((button) => button.action), ["cmd:/OK", "cmd:/P", "cmd:/NO"]);
   assert.deepEqual(fixture.sentTexts, []);
@@ -36,8 +37,9 @@ test("BridgeDelivery sends action messages when buttons are supported", async ()
 
 test("BridgeDelivery falls back to text when buttons are unsupported", async () => {
   const fixture = deliveryFixture({ buttons: false, actionMessages: true });
-  await fixture.delivery.deliverActionMessage(target(), approvalActionMessage(), "fallback /OK /P /NO");
+  const result = await fixture.delivery.deliverActionMessage(target(), approvalActionMessage(), "fallback /OK /P /NO");
 
+  assert.equal(result.messageId, "text-1");
   assert.deepEqual(fixture.sentActionMessages, []);
   assert.deepEqual(fixture.sentTexts, ["fallback /OK /P /NO"]);
 });
@@ -48,6 +50,16 @@ test("BridgeDelivery falls back to text when adapter lacks action message suppor
 
   assert.deepEqual(fixture.sentActionMessages, []);
   assert.deepEqual(fixture.sentTexts, ["fallback /OK /P /NO"]);
+});
+
+test("BridgeDelivery updates action messages without throwing on failure", async () => {
+  const success = deliveryFixture({ messageUpdate: true });
+  assert.equal(await success.delivery.updateActionMessage(target(), "m-1", "已处理"), true);
+  assert.deepEqual(success.updatedTexts, ["m-1:已处理"]);
+
+  const failure = deliveryFixture({ messageUpdate: true, failUpdate: true });
+  assert.equal(await failure.delivery.updateActionMessage(target(), "m-1", "已处理"), false);
+  assert.deepEqual(failure.updatedTexts, []);
 });
 
 test("BridgeDelivery sends requested files through channel media", async () => {
@@ -71,9 +83,10 @@ test("BridgeDelivery toggles typing around an operation", async () => {
   assert.deepEqual(fixture.events, ["operation"]);
 });
 
-function deliveryFixture(options: { failText?: boolean; media?: boolean; typing?: boolean; buttons?: boolean; actionMessages?: boolean } = {}) {
+function deliveryFixture(options: { failText?: boolean; media?: boolean; typing?: boolean; buttons?: boolean; actionMessages?: boolean; messageUpdate?: boolean; failUpdate?: boolean } = {}) {
   const sentTexts: string[] = [];
   const sentActionMessages: ChannelActionMessage[] = [];
+  const updatedTexts: string[] = [];
   const sentMedia: ChannelMedia[] = [];
   const typingEvents: boolean[] = [];
   const events: string[] = [];
@@ -95,6 +108,11 @@ function deliveryFixture(options: { failText?: boolean; media?: boolean; typing?
       sentMedia.push(media);
       return { channelId: "mock", messageId: `media-${sentMedia.length}`, deliveredAt: new Date().toISOString() };
     },
+    updateText: async (_target: ChannelTarget, messageId: string, text: string) => {
+      if (options.failUpdate) throw new Error("update failed");
+      updatedTexts.push(`${messageId}:${text}`);
+      return { channelId: "mock", messageId, deliveredAt: new Date().toISOString() };
+    },
     sendTyping: async (_target: ChannelTarget, typing: boolean) => {
       typingEvents.push(typing);
     },
@@ -106,7 +124,7 @@ function deliveryFixture(options: { failText?: boolean; media?: boolean; typing?
       group: false,
       thread: false,
       login: "none" as const,
-      messageUpdate: false,
+      messageUpdate: options.messageUpdate ?? false,
       streamingHint: false,
       buttons: options.buttons ?? false,
     }),
@@ -121,6 +139,7 @@ function deliveryFixture(options: { failText?: boolean; media?: boolean; typing?
     delivery,
     sentTexts,
     sentActionMessages,
+    updatedTexts,
     sentMedia,
     typingEvents,
     events,

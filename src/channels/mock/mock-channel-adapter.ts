@@ -44,6 +44,14 @@ export interface SentMockActionMessage {
   result: SendResult;
 }
 
+export interface UpdatedMockMessage {
+  target: ChannelTarget;
+  messageId: string;
+  text: string;
+  options?: SendOptions;
+  result: SendResult;
+}
+
 export interface MockChannelAdapterOptions {
   id?: string;
   label?: string;
@@ -54,6 +62,7 @@ export interface MockChannelAdapterOptions {
   group?: boolean;
   thread?: boolean;
   buttons?: boolean;
+  messageUpdate?: boolean;
 }
 
 export class MockChannelAdapter implements ChannelAdapter {
@@ -61,6 +70,7 @@ export class MockChannelAdapter implements ChannelAdapter {
   readonly label: string;
   readonly sentMessages: SentMockMessage[] = [];
   readonly sentActionMessages: SentMockActionMessage[] = [];
+  readonly updatedMessages: UpdatedMockMessage[] = [];
   readonly sentMedia: SentMockMedia[] = [];
   readonly sentTyping: SentMockTyping[] = [];
   private handler?: ChannelMessageHandler;
@@ -98,7 +108,7 @@ export class MockChannelAdapter implements ChannelAdapter {
       group: this.options.group ?? true,
       thread: this.options.thread ?? true,
       login: "none",
-      messageUpdate: false,
+      messageUpdate: this.options.messageUpdate ?? false,
       streamingHint: false,
       buttons: this.options.buttons ?? false,
     };
@@ -130,6 +140,17 @@ export class MockChannelAdapter implements ChannelAdapter {
       deliveredAt: new Date().toISOString(),
     };
     this.sentActionMessages.push({ target, message, options, result });
+    this.state = { ...this.state, lastOutboundAt: result.deliveredAt };
+    return result;
+  }
+
+  async updateText(target: ChannelTarget, messageId: string, text: string, options?: SendOptions): Promise<SendResult> {
+    const result: SendResult = {
+      channelId: this.id,
+      messageId,
+      deliveredAt: new Date().toISOString(),
+    };
+    this.updatedMessages.push({ target, messageId, text, options, result });
     this.state = { ...this.state, lastOutboundAt: result.deliveredAt };
     return result;
   }

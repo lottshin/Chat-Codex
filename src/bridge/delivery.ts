@@ -53,14 +53,13 @@ export class BridgeDelivery {
     return result;
   }
 
-  async sendApprovalTextUntilDelivered(routeKey: string, target: ChannelTarget, pending: PendingApproval): Promise<void> {
+  async sendApprovalTextUntilDelivered(routeKey: string, target: ChannelTarget, pending: PendingApproval): Promise<SendResult | undefined> {
     const text = this.approvals.formatForChannel(pending, this.backendName);
     const actionMessage = approvalActionMessage(text);
     let failures = 0;
     while (this.isApprovalStillPending(routeKey, pending.approvalKey)) {
       try {
-        await this.deliverActionMessage(target, actionMessage, text);
-        return;
+        return await this.deliverActionMessage(target, actionMessage, text);
       } catch (error) {
         failures += 1;
         this.logger.warn("approval message send failed", {
@@ -71,18 +70,19 @@ export class BridgeDelivery {
           error: error instanceof Error ? error.message : String(error),
         });
       }
-      if (!this.isApprovalStillPending(routeKey, pending.approvalKey)) return;
+      if (!this.isApprovalStillPending(routeKey, pending.approvalKey)) return undefined;
       await sleep(this.approvalSendRetryDelayMs);
     }
+    return undefined;
   }
 
-  async deliverActionMessage(target: ChannelTarget, message: ChannelActionMessage, fallbackText: string): Promise<void> {
+  async deliverActionMessage(target: ChannelTarget, message: ChannelActionMessage, fallbackText: string): Promise<SendResult> {
     const capabilities = this.channels.getCapabilities(target.channelId);
     if (capabilities.buttons) {
       try {
-        await this.channels.sendActionMessage(target, message);
+        const result = await this.channels.sendActionMessage(target, message);
         this.transcript?.outbound(target, fallbackText);
-        return;
+        return result;
       } catch (error) {
         this.logger.warn("channel action message send failed", {
           channel: target.channelId,
@@ -90,7 +90,22 @@ export class BridgeDelivery {
         });
       }
     }
-    await this.deliverText(target, fallbackText);
+    return this.deliverText(target, fallbackText);
+  }
+
+  async updateActionMessage(target: ChannelTarget, messageId: string, text: string): Promise<boolean> {
+    try {
+      await this.channels.updateText(target, messageId, text);
+      this.transcript?.outbound(target, text);
+      return true;
+    } catch (error) {
+      this.logger.warn("action message update failed", {
+        channel: target.channelId,
+        messageId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return false;
+    }
   }
 
   async sendProgressText(routeKey: string, target: ChannelTarget, text: string): Promise<SendResult | undefined> {
