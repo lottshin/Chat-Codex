@@ -1216,12 +1216,12 @@ test("Bridge keeps Claude profile root approval and plan shortcuts local when pe
   assert.deepEqual(codex.modeRuns, ["plan", "default"]);
   assert.ok(channel.sentMessages.some((message) => message.text.includes("已接受计划")));
   const planMessage = channel.sentMessages.find((message) => message.text.includes("Chat-Codex 计划快捷回复"))?.text ?? "";
-  assert.ok(planMessage.includes("/bridge-plan-execute 或 /1"));
-  assert.ok(planMessage.includes("/bridge-plan-edit 或 /2"));
-  assert.ok(planMessage.includes("/bridge-permission acceptEdits"));
-  assert.ok(planMessage.includes("/bridge-replan <补充> 或 /3 <补充>"));
-  assert.ok(planMessage.includes("/bridge-plan-cancel 或 /4"));
-  assert.equal(planMessage.includes("/plan-edit 或 /2"), false);
+  assert.ok(planMessage.includes("/plan-execute 或 /1"));
+  assert.ok(planMessage.includes("/plan-edit 或 /2"));
+  assert.ok(planMessage.includes("/permission acceptEdits"));
+  assert.ok(planMessage.includes("/replan <补充> 或 /3 <补充>"));
+  assert.ok(planMessage.includes("/plan-cancel 或 /4"));
+  assert.equal(planMessage.includes("/bridge-plan-execute"), false);
 });
 
 test("Bridge keeps first-party and unknown slash command handling ahead of backend passthrough", async () => {

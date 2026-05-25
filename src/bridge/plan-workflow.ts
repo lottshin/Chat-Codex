@@ -35,12 +35,12 @@ export class PlanWorkflowStore {
   }
 }
 
-export function formatPlanWorkflowChoices(commandProfile: CommandNamespaceProfile = "codex"): string {
-  const planExecute = bridgeCommand(commandProfile, "/plan-execute");
-  const planEdit = bridgeCommand(commandProfile, "/plan-edit");
-  const replan = bridgeCommand(commandProfile, "/replan");
-  const planCancel = bridgeCommand(commandProfile, "/plan-cancel");
-  const permission = bridgeCommand(commandProfile, "/permission");
+export function formatPlanWorkflowChoices(_commandProfile: CommandNamespaceProfile = "codex"): string {
+  const planExecute = "/plan-execute";
+  const planEdit = "/plan-edit";
+  const replan = "/replan";
+  const planCancel = "/plan-cancel";
+  const permission = "/permission";
   return [
     "Chat-Codex 计划快捷回复（不是 Claude 原生 TUI 选项）：",
     `${planExecute} 或 /1 执行这个计划，继续按当前权限/审批策略处理工具请求`,
@@ -48,10 +48,6 @@ export function formatPlanWorkflowChoices(commandProfile: CommandNamespaceProfil
     `${replan} <补充> 或 /3 <补充> 继续规划/修改计划，不执行代码修改`,
     `${planCancel} 或 /4 取消这个待处理计划`,
   ].join("\n");
-}
-
-function bridgeCommand(commandProfile: CommandNamespaceProfile, command: string): string {
-  return commandProfile === "claude" ? `/bridge-${command.slice(1)}` : command;
 }
 
 export function planExecutionPrompt(workflow: PendingPlanWorkflow): string {

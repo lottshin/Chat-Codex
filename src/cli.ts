@@ -505,7 +505,7 @@ function printRuntimeSummary(
   if ((startup.backend ?? "codex") === "claude") console.log("- Claude Code 接入: exec");
   if (startup.policy) console.log(`- 权限模式: ${formatPolicyForCli(startup.policy)}`);
   console.log(`- 阶段进度: ${formatProgressForCli(progressMode, display.progressDisabled)}`);
-  console.log(`- 命令空间: ${(startup.commandProfile ?? "codex") === "claude" ? "Claude Code root slash，桥命令 /bridge-*" : "Chat-Codex root slash"}`);
+  console.log(`- 命令空间: ${(startup.commandProfile ?? "codex") === "claude" ? "Chat-Codex 根命令优先；/bridge-* 兼容别名；未知 slash 可转发 Claude Code" : "Chat-Codex root slash"}`);
   console.log("- 退出: Ctrl+C");
 }
 
@@ -548,7 +548,7 @@ function printHelp(): void {
     "",
     "Commands:",
     "  chat-codex                         启动 Codex/Chat-Codex 命令空间",
-    "  chat-claude                        启动 Claude Code 命令空间（桥命令使用 /bridge-*）",
+    "  chat-claude                        启动 Claude Code 后端，已知 Chat-Codex 根命令本地处理",
     "  chat-codex version                 查看 Chat-Codex 和 Node.js 版本",
     "  chat-codex test                    运行本地 mock Codex/Channel 流程",
     "  chat-codex terminal mock           启动本地终端通道 + MockCodex",
@@ -561,7 +561,7 @@ function printHelp(): void {
     "    --session new|last|<id>          设置启动时首个微信私聊预设；不会绑定整个微信账号",
     "    --cwd <dir>, --workdir <dir>     设置新会话工作目录；目录不存在会自动创建",
     "    --permission approval|full       设置安全沙箱或完全权限",
-    "    --command-profile codex|claude   选择命令空间；claude 下桥命令使用 /bridge-*",
+    "    --command-profile codex|claude   选择命令空间；claude 下已知 Chat-Codex 根命令优先本地处理",
     "    --codex-adapter app-server|exec  设置 Codex 接入方式；默认 app-server，支持微信审批",
     "    --yes-dangerously-full           非交互确认完全权限",
     "    --progress brief|detailed|silent 设置默认进度投递模式（微信渠道固定禁用）",
