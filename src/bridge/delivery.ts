@@ -4,7 +4,7 @@ import type { Logger } from "../logging/logger.js";
 import { backendDisplayName, type AiBackend } from "../backend/metadata.js";
 import type { TranscriptSink } from "../logging/transcript.js";
 import type { ChannelRegistry } from "../channels/registry.js";
-import type { ChannelMedia, ChannelTarget } from "../protocol/channel.js";
+import type { ChannelActionMessage, ChannelMedia, ChannelTarget } from "../protocol/channel.js";
 import { extractBridgeSendFileRefs } from "./media-extractor.js";
 import { PROGRESS_SEND_FAILURE_COOLDOWN_MS, SEND_FILE_MAX_FILES } from "./bridge-types.js";
 import { sleep } from "./formatters.js";
@@ -54,10 +54,11 @@ export class BridgeDelivery {
 
   async sendApprovalTextUntilDelivered(routeKey: string, target: ChannelTarget, pending: PendingApproval): Promise<void> {
     const text = this.approvals.formatForChannel(pending, this.backendName);
+    const actionMessage = approvalActionMessage(text);
     let failures = 0;
     while (this.isApprovalStillPending(routeKey, pending.approvalKey)) {
       try {
-        await this.deliverText(target, text);
+        await this.deliverActionMessage(target, actionMessage, text);
         return;
       } catch (error) {
         failures += 1;
@@ -72,6 +73,23 @@ export class BridgeDelivery {
       if (!this.isApprovalStillPending(routeKey, pending.approvalKey)) return;
       await sleep(this.approvalSendRetryDelayMs);
     }
+  }
+
+  async deliverActionMessage(target: ChannelTarget, message: ChannelActionMessage, fallbackText: string): Promise<void> {
+    const capabilities = this.channels.getCapabilities(target.channelId);
+    if (capabilities.buttons) {
+      try {
+        await this.channels.sendActionMessage(target, message);
+        this.transcript?.outbound(target, fallbackText);
+        return;
+      } catch (error) {
+        this.logger.warn("channel action message send failed", {
+          channel: target.channelId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    await this.deliverText(target, fallbackText);
   }
 
   async sendProgressText(routeKey: string, target: ChannelTarget, text: string): Promise<void> {
@@ -181,4 +199,15 @@ export class BridgeDelivery {
       return false;
     }
   }
+}
+
+function approvalActionMessage(text: string): ChannelActionMessage {
+  return {
+    text,
+    buttonGroups: [[
+      { text: "允许", action: "cmd:/OK", style: "primary" },
+      { text: "本轮允许", action: "cmd:/P", style: "default" },
+      { text: "拒绝", action: "cmd:/NO", style: "danger" },
+    ]],
+  };
 }

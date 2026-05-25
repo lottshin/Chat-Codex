@@ -631,6 +631,30 @@ test("Bridge handles new session, prompt, status, and approval over mock channel
   assert.equal(codex.resolvedApprovals[0].decision, "approve");
 });
 
+test("Bridge sends approval action buttons when channel supports buttons", async () => {
+  const channel = new MockChannelAdapter({ buttons: true });
+  const codex = new MockCodexAdapter();
+  const bridge = new Bridge({ channel, codex, cwd: process.cwd() });
+
+  await bridge.start();
+  await channel.emitText("/new");
+  await channel.emitText("请触发审批 approval");
+  await bridge.waitForIdle();
+
+  assert.equal(channel.sentActionMessages.length, 1);
+  const approvalActions = channel.sentActionMessages[0]?.message;
+  assert.ok(approvalActions?.text.includes("Codex 请求审批"));
+  assert.deepEqual(approvalActions?.buttonGroups[0]?.map((button) => button.action), ["cmd:/OK", "cmd:/P", "cmd:/NO"]);
+  assert.equal(channel.sentMessages.some((message) => message.text.includes("Codex 请求审批")), false);
+
+  await channel.emitText("/OK");
+  await bridge.waitForIdle();
+  await bridge.stop();
+
+  assert.equal(codex.resolvedApprovals.length, 1);
+  assert.equal(codex.resolvedApprovals[0].decision, "approve");
+});
+
 test("Bridge creates Codex App chat sessions with optional first prompt", async () => {
   const channel = new MockChannelAdapter();
   const codex = new MockCodexAdapter();
