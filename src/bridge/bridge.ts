@@ -269,6 +269,7 @@ export class Bridge {
           }, message, target, args, rawText);
         },
         status: (message) => this.statusTextRenderer.statusText(message),
+        show: (message, args, commandName) => this.statusTextRenderer.showText(message, args, commandName),
         sessions: (message, args, commandName) => this.statusTextRenderer.sessionsText(message, args, commandName),
         resumeOrUseSession: async (message, target, sessionRef) => {
           this.planWorkflows.delete(message.routeKey);
