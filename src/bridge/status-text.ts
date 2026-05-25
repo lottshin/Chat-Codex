@@ -198,6 +198,125 @@ export class BridgeStatusText {
     ].join("\n");
   }
 
+  async showText(message: ChannelMessage, args: string[] = [], commandName = "show"): Promise<string> {
+    const [topic = "", ...rest] = args;
+    switch (topic.toLowerCase()) {
+      case "":
+      case "context":
+        return this.showContextText(message);
+      case "status":
+        return this.statusText(message);
+      case "session":
+      case "sessions":
+        return this.sessionsText(message, rest, commandName);
+      case "whoami":
+      case "identity":
+        return this.whoamiText(message);
+      case "debug":
+        return this.debugText(message);
+      case "file":
+      case "files":
+      case "attachments":
+        return this.showFilesText(message);
+      case "approval":
+      case "approvals":
+        return this.showApprovalsText(message);
+      case "plan":
+        return this.showPlanText(message);
+      default:
+        return this.showHelpText(topic);
+    }
+  }
+
+  private async showContextText(message: ChannelMessage): Promise<string> {
+    const binding = this.state.getBinding(message.routeKey);
+    const localSession = binding ? this.state.getSession(binding.sessionId) : undefined;
+    const sessionStatus: CodexSessionStatus = binding
+      ? await this.codex.getStatus(binding.sessionId).catch(() => localSession?.status ?? { type: "unknown", detail: "status unavailable" })
+      : { type: "unknown", detail: "no active session" };
+    const policyStatus = this.runPolicyStatus(binding?.sessionId);
+    const policy = policyStatus?.policy ?? this.codex.getRunPolicy?.(binding?.sessionId);
+    const modelPolicy = this.codex.getModelPolicy?.(binding?.sessionId);
+    const deliveryPolicy = this.deliveryPolicyFor(message);
+    const approvals = this.approvals.list(message.routeKey);
+    const planWorkflow = this.planWorkflowForRoute(message.routeKey);
+    return [
+      `**${backendDisplayName(this.backend)} 上下文**`,
+      "",
+      "- **Route**",
+      `  - Route: \`${message.routeKey}\``,
+      `  - Channel: \`${message.channelId}\``,
+      `  - Account: \`${message.accountId ?? "default"}\``,
+      `  - Conversation: \`${formatConversationContext(message.conversation.kind, message.conversation.id, message.conversation.displayName)}\``,
+      `  - Sender: \`${formatPeerContext(message.sender.id, message.sender.displayName)}\``,
+      "- **Session**",
+      `  - 当前会话: ${binding ? `\`${binding.sessionId}\`` : "未绑定"}`,
+      binding?.backend ? `  - 后端: \`${binding.backend}\`` : undefined,
+      binding?.backend === "claude" && localSession?.backendSessionId ? `  - Claude session: \`${localSession.backendSessionId}\`` : undefined,
+      `  - 运行状态: ${formatCodexStatus(sessionStatus)}`,
+      `  - 当前模型: ${formatModelInfoForStatus(sessionStatus.model)}`,
+      ...formatContextUsageLines(sessionStatus.context).map((line) => `  ${line}`),
+      binding ? `  - 工作目录: \`${localSession?.session.cwd ?? "未知"}\`` : undefined,
+      "- **Runtime**",
+      `  - 处理状态: ${this.isRouteBusy(message.routeKey) ? "正在处理" : "空闲"}`,
+      `  - 排队消息: \`${this.routeQueueLength(message.routeKey)}\``,
+      `  - 待投递补充消息: \`${this.routeSteerPendingCount(message.routeKey)}\``,
+      `  - 待处理附件: \`${this.pendingMediaCount(message.routeKey)}\``,
+      `  - 待审批: \`${approvals.length}\``,
+      `  - 待处理计划: ${planWorkflow ? "有" : "无"}`,
+      `  - 协作模式: ${formatCollaborationModeForStatus(this.collaborationModeForRoute(message.routeKey, binding?.sessionId))}`,
+      `  - 上下文刷新: ${formatContextRefreshEffectivePolicyForUser(this.contextRefreshFor(message.routeKey))}`,
+      `  ${this.progressStatusLine(message.routeKey, deliveryPolicy)}`,
+      modelPolicy ? `  - 模型覆盖: ${formatModelPolicyForStatus(modelPolicy)}` : undefined,
+      policy ? `  - 权限模式: ${formatRunPolicyForStatus(policy)}` : undefined,
+      "",
+      "子命令：`/show status`、`/show sessions`、`/show files`、`/show approvals`、`/show plan`、`/show whoami`、`/show debug`。",
+    ].filter(Boolean).join("\n");
+  }
+
+  private showFilesText(message: ChannelMessage): string {
+    const count = this.pendingMediaCount(message.routeKey);
+    return [
+      "**文件上下文**",
+      `- Route: \`${message.routeKey}\``,
+      `- 待处理附件: \`${count}\``,
+      count > 0
+        ? "下一步：发送普通消息会把待处理附件带入本轮；发送 `/cancel` 可取消待发送附件。"
+        : "暂无待处理附件。需要允许最终回复发送本地文件时，使用 `/sendfile <任务内容>`。",
+    ].join("\n");
+  }
+
+  private showApprovalsText(message: ChannelMessage): string {
+    const approvals = this.approvals.list(message.routeKey);
+    return [
+      "**审批上下文**",
+      `- 待审批: \`${approvals.length}\``,
+      ...formatPendingApprovalStatus(approvals.at(-1)),
+      approvals.length > 0
+        ? "下一步：按审批提示发送 `/OK`、`/P`、`/NO` 或数字选项。"
+        : "当前没有待处理审批。",
+    ].join("\n");
+  }
+
+  private showPlanText(message: ChannelMessage): string {
+    const workflow = this.planWorkflowForRoute(message.routeKey);
+    return [
+      "**计划上下文**",
+      `- 待处理计划: ${workflow ? "有" : "无"}`,
+      ...formatPendingPlanWorkflowStatus(workflow, this.commandProfile),
+      workflow
+        ? "下一步：发送 `/plan-execute`、`/plan-edit`、`/replan` 或 `/plan-cancel`。"
+        : "当前没有待处理计划。",
+    ].join("\n");
+  }
+
+  private showHelpText(topic: string): string {
+    return [
+      `未知 /show 子命令: \`${topic}\``,
+      "可用子命令: `status`、`sessions`、`files`、`approvals`、`plan`、`whoami`、`debug`。",
+    ].join("\n");
+  }
+
   async sessionsText(message: ChannelMessage, args: string[] = [], commandName = "sessions"): Promise<string> {
     const request = parseSessionListRequest(commandName, args);
     const stateKey = sessionListStateKey(message.routeKey, request.scope);
@@ -267,6 +386,7 @@ export class BridgeStatusText {
       { command: "/new", description: "创建新会话。" },
       { command: "/clear", description: "清空当前聊天上下文并创建新会话；需 `/clear confirm` 确认。" },
       { command: "/status", description: "查看状态、运行耗时、队列、审批和上下文 token 用量。" },
+      { command: "/show [status|sessions|files|approvals|plan|whoami|debug]", description: "查看当前聊天上下文、会话、文件、审批和计划信息。" },
       {
         command: "/context-refresh [off|detect|reload|inherit]",
         description: "设置当前聊天发送前是否检测本机会话上下文更新。",

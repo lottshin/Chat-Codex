@@ -28,6 +28,7 @@ test("BridgeCommandRouter treats known root commands as local in Claude profile"
 
   assert.equal(fixture.router.isBridgeCommand(message(), "help"), true);
   assert.equal(fixture.router.isBridgeCommand(message(), "status"), true);
+  assert.equal(fixture.router.isBridgeCommand(message(), "show"), true);
   assert.equal(fixture.router.isBridgeCommand(message(), "sendfile"), true);
   assert.equal(fixture.router.isBridgeCommand(message(), "model"), true);
   assert.equal(fixture.router.isBridgeCommand(message(), "permission"), true);
@@ -45,6 +46,7 @@ test("BridgeCommandRouter treats known root commands as local in Claude profile"
 
 test("BridgeCommandRouter classifies bridge-owned command names", () => {
   assert.equal(isBridgeCommandName("compact"), true);
+  assert.equal(isBridgeCommandName("show"), true);
   assert.equal(isBridgeCommandName("plan"), true);
   assert.equal(isBridgeCommandName("permission"), true);
   assert.equal(isBridgeCommandName("simplify"), false);
@@ -246,6 +248,16 @@ test("BridgeCommandRouter keeps named approval aliases stable", async () => {
   assert.deepEqual(fixture.approvalDecisions, ["approve", "deny"]);
 });
 
+test("BridgeCommandRouter routes show commands", async () => {
+  const fixture = routerFixture({ backend: "claude", commandProfile: "claude" });
+
+  await fixture.router.handle(message(), target(), "show", ["files"], "/show files");
+  await fixture.router.handle(message(), target(), "bridge-show", ["status"], "/bridge-show status");
+
+  assert.equal(fixture.sent.at(-2), "show:show:files");
+  assert.equal(fixture.sent.at(-1), "show:bridge-show:status");
+});
+
 test("BridgeCommandRouter routes sendfile with the original command name", async () => {
   const codex = routerFixture();
   await codex.router.handle(message(), target(), "sendfile", ["生成报告"], "/sendfile 生成报告");
@@ -341,6 +353,7 @@ function routerFixture(options: {
       newSessionCall = { args, rawText };
     },
     status: async () => "status",
+    show: async (_message, args, commandName) => `show:${commandName}:${args.join(",")}`,
     sessions: async () => "sessions",
     resumeOrUseSession: async () => undefined,
     cancel: async () => undefined,

@@ -77,6 +77,7 @@ test("BridgeStatusText uses root help commands in Claude profile", () => {
   assert.match(text, /旧 `\/bridge-\*` 别名仍兼容/);
   assert.match(text, /\/help/);
   assert.match(text, /\/status/);
+  assert.match(text, /\/show \[status\|sessions\|files\|approvals\|plan\|whoami\|debug\]/);
   assert.match(text, /\/compact/);
   assert.match(text, /\/session/);
   assert.match(text, /\/all-sessions/);
@@ -412,6 +413,71 @@ test("BridgeStatusText shows compact status actions by command profile", async (
   assert.match(runningText, /上下文压缩: 进行中/);
   assert.match(runningText, /当前不支持中途取消 `\/compact`/);
   assert.match(runningText, /可发送 `\/status` 刷新查看/);
+});
+
+test("BridgeStatusText shows show command context summary", async () => {
+  const state = new MemoryStateStore();
+  state.bindSession(routeKey(), {
+    id: "mock-codex-1",
+    cwd: "/tmp/project",
+    createdAt: new Date().toISOString(),
+    title: "mock chat",
+  });
+  const text = await new BridgeStatusText({
+    commandProfile: "codex",
+    channels: fakeChannels(),
+    codex: fakeCodex({ type: "idle" }),
+    state,
+    approvals: new ApprovalManager(),
+    routeQueueLength: () => 0,
+    deliveryPolicyFor: () => DEFAULT_CHANNEL_DELIVERY_POLICY,
+    shouldConsumePendingInitialRouteBinding: () => false,
+    pendingInitialRouteBinding: () => undefined,
+    isRouteBusy: () => false,
+    routeSteerPendingCount: () => 0,
+    pendingMediaCount: () => 0,
+    compactStateForRoute: () => ({ type: "none" }),
+    collaborationModeForRoute: () => "default",
+    progressModeFor: () => "brief",
+    contextRefreshFor: () => ({ policy: { mode: "off" }, source: "route" }),
+    runPolicyStatus: () => undefined,
+    planWorkflowForRoute: () => undefined,
+  }).showText(message());
+
+  assert.match(text, /\*\*Codex 上下文\*\*/);
+  assert.match(text, /Route: `mock:default:direct:user`/);
+  assert.match(text, /当前会话: `mock-codex-1`/);
+  assert.match(text, /工作目录: `\/tmp\/project`/);
+  assert.match(text, /待处理附件: `0`/);
+  assert.match(text, /子命令：`\/show status`、`\/show sessions`、`\/show files`/);
+});
+
+test("BridgeStatusText shows show files guidance", async () => {
+  const text = await new BridgeStatusText({
+    commandProfile: "codex",
+    channels: fakeChannels(),
+    codex: fakeCodex({ type: "idle" }),
+    state: new MemoryStateStore(),
+    approvals: new ApprovalManager(),
+    routeQueueLength: () => 0,
+    deliveryPolicyFor: () => DEFAULT_CHANNEL_DELIVERY_POLICY,
+    shouldConsumePendingInitialRouteBinding: () => false,
+    pendingInitialRouteBinding: () => undefined,
+    isRouteBusy: () => false,
+    routeSteerPendingCount: () => 0,
+    pendingMediaCount: () => 2,
+    compactStateForRoute: () => ({ type: "none" }),
+    collaborationModeForRoute: () => "default",
+    progressModeFor: () => "brief",
+    contextRefreshFor: () => ({ policy: { mode: "off" }, source: "route" }),
+    runPolicyStatus: () => undefined,
+    planWorkflowForRoute: () => undefined,
+  }).showText(message(), ["files"]);
+
+  assert.match(text, /\*\*文件上下文\*\*/);
+  assert.match(text, /待处理附件: `2`/);
+  assert.match(text, /发送普通消息会把待处理附件带入本轮/);
+  assert.match(text, /发送 `\/cancel` 可取消待发送附件/);
 });
 
 async function statusText(options: {
