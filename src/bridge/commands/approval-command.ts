@@ -12,30 +12,38 @@ export interface ApprovalCommandOptions {
   delivery: BridgeDelivery;
 }
 
+export interface ApprovalCommandResult {
+  approvalKey?: string;
+  decision?: ApprovalDecision;
+  handled: boolean;
+}
+
 export async function handleApprovalCommand(
   options: ApprovalCommandOptions,
   message: ChannelMessage,
   target: ChannelTarget,
   args: string[],
   decision: ApprovalDecision,
-): Promise<void> {
+): Promise<ApprovalCommandResult> {
   const parsed = parseApprovalArgs(options.approvals, message.routeKey, args);
   const key = parsed.approvalKey ?? options.approvals.latest(message.routeKey)?.approvalKey;
   if (!key) {
     await options.delivery.sendText(target, "当前没有待处理审批。下一步：等待新的审批提示、发送 /status 查看当前状态，或直接发送普通消息继续任务。");
-    return;
+    return { handled: false };
   }
   try {
     const selected = options.approvals.get(key);
     if (selected?.routeKey === message.routeKey && !isApprovalDecisionAvailable(selected, decision)) {
       await options.delivery.sendText(target, unavailableApprovalDecisionMessage(decision));
-      return;
+      return { handled: false, approvalKey: key };
     }
     const pending = options.approvals.decide(key, message.routeKey, decision);
     await options.codex.resolveApproval?.(pending.adapterApprovalId ?? pending.approvalKey, decision);
     await options.delivery.sendText(target, `审批已处理：${formatApprovalDecision(decision)}，当前操作将继续执行。\n下一步：等待当前任务继续输出；如需补充信息，直接发送普通消息。`);
+    return { handled: true, approvalKey: pending.approvalKey, decision };
   } catch (error) {
     await options.delivery.sendText(target, error instanceof Error ? error.message : String(error));
+    return { handled: false, approvalKey: key };
   }
 }
 

@@ -41,6 +41,7 @@ export interface BridgeRouteQueueOptions {
   progressDelivery?: BridgeProgressDelivery;
   contextRefresh?: SessionContextRefreshManager;
   onPlanWorkflowReady?(workflow: PendingPlanWorkflow): void;
+  onApprovalActionMessageSent?(approvalKey: string, messageId: string): void;
   backend?: AiBackend;
   commandProfile?: CommandNamespaceProfile;
 }
@@ -58,6 +59,7 @@ export class BridgeRouteQueue {
   private readonly deliveryPolicyFor: BridgeRouteQueueOptions["deliveryPolicyFor"];
   private readonly contextRefresh?: SessionContextRefreshManager;
   private readonly onPlanWorkflowReady?: BridgeRouteQueueOptions["onPlanWorkflowReady"];
+  private readonly onApprovalActionMessageSent?: BridgeRouteQueueOptions["onApprovalActionMessageSent"];
   private readonly backendName: string;
   private readonly commandProfile: CommandNamespaceProfile;
   private readonly progressDelivery: BridgeProgressDelivery;
@@ -78,6 +80,7 @@ export class BridgeRouteQueue {
     this.deliveryPolicyFor = options.deliveryPolicyFor;
     this.contextRefresh = options.contextRefresh;
     this.onPlanWorkflowReady = options.onPlanWorkflowReady;
+    this.onApprovalActionMessageSent = options.onApprovalActionMessageSent;
     this.backendName = backendDisplayName(options.backend);
     this.commandProfile = options.commandProfile ?? "codex";
     this.progressDelivery = options.progressDelivery ?? new BridgeProgressDelivery({
@@ -270,7 +273,8 @@ export class BridgeRouteQueue {
                   startedAt: currentTurnStartedAt,
                 });
                 const pending = this.approvals.create(message.routeKey, message.sender.id, event.approval);
-                await this.delivery.sendApprovalTextUntilDelivered(message.routeKey, target, pending);
+                const actionResult = await this.delivery.sendApprovalTextUntilDelivered(message.routeKey, target, pending);
+                if (actionResult?.messageId) this.onApprovalActionMessageSent?.(pending.approvalKey, actionResult.messageId);
               } else if (event.type === "turn.completed") {
                 this.state.setSessionStatus(session.id, { type: "idle" });
               } else if (event.type === "turn.failed") {
@@ -292,27 +296,26 @@ export class BridgeRouteQueue {
               : visibleText;
             if (deliveryText) {
               if (isPlanTurn && visibleText) {
-                await this.delivery.deliverActionMessage(target, {
+                const actionResult = await this.delivery.deliverActionMessage(target, {
                   ...formatPlanWorkflowActionMessage(this.commandProfile),
                   text: deliveryText,
                 }, deliveryText);
+                this.onPlanWorkflowReady?.({
+                  routeKey: message.routeKey,
+                  message,
+                  target,
+                  originalPrompt: prompt,
+                  planText: visibleText,
+                  sessionId: session.id,
+                  createdAt: new Date().toISOString(),
+                  actionMessageId: actionResult.messageId,
+                });
               } else {
                 await this.delivery.sendText(target, deliveryText);
               }
             }
             if (sendFile) {
               await this.delivery.sendRequestedFiles(target, composedFinalText, session.cwd);
-            }
-            if (isPlanTurn && visibleText) {
-              this.onPlanWorkflowReady?.({
-                routeKey: message.routeKey,
-                message,
-                target,
-                originalPrompt: prompt,
-                planText: visibleText,
-                sessionId: session.id,
-                createdAt: new Date().toISOString(),
-              });
             }
           }
         });
