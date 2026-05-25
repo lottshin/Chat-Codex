@@ -56,7 +56,7 @@ export class BridgeSessionFlow {
   private readonly backend: AiBackend;
   private readonly state: MemoryStateStore;
   private readonly delivery: BridgeDelivery;
-  private readonly cwd: string;
+  private cwd: string;
   private readonly unboundRoutePolicy: UnboundRoutePolicy;
   private readonly isRouteExecutionBusy: BridgeSessionFlowOptions["isRouteExecutionBusy"];
   private readonly applyStoredSessionRunPolicy: BridgeSessionFlowOptions["applyStoredSessionRunPolicy"];
@@ -92,6 +92,14 @@ export class BridgeSessionFlow {
 
   pendingInitialBindingForStatus(): InitialRouteBinding | undefined {
     return this.pendingInitialRouteBinding;
+  }
+
+  defaultWorkdir(): string {
+    return this.cwd;
+  }
+
+  setDefaultWorkdir(cwd: string): void {
+    this.cwd = cwd;
   }
 
   cancelSessionSelection(routeKey: string): boolean {
