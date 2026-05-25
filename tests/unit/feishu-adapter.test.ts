@@ -32,7 +32,10 @@ test("FeishuAdapter starts websocket and declares private media capabilities", a
 
   assert.equal((await adapter.getStatus()).state, "connected");
   assert.equal(factory.wsClient?.starts, 1);
-  assert.deepEqual(adapter.getDeliveryPolicy(), DEFAULT_CHANNEL_DELIVERY_POLICY);
+  assert.deepEqual(adapter.getDeliveryPolicy(), {
+    ...DEFAULT_CHANNEL_DELIVERY_POLICY,
+    progress: "aggregate",
+  });
   assert.deepEqual(adapter.getCapabilities(), {
     text: true,
     media: true,
@@ -42,7 +45,7 @@ test("FeishuAdapter starts websocket and declares private media capabilities", a
     group: false,
     thread: false,
     login: "token",
-    messageUpdate: false,
+    messageUpdate: true,
     streamingHint: true,
     buttons: true,
     cards: true,
@@ -182,6 +185,45 @@ test("FeishuAdapter uploads and sends image and file media", async () => {
   ]);
 });
 
+test("FeishuAdapter updates text messages through Feishu message update API", async () => {
+  const factory = new FakeFeishuTransportFactory();
+  const adapter = new FeishuAdapter({ ...credentials, transportFactory: factory, connectOnStart: false });
+  await adapter.start();
+
+  const result = await adapter.updateText({
+    channelId: "feishu",
+    routeKey: "feishu:work:direct:oc_user",
+    accountId: "work",
+    conversation: { id: "oc_user", kind: "direct" },
+    recipient: { id: "ou_user" },
+  }, "om_progress", "任务进度:\n正在处理");
+
+  assert.equal(result.messageId, "om_update");
+  assert.equal(factory.client.requestPayloads.length, 2);
+  const payload = factory.client.requestPayloads[1];
+  assert.equal(payload.method, "PATCH");
+  assert.equal(payload.url, "/open-apis/im/v1/messages/om_progress");
+  assert.deepEqual(payload.data, {
+    msg_type: "post",
+    content: JSON.stringify({ zh_cn: { content: [[{ tag: "md", text: "任务进度:\n正在处理" }]] } }),
+  });
+});
+
+test("FeishuAdapter reports update failures", async () => {
+  const factory = new FakeFeishuTransportFactory();
+  factory.client.updateResponse = { code: 999, msg: "update denied" };
+  const adapter = new FeishuAdapter({ ...credentials, transportFactory: factory, connectOnStart: false });
+  await adapter.start();
+
+  await assert.rejects(adapter.updateText({
+    channelId: "feishu",
+    routeKey: "feishu:work:direct:oc_user",
+    accountId: "work",
+    conversation: { id: "oc_user", kind: "direct" },
+    recipient: { id: "ou_user" },
+  }, "om_progress", "任务进度"), /update denied/);
+  assert.equal((await adapter.getStatus()).details?.phase, "update-failed");
+});
 test("FeishuAdapter sends action messages as interactive cards", async () => {
   const factory = new FakeFeishuTransportFactory();
   const adapter = new FeishuAdapter({ ...credentials, transportFactory: factory, connectOnStart: false });

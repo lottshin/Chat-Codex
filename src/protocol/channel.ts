@@ -145,6 +145,7 @@ export interface ChannelAdapter {
   getDeliveryPolicy?(message?: ChannelMessage): ChannelDeliveryPolicy;
   onMessage(handler: ChannelMessageHandler): void;
   sendText(target: ChannelTarget, text: string, options?: SendOptions): Promise<SendResult>;
+  updateText?(target: ChannelTarget, messageId: string, text: string, options?: SendOptions): Promise<SendResult>;
   sendActionMessage?(target: ChannelTarget, message: ChannelActionMessage, options?: SendOptions): Promise<SendResult>;
   sendMedia?(target: ChannelTarget, media: ChannelMedia, options?: SendOptions): Promise<SendResult>;
   sendTyping?(target: ChannelTarget, typing: boolean, options?: SendOptions): Promise<void>;

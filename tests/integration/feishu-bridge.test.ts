@@ -13,6 +13,7 @@ class FeishuProgressCodexAdapter extends MockCodexAdapter {
     const turnId = `feishu-turn-${prompt}`;
     yield { type: "turn.started", sessionId, turnId };
     yield { type: "assistant.progress", sessionId, turnId, kind: "reasoning", text: "正在分析飞书私聊消息。" };
+    yield { type: "assistant.progress", sessionId, turnId, kind: "todo", text: "正在整理飞书处理结果。" };
     yield { type: "assistant.completed", sessionId, turnId, text: `完成: ${prompt}` };
     yield { type: "turn.completed", sessionId, turnId };
   }
@@ -47,6 +48,9 @@ test("Feishu private chat uses Bridge commands and default progress delivery", a
   assert.equal(texts.some((text) => text.includes("/grop")), false);
   assert.ok(texts.some((text) => text.includes("Codex 正在处理这条消息。")));
   assert.ok(texts.some((text) => text.includes("正在分析飞书私聊消息。")));
+  assert.equal(texts.some((text) => text.includes("正在整理飞书处理结果。")), false);
+  assert.equal(factory.client.requestPayloads.filter((payload) => payload.method === "PATCH").length, 1);
+  assert.match(JSON.stringify(factory.client.requestPayloads.find((payload) => payload.method === "PATCH")?.data), /正在整理飞书处理结果/);
   assert.ok(texts.some((text) => text.includes("完成: 请处理这个任务")));
   assert.ok(texts.some((text) => text.includes("**Codex 状态**") && text.includes("- 渠道: `feishu`")));
   assert.deepEqual(factory.client.reactionCreatePayloads.map((payload) => payload.path.message_id), ["om_prompt"]);

@@ -152,6 +152,15 @@ export class ChannelRegistry {
     return this.requireTargetChannel(target).sendText(target, text, options);
   }
 
+  async updateText(target: ChannelTarget, messageId: string, text: string, options?: SendOptions): Promise<SendResult> {
+    const channel = this.requireTargetChannel(target);
+    const capabilities = channel.getCapabilities();
+    if (!capabilities.messageUpdate || !channel.updateText) {
+      throw new Error(`channel does not support message updates: ${target.channelId}`);
+    }
+    return channel.updateText(target, messageId, text, options);
+  }
+
   async sendActionMessage(target: ChannelTarget, message: ChannelActionMessage, options?: SendOptions): Promise<SendResult> {
     const channel = this.requireTargetChannel(target);
     const capabilities = channel.getCapabilities();

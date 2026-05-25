@@ -110,6 +110,71 @@ test("BridgeProgressDelivery deduplicates repeated progress text", async () => {
   assert.equal(fixture.sentTexts.length, 1);
 });
 
+test("BridgeProgressDelivery updates aggregate progress on the same message", async () => {
+  const fixture = progressFixture({
+    shouldDeliverProgress: () => true,
+    minIntervalMs: 0,
+    messageUpdate: true,
+    policy: { ...DEFAULT_CHANNEL_DELIVERY_POLICY, progress: "aggregate" },
+  });
+
+  await fixture.progress.handleProgress({
+    routeKey: "route",
+    target: target(),
+    policy: fixture.policy,
+    text: "第一段进度。",
+    kind: "reasoning",
+  });
+  await fixture.progress.handleProgress({
+    routeKey: "route",
+    target: target(),
+    policy: fixture.policy,
+    text: "第二段进度。",
+    kind: "reasoning",
+  });
+
+  assert.equal(fixture.sentTexts.length, 1);
+  assert.equal(fixture.updatedTexts.length, 1);
+  assert.equal(fixture.updatedTexts[0].messageId, "m-1");
+  assert.match(fixture.updatedTexts[0].text, /第二段进度/);
+});
+
+test("BridgeProgressDelivery falls back to sending when aggregate update fails", async () => {
+  const fixture = progressFixture({
+    shouldDeliverProgress: () => true,
+    minIntervalMs: 0,
+    messageUpdate: true,
+    failUpdate: true,
+    policy: { ...DEFAULT_CHANNEL_DELIVERY_POLICY, progress: "aggregate" },
+  });
+
+  await fixture.progress.handleProgress({
+    routeKey: "route",
+    target: target(),
+    policy: fixture.policy,
+    text: "第一段进度。",
+    kind: "reasoning",
+  });
+  await fixture.progress.handleProgress({
+    routeKey: "route",
+    target: target(),
+    policy: fixture.policy,
+    text: "第二段进度。",
+    kind: "reasoning",
+  });
+  await fixture.progress.handleProgress({
+    routeKey: "route",
+    target: target(),
+    policy: fixture.policy,
+    text: "第三段进度。",
+    kind: "reasoning",
+  });
+
+  assert.equal(fixture.updatedTexts.length, 1);
+  assert.equal(fixture.sentTexts.length, 3);
+  assert.match(fixture.sentTexts[1], /第二段进度/);
+  assert.match(fixture.sentTexts[2], /第三段进度/);
+});
 test("BridgeProgressDelivery records suppressed channel progress locally", async () => {
   const fixture = progressFixture({ shouldDeliverProgress: () => true });
   const suppressPolicy = {
@@ -134,12 +199,21 @@ function progressFixture(options: {
   shouldDeliverProgress: ConstructorParameters<typeof BridgeProgressDelivery>[0]["shouldDeliverProgress"];
   minIntervalMs?: number;
   now?: () => number;
+  messageUpdate?: boolean;
+  failUpdate?: boolean;
+  policy?: typeof DEFAULT_CHANNEL_DELIVERY_POLICY;
 }) {
   const sentTexts: string[] = [];
+  const updatedTexts: Array<{ messageId: string; text: string }> = [];
   const channels = {
     sendText: async (_target: ChannelTarget, text: string) => {
       sentTexts.push(text);
       return { channelId: "mock", messageId: `m-${sentTexts.length}`, deliveredAt: new Date().toISOString() };
+    },
+    updateText: async (_target: ChannelTarget, messageId: string, text: string) => {
+      updatedTexts.push({ messageId, text });
+      if (options.failUpdate) throw new Error("update failed");
+      return { channelId: "mock", messageId, deliveredAt: new Date().toISOString() };
     },
     getCapabilities: () => ({
       text: true,
@@ -149,7 +223,7 @@ function progressFixture(options: {
       group: false,
       thread: false,
       login: "none" as const,
-      messageUpdate: false,
+      messageUpdate: options.messageUpdate ?? false,
       streamingHint: false,
     }),
   } as unknown as ChannelRegistry;
@@ -168,7 +242,7 @@ function progressFixture(options: {
     now: options.now,
     shouldDeliverProgress: options.shouldDeliverProgress,
   });
-  return { progress, sentTexts, transcript };
+  return { progress, sentTexts, updatedTexts, transcript, policy: options.policy ?? DEFAULT_CHANNEL_DELIVERY_POLICY };
 }
 
 function target(): ChannelTarget {
