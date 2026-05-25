@@ -272,6 +272,7 @@ export class Bridge {
           }, message, target, args, rawText);
         },
         status: (message) => this.statusTextRenderer.statusText(message),
+        usage: (message) => this.statusTextRenderer.usageText(message),
         dir: (message, target, args) => handleDirCommand({
           delivery: this.delivery,
           getDefaultWorkdir: () => this.sessionFlow.defaultWorkdir(),
@@ -787,7 +788,7 @@ function normalizeBackendPromptSlashCommand(commandName: string): string | undef
 }
 
 function isCommandAllowedDuringCompact(name: string): boolean {
-  return name === "status" || name === "help" || name === "whoami" || name === "debug";
+  return name === "status" || name === "usage" || name === "help" || name === "whoami" || name === "debug";
 }
 
 function groupApprovalDeniedText(reason: string | undefined): string {

@@ -198,6 +198,51 @@ export class BridgeStatusText {
     ].join("\n");
   }
 
+  async usageText(message: ChannelMessage): Promise<string> {
+    const routeKey = message.routeKey;
+    const binding = this.state.getBinding(routeKey);
+    if (!binding) {
+      return [
+        `**${backendDisplayName(this.backend)} 使用量**`,
+        "",
+        "- **会话**",
+        "  - 当前会话: 未绑定",
+        "  - 当前会话暂无 token 用量数据。",
+        "  - 下一步：发送普通消息创建会话，或发送 `/new` / `/resume` 明确选择会话。",
+      ].join("\n");
+    }
+
+    const localSession = this.state.getSession(binding.sessionId);
+    const adapterStatus = await this.codex.getStatus(binding.sessionId).catch(() => localSession?.status ?? { type: "unknown" as const, detail: "status unavailable" });
+    const sessionStatus = withLocalStartedAt(adapterStatus, localSession?.status);
+    const compactState = this.compactStateForRoute(routeKey);
+    const workerRunning = this.isRouteBusy(routeKey) || compactState.type === "running";
+    const contextLines = formatContextUsageLines(sessionStatus.context);
+    const usageLines = sessionStatus.context
+      ? contextLines
+      : ["- 当前会话暂无 token 用量数据；后端完成一轮并上报 usage 后会显示。"];
+
+    return [
+      `**${backendDisplayName(this.backend)} 使用量**`,
+      "",
+      "- **会话**",
+      `  - 当前会话: \`${binding.sessionId}\``,
+      binding.backend ? `  - 后端: \`${binding.backend}\`` : undefined,
+      binding.backend === "claude" && localSession?.backendSessionId ? `  - Claude session: \`${localSession.backendSessionId}\`` : undefined,
+      `  - 运行状态: ${formatCodexStatus(sessionStatus)}`,
+      `  - 当前模型: ${formatModelInfoForStatus(sessionStatus.model)}`,
+      "- **Token / Context**",
+      ...usageLines.map((line) => `  ${line}`),
+      "- **运行**",
+      `  - 处理状态: ${workerRunning ? "正在处理" : "空闲"}`,
+      formatCurrentTurnDurationLine(sessionStatus)?.replace(/^- /, "  - "),
+      `  - 排队消息: \`${this.routeQueueLength(routeKey)}\``,
+      `  - 待投递补充消息: \`${this.routeSteerPendingCount(routeKey)}\``,
+      `  - 待处理附件: \`${this.pendingMediaCount(routeKey)}\``,
+      `  - 上下文压缩: ${formatCompactStateForUsage(compactState)}`,
+    ].filter(Boolean).join("\n");
+  }
+
   async showText(message: ChannelMessage, args: string[] = [], commandName = "show"): Promise<string> {
     const [topic = "", ...rest] = args;
     switch (topic.toLowerCase()) {
@@ -206,6 +251,10 @@ export class BridgeStatusText {
         return this.showContextText(message);
       case "status":
         return this.statusText(message);
+      case "usage":
+      case "token":
+      case "tokens":
+        return this.usageText(message);
       case "session":
       case "sessions":
         return this.sessionsText(message, rest, commandName);
@@ -270,7 +319,7 @@ export class BridgeStatusText {
       modelPolicy ? `  - 模型覆盖: ${formatModelPolicyForStatus(modelPolicy)}` : undefined,
       policy ? `  - 权限模式: ${formatRunPolicyForStatus(policy)}` : undefined,
       "",
-      "子命令：`/show status`、`/show sessions`、`/show files`、`/show approvals`、`/show plan`、`/show whoami`、`/show debug`。",
+      "子命令：`/show status`、`/show usage`、`/show sessions`、`/show files`、`/show approvals`、`/show plan`、`/show whoami`、`/show debug`。",
     ].filter(Boolean).join("\n");
   }
 
@@ -313,7 +362,7 @@ export class BridgeStatusText {
   private showHelpText(topic: string): string {
     return [
       `未知 /show 子命令: \`${topic}\``,
-      "可用子命令: `status`、`sessions`、`files`、`approvals`、`plan`、`whoami`、`debug`。",
+      "可用子命令: `status`、`usage`、`sessions`、`files`、`approvals`、`plan`、`whoami`、`debug`。",
     ].join("\n");
   }
 
@@ -387,7 +436,8 @@ export class BridgeStatusText {
       { command: "/dir [path|set path|create path]", description: "查看或设置后续新会话默认工作目录；不会切换当前已绑定会话。" },
       { command: "/clear", description: "清空当前聊天上下文并创建新会话；需 `/clear confirm` 确认。" },
       { command: "/status", description: "查看状态、运行耗时、队列、审批和上下文 token 用量。" },
-      { command: "/show [status|sessions|files|approvals|plan|whoami|debug]", description: "查看当前聊天上下文、会话、文件、审批和计划信息。" },
+      { command: "/usage", description: "查看当前会话模型、上下文窗口/token 用量和基础队列状态。" },
+      { command: "/show [status|usage|sessions|files|approvals|plan|whoami|debug]", description: "查看当前聊天上下文、用量、会话、文件、审批和计划信息。" },
       {
         command: "/context-refresh [off|detect|reload|inherit]",
         description: "设置当前聊天发送前是否检测本机会话上下文更新。",
@@ -660,6 +710,12 @@ export class BridgeStatusText {
     const suffix = policy.progress === "aggregate" ? "（渠道聚合）" : "";
     return `- 进度投递: ${formatProgressModeForStatus(this.progressModeFor(routeKey))}${suffix}`;
   }
+}
+
+function formatCompactStateForUsage(state: CompactState): string {
+  if (state.type === "none") return "无";
+  if (state.type === "confirming") return `等待确认（会话 \`${state.sessionId}\`）`;
+  return `进行中（会话 \`${state.sessionId}\`）`;
 }
 
 function isFeishuDirectMessage(message: ChannelMessage | undefined): boolean {

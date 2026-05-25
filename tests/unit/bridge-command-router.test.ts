@@ -15,10 +15,12 @@ test("BridgeCommandRouter supports /bridge-* aliases in Claude profile", async (
   const fixture = routerFixture({ backend: "claude", commandProfile: "claude" });
 
   await fixture.router.handle(message(), target(), "bridge-status", [], "/bridge-status");
+  await fixture.router.handle(message(), target(), "bridge-usage", [], "/bridge-usage");
   await fixture.router.handle(message(), target(), "bridge-compact", [], "/bridge-compact");
   await fixture.router.handle(message(), target(), "stop", [], "/stop");
 
   assert.equal(fixture.sent.includes("status"), true);
+  assert.equal(fixture.sent.includes("usage"), true);
   assert.equal(fixture.calls.compact, 1);
   assert.equal(fixture.calls.model, 0);
 });
@@ -28,6 +30,7 @@ test("BridgeCommandRouter treats known root commands as local in Claude profile"
 
   assert.equal(fixture.router.isBridgeCommand(message(), "help"), true);
   assert.equal(fixture.router.isBridgeCommand(message(), "status"), true);
+  assert.equal(fixture.router.isBridgeCommand(message(), "usage"), true);
   assert.equal(fixture.router.isBridgeCommand(message(), "dir"), true);
   assert.equal(fixture.router.isBridgeCommand(message(), "show"), true);
   assert.equal(fixture.router.isBridgeCommand(message(), "sendfile"), true);
@@ -39,6 +42,7 @@ test("BridgeCommandRouter treats known root commands as local in Claude profile"
   assert.equal(fixture.router.isBridgeCommand(message(), "ok"), true);
   assert.equal(fixture.router.isBridgeCommand(message(), "1"), true);
   assert.equal(fixture.router.isBridgeCommand(message(), "bridge-help"), true);
+  assert.equal(fixture.router.isBridgeCommand(message(), "bridge-usage"), true);
   assert.equal(fixture.router.isBridgeCommand(message(), "bridge-dir"), true);
   assert.equal(fixture.router.isBridgeCommand(message(), "bridge-status"), true);
   assert.equal(fixture.router.isBridgeCommand(message(), "bridge-sendfile"), true);
@@ -48,6 +52,7 @@ test("BridgeCommandRouter treats known root commands as local in Claude profile"
 
 test("BridgeCommandRouter classifies bridge-owned command names", () => {
   assert.equal(isBridgeCommandName("compact"), true);
+  assert.equal(isBridgeCommandName("usage"), true);
   assert.equal(isBridgeCommandName("dir"), true);
   assert.equal(isBridgeCommandName("show"), true);
   assert.equal(isBridgeCommandName("plan"), true);
@@ -86,6 +91,16 @@ test("BridgeCommandRouter rejects semantic mutations while route is busy", async
   assert.match(fixture.sent.at(-1) ?? "", /当前对话的 Codex 正在执行/);
   assert.match(fixture.sent.at(-1) ?? "", /下一步.*\/stop/);
   assert.equal(fixture.calls.model, 0);
+});
+
+test("BridgeCommandRouter routes usage command without busy rejection", async () => {
+  const fixture = routerFixture({ busy: true, backend: "claude", commandProfile: "claude" });
+  await fixture.router.handle(message(), target(), "usage", [], "/usage");
+  await fixture.router.handle(message(), target(), "bridge-usage", [], "/bridge-usage");
+
+  assert.equal(fixture.calls.usage, 2);
+  assert.equal(fixture.sent.at(-2), "usage");
+  assert.equal(fixture.sent.at(-1), "usage");
 });
 
 test("BridgeCommandRouter routes dir command without busy rejection", async () => {
@@ -331,6 +346,7 @@ function routerFixture(options: {
   const sent: string[] = [];
   const calls = {
     createNewSession: 0,
+    usage: 0,
     dir: 0,
     model: 0,
     progressMode: 0,
@@ -369,6 +385,10 @@ function routerFixture(options: {
     dir: async (_message, _target, args) => {
       calls.dir += 1;
       dirCalls.push(args);
+    },
+    usage: async () => {
+      calls.usage += 1;
+      return "usage";
     },
     status: async () => "status",
     show: async (_message, args, commandName) => `show:${commandName}:${args.join(",")}`,

@@ -77,7 +77,9 @@ test("BridgeStatusText uses root help commands in Claude profile", () => {
   assert.match(text, /旧 `\/bridge-\*` 别名仍兼容/);
   assert.match(text, /\/help/);
   assert.match(text, /\/status/);
-  assert.match(text, /\/show \[status\|sessions\|files\|approvals\|plan\|whoami\|debug\]/);
+  assert.match(text, /\/show \[status\|usage\|sessions\|files\|approvals\|plan\|whoami\|debug\]/);
+  assert.match(text, /\/usage/);
+  assert.match(text, /上下文窗口\/token 用量/);
   assert.match(text, /\/dir \[path\|set path\|create path\]/);
   assert.match(text, /后续新会话默认工作目录/);
   assert.match(text, /不会切换当前已绑定会话/);
@@ -135,6 +137,9 @@ test("BridgeStatusText shows common next steps in Codex profile help", () => {
   assert.ok(text.indexOf("**常用下一步**") < text.indexOf("**完整命令**"));
   assert.match(text, /发送 `\/status`/);
   assert.match(text, /发送 `\/new`/);
+  assert.match(text, /\/usage/);
+  assert.match(text, /上下文窗口\/token 用量/);
+  assert.match(text, /\/show \[status\|usage\|sessions\|files\|approvals\|plan\|whoami\|debug\]/);
   assert.match(text, /\/dir \[path\|set path\|create path\]/);
   assert.match(text, /后续新会话默认工作目录/);
   assert.match(text, /发送 `\/sessions` 查看列表，或发送 `\/use` 进入编号选择/);
@@ -454,7 +459,91 @@ test("BridgeStatusText shows show command context summary", async () => {
   assert.match(text, /当前会话: `mock-codex-1`/);
   assert.match(text, /工作目录: `\/tmp\/project`/);
   assert.match(text, /待处理附件: `0`/);
-  assert.match(text, /子命令：`\/show status`、`\/show sessions`、`\/show files`/);
+  assert.match(text, /子命令：`\/show status`、`\/show usage`、`\/show sessions`、`\/show files`/);
+});
+
+test("BridgeStatusText shows focused usage for active sessions", async () => {
+  const state = new MemoryStateStore();
+  state.bindSession(routeKey(), {
+    id: "mock-codex-usage",
+    cwd: "/tmp/project",
+    createdAt: new Date().toISOString(),
+    title: "mock chat",
+    backend: "claude",
+    backendSessionId: "claude-usage-123",
+  });
+  const text = await usageText({
+    state,
+    commandProfile: "claude",
+    status: {
+      type: "running",
+      task: "统计用量",
+      model: { model: "sonnet", provider: "anthropic", reasoningEffort: "high" },
+      context: {
+        modelContextWindow: 200_000,
+        last: { totalTokens: 12_345, inputTokens: 10_000, cachedInputTokens: 2_000, outputTokens: 345, reasoningOutputTokens: 123 },
+        total: { totalTokens: 56_789, inputTokens: 50_000, cachedInputTokens: 4_000, outputTokens: 6_789, reasoningOutputTokens: 2_345 },
+      },
+    },
+    busy: true,
+    queueLength: 2,
+    steerPendingCount: 1,
+    pendingMediaCount: 3,
+    compactState: { type: "confirming", sessionId: "mock-codex-usage", requestedAt: new Date().toISOString() },
+  });
+
+  assert.match(text, /\*\*Claude Code 使用量\*\*/);
+  assert.match(text, /当前会话: `mock-codex-usage`/);
+  assert.match(text, /后端: `claude`/);
+  assert.match(text, /Claude session: `claude-usage-123`/);
+  assert.match(text, /运行状态: 运行中/);
+  assert.match(text, /当前模型: `sonnet`/);
+  assert.match(text, /上下文: `12,345 \/ 200,000 token`/);
+  assert.match(text, /最近一轮 token: 输入 `10,000`/);
+  assert.match(text, /本会话累计 token: 总计 `56,789`/);
+  assert.match(text, /处理状态: 正在处理/);
+  assert.match(text, /排队消息: `2`/);
+  assert.match(text, /待投递补充消息: `1`/);
+  assert.match(text, /待处理附件: `3`/);
+  assert.match(text, /上下文压缩: 等待确认/);
+});
+
+test("BridgeStatusText explains missing usage data for active sessions", async () => {
+  const state = new MemoryStateStore();
+  state.bindSession(routeKey(), {
+    id: "mock-codex-no-usage",
+    cwd: "/tmp/project",
+    createdAt: new Date().toISOString(),
+    title: "mock chat",
+  });
+  const text = await usageText({ state, status: { type: "idle" } });
+
+  assert.match(text, /当前会话: `mock-codex-no-usage`/);
+  assert.match(text, /当前会话暂无 token 用量数据/);
+});
+
+test("BridgeStatusText explains usage requires an active session", async () => {
+  const text = await usageText();
+
+  assert.match(text, /当前会话: 未绑定/);
+  assert.match(text, /当前会话暂无 token 用量数据/);
+  assert.match(text, /\/new/);
+  assert.match(text, /\/resume/);
+});
+
+test("BridgeStatusText routes show usage aliases", async () => {
+  const state = new MemoryStateStore();
+  state.bindSession(routeKey(), {
+    id: "mock-codex-usage",
+    cwd: "/tmp/project",
+    createdAt: new Date().toISOString(),
+    title: "mock chat",
+  });
+  const renderer = statusTextRenderer("codex", { state, status: { type: "idle" } });
+
+  assert.match(await renderer.showText(message(), ["usage"]), /\*\*Codex 使用量\*\*/);
+  assert.match(await renderer.showText(message(), ["token"]), /\*\*Codex 使用量\*\*/);
+  assert.match(await renderer.showText(message(), ["tokens"]), /\*\*Codex 使用量\*\*/);
 });
 
 test("BridgeStatusText shows show files guidance", async () => {
@@ -516,22 +605,43 @@ async function statusText(options: {
   }).statusText(message());
 }
 
-function statusTextRenderer(commandProfile: "codex" | "claude" = "codex"): BridgeStatusText {
+async function usageText(options: {
+  state?: MemoryStateStore;
+  status?: CodexSessionStatus;
+  busy?: boolean;
+  commandProfile?: "codex" | "claude";
+  compactState?: CompactState;
+  queueLength?: number;
+  steerPendingCount?: number;
+  pendingMediaCount?: number;
+} = {}): Promise<string> {
+  return statusTextRenderer(options.commandProfile ?? "codex", options).usageText(message());
+}
+
+function statusTextRenderer(commandProfile: "codex" | "claude" = "codex", options: {
+  state?: MemoryStateStore;
+  status?: CodexSessionStatus;
+  busy?: boolean;
+  compactState?: CompactState;
+  queueLength?: number;
+  steerPendingCount?: number;
+  pendingMediaCount?: number;
+} = {}): BridgeStatusText {
   return new BridgeStatusText({
     backend: commandProfile === "claude" ? "claude" : undefined,
     commandProfile,
     channels: fakeChannels(),
-    codex: fakeCodex({ type: "idle" }),
-    state: new MemoryStateStore(),
+    codex: fakeCodex(options.status ?? { type: "idle" }),
+    state: options.state ?? new MemoryStateStore(),
     approvals: new ApprovalManager(),
-    routeQueueLength: () => 0,
+    routeQueueLength: () => options.queueLength ?? 0,
     deliveryPolicyFor: () => DEFAULT_CHANNEL_DELIVERY_POLICY,
     shouldConsumePendingInitialRouteBinding: () => false,
     pendingInitialRouteBinding: () => undefined,
-    isRouteBusy: () => false,
-    routeSteerPendingCount: () => 0,
-    pendingMediaCount: () => 0,
-    compactStateForRoute: () => ({ type: "none" }),
+    isRouteBusy: () => options.busy ?? false,
+    routeSteerPendingCount: () => options.steerPendingCount ?? 0,
+    pendingMediaCount: () => options.pendingMediaCount ?? 0,
+    compactStateForRoute: () => options.compactState ?? ({ type: "none" }),
     collaborationModeForRoute: () => "default",
     progressModeFor: () => "brief",
     contextRefreshFor: () => ({ policy: { mode: "off" }, source: "route" }),
