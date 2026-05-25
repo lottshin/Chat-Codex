@@ -44,6 +44,8 @@ test("FeishuAdapter starts websocket and declares private media capabilities", a
     login: "token",
     messageUpdate: false,
     streamingHint: true,
+    buttons: true,
+    cards: true,
   });
 });
 
@@ -180,6 +182,68 @@ test("FeishuAdapter uploads and sends image and file media", async () => {
   ]);
 });
 
+test("FeishuAdapter sends action messages as interactive cards", async () => {
+  const factory = new FakeFeishuTransportFactory();
+  const adapter = new FeishuAdapter({ ...credentials, transportFactory: factory, connectOnStart: false });
+  await adapter.start();
+
+  const result = await adapter.sendActionMessage({
+    channelId: "feishu",
+    routeKey: "feishu:work:direct:oc_user",
+    accountId: "work",
+    conversation: { id: "oc_user", kind: "direct" },
+    recipient: { id: "ou_user" },
+    context: { sourceMessageId: "om_source" },
+  }, {
+    text: "需要审批",
+    buttonGroups: [[
+      { text: "允许", action: "cmd:/OK", style: "primary" },
+      { text: "拒绝", action: "cmd:/NO", style: "danger" },
+    ]],
+  });
+
+  assert.equal(result.messageId, "om_reply");
+  assert.equal(factory.client.replyPayloads.length, 1);
+  assert.equal(factory.client.replyPayloads[0].data.msg_type, "interactive");
+  const card = JSON.parse(factory.client.replyPayloads[0].data.content) as {
+    config?: { wide_screen_mode?: boolean };
+    elements?: Array<{ tag?: string; content?: string; actions?: Array<{ text?: { content?: string }; type?: string; value?: { action?: string; routeKey?: string } }> }>;
+  };
+  assert.equal(card.config?.wide_screen_mode, true);
+  assert.equal(card.elements?.[0]?.content, "需要审批");
+  assert.deepEqual(card.elements?.[1]?.actions?.map((action) => action.text?.content), ["允许", "拒绝"]);
+  assert.deepEqual(card.elements?.[1]?.actions?.map((action) => action.type), ["primary", "danger"]);
+  assert.deepEqual(card.elements?.[1]?.actions?.map((action) => action.value?.action), ["cmd:/OK", "cmd:/NO"]);
+  assert.deepEqual(card.elements?.[1]?.actions?.map((action) => action.value?.routeKey), ["feishu:work:direct:oc_user", "feishu:work:direct:oc_user"]);
+});
+
+test("FeishuAdapter converts card actions to command ChannelMessage", async () => {
+  const factory = new FakeFeishuTransportFactory();
+  const adapter = new FeishuAdapter({ ...credentials, transportFactory: factory, now: () => 1_700_000_000_000 });
+  let receivedText = "";
+  let routeKey = "";
+  let senderId = "";
+  adapter.onMessage(async (message) => {
+    receivedText = message.text ?? "";
+    routeKey = message.routeKey;
+    senderId = message.sender.id;
+  });
+
+  await adapter.start();
+  await factory.dispatcher.emitCardAction({
+    app_id: credentials.appId,
+    event_id: "ev_card_1",
+    open_message_id: "om_card_1",
+    open_id: "ou_user",
+    open_chat_id: "oc_direct",
+    action: { value: { action: "cmd:/plan-execute", routeKey: "feishu:work:group:oc_direct" } },
+  });
+
+  assert.equal(receivedText, "/plan-execute");
+  assert.equal(routeKey, "feishu:work:group:oc_direct");
+  assert.equal(senderId, "ou_user");
+  assert.equal((await adapter.getStatus()).details?.phase, "card-action-received");
+});
 test("FeishuAdapter emits ChannelMessage for p2p text events and deduplicates message_id", async () => {
   const factory = new FakeFeishuTransportFactory();
   const adapter = new FeishuAdapter({ ...credentials, transportFactory: factory });

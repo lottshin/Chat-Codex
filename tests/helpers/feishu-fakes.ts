@@ -1,5 +1,6 @@
 import type {
   FeishuApiResponse,
+  FeishuCardActionEvent,
   FeishuCredentials,
   FeishuEventDispatcher,
   FeishuEventHandlers,
@@ -134,6 +135,10 @@ export class FakeFeishuDispatcher implements FeishuEventDispatcher {
 
   async emitReceive(event: FeishuMessageReceiveEvent): Promise<void> {
     await this.handlers["im.message.receive_v1"]?.(event);
+  }
+
+  async emitCardAction(event: FeishuCardActionEvent): Promise<void> {
+    await this.handlers["card.action.trigger"]?.(event);
   }
 }
 

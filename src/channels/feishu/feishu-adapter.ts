@@ -7,6 +7,7 @@ import {
   WSClient,
 } from "@larksuiteoapi/node-sdk";
 import type {
+  ChannelActionMessage,
   ChannelAdapter,
   ChannelCapabilities,
   ChannelLoginResult,
@@ -20,6 +21,7 @@ import type {
 } from "../../protocol/channel.js";
 import type { ChannelDeliveryPolicy } from "../../protocol/delivery-policy.js";
 import { DEFAULT_CHANNEL_DELIVERY_POLICY } from "../../protocol/delivery-policy.js";
+import { buildFeishuActionCard, feishuCardActionToCommand } from "./feishu-card.js";
 import {
   DEFAULT_FEISHU_ACCOUNT_ID,
   DEFAULT_FEISHU_DOMAIN,
@@ -43,6 +45,7 @@ import type {
   FeishuAdapterOptions,
   FeishuApiResponse,
   FeishuBotIdentity,
+  FeishuCardActionEvent,
   FeishuCredentials,
   FeishuEventDispatcher,
   FeishuEventHandlers,
@@ -213,6 +216,8 @@ export class FeishuAdapter implements ChannelAdapter {
       login: "token",
       messageUpdate: false,
       streamingHint: true,
+      buttons: true,
+      cards: true,
     };
   }
 
@@ -234,6 +239,10 @@ export class FeishuAdapter implements ChannelAdapter {
 
   async sendText(target: ChannelTarget, text: string, options?: SendOptions): Promise<SendResult> {
     return this.sendFeishuMessage(target, "post", buildFeishuPostContent(text), options);
+  }
+
+  async sendActionMessage(target: ChannelTarget, message: ChannelActionMessage, options?: SendOptions): Promise<SendResult> {
+    return this.sendFeishuMessage(target, "interactive", JSON.stringify(buildFeishuActionCard(message, target)), options);
   }
 
   async sendMedia(target: ChannelTarget, media: ChannelMedia, options?: SendOptions): Promise<SendResult> {
@@ -329,8 +338,56 @@ export class FeishuAdapter implements ChannelAdapter {
 
   private eventHandlers(): FeishuEventHandlers {
     return {
-      "im.message.receive_v1": (event) => this.handleIncomingEvent(event),
+      "im.message.receive_v1": (event) => this.handleIncomingEvent(event as FeishuMessageReceiveEvent),
+      "card.action.trigger": (event) => this.handleCardActionEvent(event as FeishuCardActionEvent),
     };
+  }
+
+  private async handleCardActionEvent(event: FeishuCardActionEvent): Promise<void> {
+    const command = feishuCardActionToCommand(event.action ?? event.value);
+    if (!command) {
+      this.status = {
+        ...this.status,
+        details: {
+          ...this.statusDetails("event-skipped"),
+          lastSkipReason: "unsupported_card_action",
+        },
+      };
+      return;
+    }
+    const senderId = event.sender?.sender_id?.open_id ?? event.open_id ?? event.user_id ?? event.union_id;
+    const chatId = event.chat_id ?? event.open_chat_id;
+    if (!senderId || !chatId) {
+      this.status = {
+        ...this.status,
+        details: {
+          ...this.statusDetails("event-skipped"),
+          lastSkipReason: "missing_card_action_fields",
+        },
+      };
+      return;
+    }
+    const messageId = event.open_message_id ?? event.message_id ?? event.event_id ?? `card-action-${this.now()}`;
+    const routeKey = command.routeKey ?? `${this.id}:${this.credentials.accountId ?? DEFAULT_FEISHU_ACCOUNT_ID}:direct:${chatId}`;
+    const timestamp = new Date(this.now()).toISOString();
+    const message: ChannelMessage = {
+      id: messageId,
+      routeKey,
+      channelId: this.id,
+      accountId: this.credentials.accountId ?? DEFAULT_FEISHU_ACCOUNT_ID,
+      sender: { id: senderId },
+      conversation: { id: chatId, kind: routeKey.includes(":group:") ? "group" : "direct", displayName: routeKey.includes(":group:") ? "飞书群聊" : "飞书私聊" },
+      text: command.text,
+      timestamp,
+      raw: event,
+    };
+    if (!this.recordMessageId(message.id)) return;
+    this.status = {
+      ...this.status,
+      lastInboundAt: message.timestamp,
+      details: this.statusDetails("card-action-received"),
+    };
+    await this.handler?.(message);
   }
 
   private async handleIncomingEvent(event: FeishuMessageReceiveEvent): Promise<void> {
