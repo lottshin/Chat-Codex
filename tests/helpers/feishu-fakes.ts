@@ -24,6 +24,7 @@ export class FakeFeishuClient implements FeishuSdkClient {
   readonly reactionCreatePayloads: Array<Parameters<FeishuSdkClient["im"]["messageReaction"]["create"]>[0]> = [];
   readonly reactionDeletePayloads: Array<Parameters<FeishuSdkClient["im"]["messageReaction"]["delete"]>[0]> = [];
   readonly userGetPayloads: unknown[] = [];
+  readonly requestPayloads: Array<{ method: string; url: string; data?: unknown }> = [];
   probeResponse: FeishuApiResponse<{ pingBotInfo?: { botID?: string; botName?: string } }> = {
     code: 0,
     data: {
@@ -40,6 +41,10 @@ export class FakeFeishuClient implements FeishuSdkClient {
   createResponse: FeishuApiResponse<FeishuSentMessageData> = {
     code: 0,
     data: { message_id: "om_create", chat_id: "oc_direct" },
+  };
+  updateResponse: FeishuApiResponse<FeishuSentMessageData> = {
+    code: 0,
+    data: { message_id: "om_update", chat_id: "oc_direct" },
   };
   reactionCreateResponse: FeishuApiResponse<FeishuReactionData> = {
     code: 0,
@@ -116,7 +121,11 @@ export class FakeFeishuClient implements FeishuSdkClient {
     },
   };
 
-  async request<T = FeishuApiResponse>(): Promise<T> {
+  async request<T = FeishuApiResponse>(payload?: { method: string; url: string; data?: unknown }): Promise<T> {
+    if (payload) {
+      this.requestPayloads.push(payload);
+      if (payload.method === "PATCH") return this.updateResponse as T;
+    }
     return this.probeResponse as T;
   }
 

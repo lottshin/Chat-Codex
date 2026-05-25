@@ -28,6 +28,7 @@ export interface BridgeProgressInput {
 
 interface PendingProgress {
   target: ChannelTarget;
+  policy: ChannelDeliveryPolicy;
   texts: string[];
 }
 
@@ -35,6 +36,8 @@ interface RouteProgressState {
   lastSentAt?: number;
   recent: string[];
   pending?: PendingProgress;
+  messageId?: string;
+  updateDisabled?: boolean;
 }
 
 const DEFAULT_MIN_INTERVAL_MS = 3000;
@@ -76,11 +79,11 @@ export class BridgeProgressDelivery {
 
     const now = this.now();
     if (!state.pending && (state.lastSentAt === undefined || now - state.lastSentAt >= this.minIntervalMs)) {
-      await this.sendNow(input.routeKey, input.target, [body], now);
+      await this.sendNow(input.routeKey, input.target, input.policy, [body], now);
       return;
     }
 
-    state.pending = mergePending(state.pending, input.target, body);
+    state.pending = mergePending(state.pending, input.target, input.policy, body);
   }
 
   async flushRoute(routeKey: string): Promise<void> {
@@ -88,7 +91,7 @@ export class BridgeProgressDelivery {
     const pending = state?.pending;
     if (!state || !pending) return;
     state.pending = undefined;
-    await this.sendNow(routeKey, pending.target, pending.texts, this.now());
+    await this.sendNow(routeKey, pending.target, pending.policy, pending.texts, this.now());
   }
 
   clearRoute(routeKey: string): void {
@@ -107,10 +110,19 @@ export class BridgeProgressDelivery {
     return next;
   }
 
-  private async sendNow(routeKey: string, target: ChannelTarget, texts: string[], sentAt: number): Promise<void> {
+  private async sendNow(routeKey: string, target: ChannelTarget, policy: ChannelDeliveryPolicy, texts: string[], sentAt: number): Promise<void> {
     const state = this.stateFor(routeKey);
     state.lastSentAt = sentAt;
-    await this.delivery.sendProgressText(routeKey, target, this.formatProgress(texts));
+    const text = this.formatProgress(texts);
+    if (policy.progress === "aggregate" && state.messageId && !state.updateDisabled) {
+      const updated = await this.delivery.updateProgressText(routeKey, target, state.messageId, text);
+      if (updated) return;
+      state.updateDisabled = true;
+    }
+    const result = await this.delivery.sendProgressText(routeKey, target, text);
+    if (policy.progress === "aggregate" && result?.messageId) {
+      state.messageId = result.messageId;
+    }
   }
 
   private formatProgress(texts: string[]): string {
@@ -131,9 +143,9 @@ export class BridgeProgressDelivery {
   }
 }
 
-function mergePending(pending: PendingProgress | undefined, target: ChannelTarget, text: string): PendingProgress {
+function mergePending(pending: PendingProgress | undefined, target: ChannelTarget, policy: ChannelDeliveryPolicy, text: string): PendingProgress {
   const texts = [...(pending?.texts ?? []), text].slice(-MAX_PENDING_TEXTS);
-  return { target, texts };
+  return { target, policy, texts };
 }
 
 function normalizeProgressText(text: string): string {

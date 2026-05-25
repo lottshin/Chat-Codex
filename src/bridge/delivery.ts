@@ -4,7 +4,7 @@ import type { Logger } from "../logging/logger.js";
 import { backendDisplayName, type AiBackend } from "../backend/metadata.js";
 import type { TranscriptSink } from "../logging/transcript.js";
 import type { ChannelRegistry } from "../channels/registry.js";
-import type { ChannelActionMessage, ChannelMedia, ChannelTarget } from "../protocol/channel.js";
+import type { ChannelActionMessage, ChannelMedia, ChannelTarget, SendResult } from "../protocol/channel.js";
 import { extractBridgeSendFileRefs } from "./media-extractor.js";
 import { PROGRESS_SEND_FAILURE_COOLDOWN_MS, SEND_FILE_MAX_FILES } from "./bridge-types.js";
 import { sleep } from "./formatters.js";
@@ -47,9 +47,10 @@ export class BridgeDelivery {
     }
   }
 
-  async deliverText(target: ChannelTarget, text: string): Promise<void> {
-    await this.channels.sendText(target, text);
+  async deliverText(target: ChannelTarget, text: string): Promise<SendResult> {
+    const result = await this.channels.sendText(target, text);
     this.transcript?.outbound(target, text);
+    return result;
   }
 
   async sendApprovalTextUntilDelivered(routeKey: string, target: ChannelTarget, pending: PendingApproval): Promise<void> {
@@ -92,12 +93,13 @@ export class BridgeDelivery {
     await this.deliverText(target, fallbackText);
   }
 
-  async sendProgressText(routeKey: string, target: ChannelTarget, text: string): Promise<void> {
+  async sendProgressText(routeKey: string, target: ChannelTarget, text: string): Promise<SendResult | undefined> {
     const suppressedUntil = this.progressSendSuppressedUntil.get(routeKey) ?? 0;
-    if (Date.now() < suppressedUntil) return;
+    if (Date.now() < suppressedUntil) return undefined;
     try {
-      await this.deliverText(target, text);
+      const result = await this.deliverText(target, text);
       this.progressSendSuppressedUntil.delete(routeKey);
+      return result;
     } catch (error) {
       this.progressSendSuppressedUntil.set(routeKey, Date.now() + PROGRESS_SEND_FAILURE_COOLDOWN_MS);
       this.logger.warn("progress message send failed", {
@@ -105,6 +107,23 @@ export class BridgeDelivery {
         error: error instanceof Error ? error.message : String(error),
         cooldownMs: PROGRESS_SEND_FAILURE_COOLDOWN_MS,
       });
+      return undefined;
+    }
+  }
+
+  async updateProgressText(routeKey: string, target: ChannelTarget, messageId: string, text: string): Promise<boolean> {
+    try {
+      await this.channels.updateText(target, messageId, text);
+      this.progressSendSuppressedUntil.delete(routeKey);
+      this.transcript?.outbound(target, text);
+      return true;
+    } catch (error) {
+      this.logger.warn("progress message update failed", {
+        channel: target.channelId,
+        messageId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return false;
     }
   }
 

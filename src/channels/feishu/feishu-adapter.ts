@@ -214,7 +214,7 @@ export class FeishuAdapter implements ChannelAdapter {
       group: this.groupEnabled,
       thread: false,
       login: "token",
-      messageUpdate: false,
+      messageUpdate: true,
       streamingHint: true,
       buttons: true,
       cards: true,
@@ -222,7 +222,10 @@ export class FeishuAdapter implements ChannelAdapter {
   }
 
   getDeliveryPolicy(): ChannelDeliveryPolicy {
-    return DEFAULT_CHANNEL_DELIVERY_POLICY;
+    return {
+      ...DEFAULT_CHANNEL_DELIVERY_POLICY,
+      progress: "aggregate",
+    };
   }
 
   onMessage(handler: ChannelMessageHandler): void {
@@ -243,6 +246,25 @@ export class FeishuAdapter implements ChannelAdapter {
 
   async sendActionMessage(target: ChannelTarget, message: ChannelActionMessage, options?: SendOptions): Promise<SendResult> {
     return this.sendFeishuMessage(target, "interactive", JSON.stringify(buildFeishuActionCard(message, target)), options);
+  }
+
+  async updateText(_target: ChannelTarget, messageId: string, text: string, _options?: SendOptions): Promise<SendResult> {
+    const client = this.ensureClient();
+    if (!client.request) throw new Error("Feishu SDK client does not support raw requests");
+    const response = await client.request<FeishuApiResponse<FeishuSentMessageData>>({
+      method: "PATCH",
+      url: `/open-apis/im/v1/messages/${encodeURIComponent(messageId)}`,
+      data: {
+        msg_type: "post",
+        content: buildFeishuPostContent(text),
+      },
+    });
+    if (response.code !== undefined && response.code !== 0) {
+      const errorText = formatFeishuApiError(response, "飞书消息更新失败");
+      this.recordSendError(new Error(errorText), "update-failed");
+      throw new Error(errorText);
+    }
+    return this.recordSendResult(response, messageId);
   }
 
   async sendMedia(target: ChannelTarget, media: ChannelMedia, options?: SendOptions): Promise<SendResult> {
