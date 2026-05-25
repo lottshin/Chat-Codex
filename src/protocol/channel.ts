@@ -80,6 +80,11 @@ export interface ChannelCapabilities {
   login: ChannelLoginMode;
   messageUpdate: boolean;
   streamingHint: boolean;
+  buttons?: boolean;
+  cards?: boolean;
+  messageDelete?: boolean;
+  preview?: boolean;
+  audio?: boolean;
 }
 
 export interface ChannelLoginResult {
