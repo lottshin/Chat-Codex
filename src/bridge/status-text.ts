@@ -482,7 +482,7 @@ export class BridgeStatusText {
         : []),
       { command: "/sessions", description: "列出当前聊天上下文拥有、绑定过或本地记录相关的会话。", aliases: ["/session"] },
       { command: "/sessions all", description: "列出本机全部可发现的历史会话。", aliases: ["/all-sessions"] },
-      { command: "/resume [session|编号]", description: "恢复并绑定已有会话；不带参数时进入编号选择。" },
+      { command: "/resume [last|关键词|编号]", description: "显示最近可恢复会话；支持 `/resume last` 和按标题、工作目录、session id 搜索后恢复。" },
       { command: "/use [session|编号]", description: "切换到已有会话；不带参数时进入编号选择。" },
       { command: "/cancel", description: "取消当前等待中的交互，例如会话选择、压缩确认或待发送文件。" },
       ...(isFeishuGroupMessage(message) ? [] : [{ command: "/whoami", description: "查看当前通道身份。" }]),

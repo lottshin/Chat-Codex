@@ -94,6 +94,8 @@ export type SessionListScope = "route" | "all" | "selectable";
 
 export interface SessionListItem {
   id: string;
+  backend?: AiBackend;
+  backendSessionId?: string;
   title?: string;
   cwd?: string;
   status: CodexSessionStatus;
@@ -119,6 +121,10 @@ export interface SessionSelectionState {
   pageSize: number;
   createdAt: number;
   hiddenUnavailableCount?: number;
+  title?: string;
+  scopeLabel?: string;
+  emptyText?: string;
+  intro?: string;
 }
 
 export type CompactState =

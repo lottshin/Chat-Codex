@@ -123,6 +123,20 @@ test("BridgeCommandRouter routes dir command without busy rejection", async () =
   assert.deepEqual(fixture.dirCalls, [["set", "/repo"], []]);
 });
 
+test("BridgeCommandRouter routes resume queries separately from use refs", async () => {
+  const fixture = routerFixture();
+
+  await fixture.router.handle(message(), target(), "resume", ["foo", "bar"], "/resume foo bar");
+  await fixture.router.handle(message(), target(), "use", ["foo", "bar"], "/use foo bar");
+  await fixture.router.handle(message(), target(), "resume", [], "/resume");
+
+  assert.deepEqual(fixture.resumeCalls, [
+    { command: "resume", sessionRef: "foo bar" },
+    { command: "use", sessionRef: "foo" },
+    { command: "resume", sessionRef: undefined },
+  ]);
+});
+
 test("BridgeCommandRouter routes compact command", async () => {
   const fixture = routerFixture();
   await fixture.router.handle(message(), target(), "compact", [], "/compact");
@@ -374,6 +388,7 @@ function routerFixture(options: {
   let newSessionCall: { args: string[]; rawText: string } | undefined;
   const btwCalls: string[] = [];
   const dirCalls: string[][] = [];
+  const resumeCalls: Array<{ command: "resume" | "use"; sessionRef: string | undefined }> = [];
   let groupReceiveCall: { args: string[]; commandName: string } | undefined;
   let sendFileCall: { rawText: string; commandName: string } | undefined;
   const approvalDecisions: string[] = [];
@@ -410,7 +425,9 @@ function routerFixture(options: {
     status: async () => "status",
     show: async (_message, args, commandName) => `show:${commandName}:${args.join(",")}`,
     sessions: async () => "sessions",
-    resumeOrUseSession: async () => undefined,
+    resumeOrUseSession: async (_message, _target, command, sessionRef) => {
+      resumeCalls.push({ command, sessionRef });
+    },
     cancel: async () => undefined,
     whoami: () => "whoami",
     debug: async () => "debug",
@@ -462,6 +479,7 @@ function routerFixture(options: {
     },
     btwCalls,
     dirCalls,
+    resumeCalls,
     get groupReceiveCall() {
       return groupReceiveCall;
     },
