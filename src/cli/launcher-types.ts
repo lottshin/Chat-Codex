@@ -11,6 +11,7 @@ export interface ServeStartupOptions {
   session?: string;
   permission?: CodexPermissionMode;
   codexAdapter?: RealCodexAdapterMode;
+  claudeAdapter?: ClaudeAdapterMode;
   yesDangerouslyFull?: boolean;
   cwd?: string;
   progressMode?: ProgressDeliveryMode;
@@ -20,12 +21,14 @@ export interface ServeStartupOptions {
 }
 
 export type RealCodexAdapterMode = "app-server" | "exec";
+export type ClaudeAdapterMode = "exec" | "sdk";
 
 export interface PreparedServeStartup {
   backend?: AiBackend;
   commandProfile?: CommandNamespaceProfile;
   policy: CodexRunPolicy;
   adapterMode?: RealCodexAdapterMode;
+  claudeAdapterMode?: ClaudeAdapterMode;
   cwd: string;
   codexStatus?: CodexCliStatus;
   claudeStatus?: ClaudeCliStatus;
