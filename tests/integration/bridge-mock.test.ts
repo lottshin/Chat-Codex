@@ -864,6 +864,29 @@ test("Bridge can switch sessions by entering a numbered selection mode", async (
   assert.ok(channel.sentMessages.at(-1)?.text.includes("当前会话: `mock-codex-1`"));
 });
 
+test("Bridge sends session selection action cards on button-capable channels", async () => {
+  const channel = new MockChannelAdapter({ buttons: true });
+  const codex = new MockCodexAdapter();
+  const bridge = new Bridge({ channel, codex, cwd: process.cwd() });
+
+  await bridge.start();
+  await channel.emitText("/new");
+  await channel.emitText("/new");
+  await channel.emitText("/use");
+  const action = channel.sentActionMessages.at(-1)?.message;
+  assert.ok(action);
+  assert.ok(action.text.includes("**切换 Codex 会话**"));
+  assert.deepEqual(action.buttonGroups[0].map((button) => button.action), ["reply:1", "reply:2"]);
+  assert.ok(action.buttonGroups.at(-1)?.some((button) => button.action === "reply:取消"));
+
+  await channel.emitText("2");
+  await channel.emitText("/status");
+  await bridge.stop();
+
+  assert.ok(channel.sentMessages.some((message) => message.text.includes("已绑定 Codex 会话")));
+  assert.ok(channel.sentMessages.at(-1)?.text.includes("当前会话: `mock-codex-1`"));
+});
+
 test("Bridge turns an unknown session id into a recoverable selection prompt", async () => {
   const channel = new MockChannelAdapter();
   const codex = new MockCodexAdapter();

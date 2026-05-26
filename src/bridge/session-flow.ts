@@ -1,6 +1,6 @@
 import type { AiBackend } from "../backend/metadata.js";
 import type { CodexAdapter, CodexCollaborationMode, CodexSession } from "../codex/types.js";
-import type { ChannelMessage, ChannelTarget } from "../protocol/channel.js";
+import type { ChannelActionMessage, ChannelButton, ChannelMessage, ChannelTarget } from "../protocol/channel.js";
 import { pendingBindingOwnerRouteKey } from "../state/memory-state-store.js";
 import type { MemoryStateStore } from "../state/memory-state-store.js";
 import type { SessionContextSnapshotObservedBy } from "../state/persistent-state-types.js";
@@ -220,7 +220,7 @@ export class BridgeSessionFlow {
     if (action) {
       selection.page += action === "next" ? 1 : -1;
       selection.createdAt = Date.now();
-      await this.delivery.sendText(target, this.sessionSelectionText(selection));
+      await this.sendSessionSelection(target, selection);
       return;
     }
     const choiceIndex = pageNumberFromText(text);
@@ -238,7 +238,7 @@ export class BridgeSessionFlow {
     const page = paginateSessionList(selection.items, "selectable", selection.page, selection.pageSize);
     const choice = page.items[choiceIndex - 1];
     if (!choice) {
-      await this.delivery.sendText(target, this.sessionSelectionText(selection, `没有第 ${choiceIndex} 项，请重新选择。`));
+      await this.sendSessionSelection(target, selection, `没有第 ${choiceIndex} 项，请重新选择。`);
       return;
     }
     const result = await this.bindSessionById(message, target, choice.id);
@@ -546,7 +546,7 @@ export class BridgeSessionFlow {
       hiddenUnavailableCount,
       intro,
     });
-    await this.delivery.sendText(target, this.sessionSelectionText(this.selections.get(message.routeKey)!));
+    await this.sendSessionSelection(target, this.selections.get(message.routeKey)!);
   }
 
   private async beginResumeSelection(
@@ -570,7 +570,7 @@ export class BridgeSessionFlow {
       emptyText: "没有可恢复的 Codex 会话。",
       intro,
     });
-    await this.delivery.sendText(target, this.sessionSelectionText(this.selections.get(message.routeKey)!));
+    await this.sendSessionSelection(target, this.selections.get(message.routeKey)!);
   }
 
   private beginSelection(
@@ -614,6 +614,31 @@ export class BridgeSessionFlow {
       routeKey,
       scope: "selectable",
     });
+  }
+
+  private async sendSessionSelection(target: ChannelTarget, selection: SessionSelectionState, intro?: string): Promise<void> {
+    const text = this.sessionSelectionText(selection, intro);
+    await this.delivery.deliverActionMessage(target, this.sessionSelectionActionMessage(selection, text), text);
+  }
+
+  private sessionSelectionActionMessage(selection: SessionSelectionState, text: string): ChannelActionMessage {
+    const page = paginateSessionList(selection.items, "selectable", selection.page, selection.pageSize);
+    const navigationButtons: ChannelButton[] = [];
+    if (page.page > 1) navigationButtons.push({ text: "上一页", action: "reply:p" });
+    if (page.page < page.totalPages) navigationButtons.push({ text: "下一页", action: "reply:n" });
+    navigationButtons.push({ text: "取消", action: "reply:取消", style: "danger" });
+    return {
+      text,
+      format: "markdown",
+      buttonGroups: [
+        page.items.map((_item, index): ChannelButton => ({
+          text: `选择 ${index + 1}`,
+          action: `reply:${index + 1}`,
+          style: "primary",
+        })),
+        navigationButtons,
+      ].filter((group) => group.length > 0),
+    };
   }
 
   private sessionSelectionText(selection: SessionSelectionState, intro?: string): string {
