@@ -80,6 +80,8 @@ test("BridgeStatusText uses root help commands in Claude profile", () => {
   assert.match(text, /\/show \[status\|usage\|sessions\|files\|approvals\|plan\|whoami\|debug\]/);
   assert.match(text, /\/usage/);
   assert.match(text, /上下文窗口\/token 用量/);
+  assert.match(text, /\/btw <任务>/);
+  assert.match(text, /后台任务使用独立 side session/);
   assert.match(text, /\/dir \[path\|set path\|create path\]/);
   assert.match(text, /后续新会话默认工作目录/);
   assert.match(text, /不会切换当前已绑定会话/);
@@ -139,6 +141,8 @@ test("BridgeStatusText shows common next steps in Codex profile help", () => {
   assert.match(text, /发送 `\/new`/);
   assert.match(text, /\/usage/);
   assert.match(text, /上下文窗口\/token 用量/);
+  assert.match(text, /\/btw <任务>/);
+  assert.match(text, /后台任务使用独立 side session/);
   assert.match(text, /\/show \[status\|usage\|sessions\|files\|approvals\|plan\|whoami\|debug\]/);
   assert.match(text, /\/dir \[path\|set path\|create path\]/);
   assert.match(text, /后续新会话默认工作目录/);

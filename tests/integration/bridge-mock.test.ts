@@ -1424,6 +1424,27 @@ test("Bridge rejects collaboration mode changes while a route is busy", async ()
   assert.ok(channel.sentMessages.some((message) => message.text.includes("不能修改会话、权限、模型、协作模式或 Goal")));
 });
 
+test("Bridge runs btw side tasks without waiting for foreground turns", async () => {
+  const channel = new MockChannelAdapter();
+  const codex = new SteerableBlockingCodexAdapter();
+  const bridge = new Bridge({ channel, codex, cwd: process.cwd() });
+
+  await bridge.start();
+  await channel.emitText("第一条");
+  await waitFor(() => codex.prompts.includes("第一条"));
+  await channel.emitText("/btw 顺便检查");
+  await waitFor(() => codex.prompts.includes("顺便检查"));
+
+  assert.ok(channel.sentMessages.some((message) => message.text.includes("已启动 BTW 后台任务")));
+  assert.ok(channel.sentMessages.some((message) => message.text.includes("BTW 任务 btw-1 完成") && message.text.includes("完成: 顺便检查")));
+  assert.equal(codex.prompts.includes("第一条"), true);
+  codex.release();
+  await bridge.waitForIdle();
+  await bridge.stop();
+
+  assert.ok(channel.sentMessages.some((message) => message.text.includes("完成: 第一条")));
+});
+
 test("Bridge steers ordinary text into the active route turn", async () => {
   const channel = new MockChannelAdapter();
   const codex = new SteerableBlockingCodexAdapter();

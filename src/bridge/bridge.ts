@@ -36,6 +36,7 @@ import { BridgeDelivery } from "./delivery.js";
 import { BridgeProgressDelivery } from "./progress-delivery.js";
 import { BridgeRouteQueue } from "./route-queue.js";
 import { BridgeRouteSteering } from "./route-steering.js";
+import { BridgeSideTasks } from "./side-tasks.js";
 import { RouteTrustGate } from "./route-trust-gate.js";
 import { BridgeSessionFlow } from "./session-flow.js";
 import { BridgeStatusText } from "./status-text.js";
@@ -100,6 +101,7 @@ export class Bridge {
   private readonly backgroundTurns: BridgeBackgroundTurns;
   private readonly routeQueue: BridgeRouteQueue;
   private readonly routeSteering: BridgeRouteSteering;
+  private readonly sideTasks: BridgeSideTasks;
   private readonly sessionFlow: BridgeSessionFlow;
   private readonly statusTextRenderer: BridgeStatusText;
   private readonly commandRouter: BridgeCommandRouter;
@@ -232,6 +234,22 @@ export class Bridge {
       isRouteBusy: (routeKey) => this.routeQueue.isRouteBusy(routeKey),
       enqueuePromptFallback: (items) => this.routeQueue.enqueuePromptFallback(items),
     });
+    this.sideTasks = new BridgeSideTasks({
+      codex: this.codex,
+      state: this.state,
+      approvals: this.approvals,
+      turnScheduler: this.turnScheduler,
+      transcript: this.transcript,
+      delivery: this.delivery,
+      defaultWorkdir: () => this.sessionFlow.defaultWorkdir(),
+      currentSessionCwd: (routeKey) => {
+        const binding = this.state.getBinding(routeKey);
+        return binding ? this.state.getSession(binding.sessionId)?.session.cwd : undefined;
+      },
+      currentCollaborationMode: (routeKey) => this.routeCollaborationModes.get(routeKey),
+      deliveryPolicyFor: (message) => this.deliveryPolicyFor(message),
+      shouldDeliverProgressWithPolicy: (policy, routeKey, kind) => this.shouldDeliverProgressWithPolicy(policy, routeKey, kind),
+    });
     this.statusTextRenderer = new BridgeStatusText({
       backend: options.backend,
       channels: this.channels,
@@ -273,6 +291,7 @@ export class Bridge {
         },
         status: (message) => this.statusTextRenderer.statusText(message),
         usage: (message) => this.statusTextRenderer.usageText(message),
+        btw: (message, target, rawText) => this.sideTasks.start(message, target, rawText),
         dir: (message, target, args) => handleDirCommand({
           delivery: this.delivery,
           getDefaultWorkdir: () => this.sessionFlow.defaultWorkdir(),
@@ -390,6 +409,7 @@ export class Bridge {
 
   async stop(): Promise<void> {
     this.routeSteering.clearAll();
+    this.sideTasks.clearAll();
     this.pendingMedia.clearAll();
     this.progressDelivery.clearAll();
     this.stopBackgroundEvents?.();
@@ -619,9 +639,12 @@ export class Bridge {
   }
 
   async waitForIdle(): Promise<void> {
-    while (this.routeQueue.workerCount() > 0 || this.backgroundTurns.size > 0 || this.routeSteering.hasPendingWork()) {
+    while (this.routeQueue.workerCount() > 0 || this.backgroundTurns.size > 0 || this.routeSteering.hasPendingWork() || this.sideTasks.size > 0) {
       if (this.routeQueue.workerCount() > 0) {
         await this.routeQueue.waitForWorkers();
+      }
+      if (this.sideTasks.size > 0) {
+        await this.sideTasks.waitForIdle();
       }
       if (this.backgroundTurns.size > 0 || this.routeSteering.hasPendingWork()) {
         await sleep(10);
