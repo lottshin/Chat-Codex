@@ -145,6 +145,27 @@ export function pageNumberFromText(value: string): number | undefined {
   return Number.isSafeInteger(page) && page > 0 ? page : undefined;
 }
 
+export function recoverableSessionItems(items: SessionListItem[]): SessionListItem[] {
+  return items
+    .filter((item) => item.selectable)
+    .sort((left, right) => timestampValue(right.updatedAt) - timestampValue(left.updatedAt)
+      || left.id.localeCompare(right.id));
+}
+
+export function matchSessionListItems(items: SessionListItem[], query: string): SessionListItem[] {
+  const normalizedQuery = normalizeSessionQuery(query);
+  if (!normalizedQuery) return [];
+  const exactMatches = items.filter((item) => exactSessionIdentityMatch(item, normalizedQuery));
+  if (exactMatches.length > 0) return recoverableSessionItems(exactMatches);
+  return items
+    .map((item) => ({ item, score: sessionMatchScore(item, normalizedQuery) }))
+    .filter((match) => match.score > 0)
+    .sort((left, right) => right.score - left.score
+      || timestampValue(right.item.updatedAt) - timestampValue(left.item.updatedAt)
+      || left.item.id.localeCompare(right.item.id))
+    .map((match) => match.item);
+}
+
 export function sessionPageAction(value: string): "next" | "prev" | undefined {
   const normalized = value.trim().toLowerCase();
   if (normalized === "n" || normalized === "next" || normalized === "下一页") return "next";
@@ -180,6 +201,34 @@ function formatSessionUpdatedAt(updatedAt: string): string {
 
 function formatSessionTitle(title: string | undefined): string {
   return title ? truncateDisplayText(title, 60) : "无标题";
+}
+
+function normalizeSessionQuery(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function exactSessionIdentityMatch(item: SessionListItem, query: string): boolean {
+  return normalizeSessionQuery(item.id) === query
+    || normalizeSessionQuery(item.backendSessionId ?? "") === query;
+}
+
+function sessionMatchScore(item: SessionListItem, query: string): number {
+  const fields = [
+    { value: item.id, exactScore: 100, prefixScore: 80, substringScore: 60 },
+    { value: item.backendSessionId, exactScore: 100, prefixScore: 80, substringScore: 60 },
+    { value: item.title, exactScore: 70, prefixScore: 50, substringScore: 35 },
+    { value: item.cwd, exactScore: 65, prefixScore: 45, substringScore: 30 },
+  ];
+  let best = 0;
+  for (const field of fields) {
+    const value = normalizeSessionQuery(field.value ?? "");
+    if (!value) continue;
+    if (value === query) best = Math.max(best, field.exactScore);
+    else if (value.startsWith(query)) best = Math.max(best, field.prefixScore);
+    else if (value.includes(query)) best = Math.max(best, field.substringScore);
+    else if (query.split(" ").every((token) => value.includes(token))) best = Math.max(best, field.substringScore - 5);
+  }
+  return best;
 }
 
 function storedSessionListInput(stored: StoredSession): Omit<SessionListItem, "current" | "selectable" | "ownerRouteKey" | "unavailableReason" | "source"> & { backend?: CodexSessionSummary["backend"]; backendSessionId?: string } {

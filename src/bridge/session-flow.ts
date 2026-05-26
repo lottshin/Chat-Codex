@@ -24,8 +24,10 @@ import {
   SESSION_LIST_PAGE_SIZE,
   buildSessionList,
   formatSessionListPage,
+  matchSessionListItems,
   pageNumberFromText,
   paginateSessionList,
+  recoverableSessionItems,
   sessionListStateExpired,
   sessionPageAction,
 } from "./session-list.js";
@@ -187,32 +189,14 @@ export class BridgeSessionFlow {
   async resumeOrUseSession(
     message: ChannelMessage,
     target: ChannelTarget,
+    command: "resume" | "use",
     sessionRef: string | undefined,
   ): Promise<void> {
-    if (!sessionRef) {
-      await this.beginSessionSelection(message, target);
+    if (command === "resume") {
+      await this.handleResumeSession(message, target, sessionRef);
       return;
     }
-    const choiceIndex = pageNumberFromText(sessionRef);
-    if (choiceIndex !== undefined) {
-      const choices = await this.selectableSessionItemsForRoute(message.routeKey);
-      const choice = choices[choiceIndex - 1];
-      if (!choice) {
-        await this.beginSessionSelection(message, target, `没有第 ${choiceIndex} 项，请重新选择。`);
-        return;
-      }
-      const result = await this.bindSessionById(message, target, choice.id);
-      if (!result.ok) await this.delivery.sendText(target, result.message);
-      return;
-    }
-
-    const result = await this.bindSessionById(message, target, sessionRef);
-    if (result.ok) return;
-    if (result.reason === "owner_conflict") {
-      await this.delivery.sendText(target, result.message);
-      return;
-    }
-    await this.beginSessionSelection(message, target, `没有找到 session \`${sessionRef}\`，请从下面选择。`);
+    await this.handleUseSession(message, target, sessionRef);
   }
 
   async handleSessionSelectionReply(
@@ -290,6 +274,89 @@ export class BridgeSessionFlow {
     if (message.conversation.kind !== "direct") return;
     if (this.state.getBinding(message.routeKey)) return;
     this.pendingInitialRouteKey = message.routeKey;
+  }
+
+  private async handleUseSession(
+    message: ChannelMessage,
+    target: ChannelTarget,
+    sessionRef: string | undefined,
+  ): Promise<void> {
+    if (!sessionRef) {
+      await this.beginSessionSelection(message, target);
+      return;
+    }
+    const choiceIndex = pageNumberFromText(sessionRef);
+    if (choiceIndex !== undefined) {
+      const choices = await this.selectableSessionItemsForRoute(message.routeKey);
+      const choice = choices[choiceIndex - 1];
+      if (!choice) {
+        await this.beginSessionSelection(message, target, `没有第 ${choiceIndex} 项，请重新选择。`);
+        return;
+      }
+      const result = await this.bindSessionById(message, target, choice.id);
+      if (!result.ok) await this.delivery.sendText(target, result.message);
+      return;
+    }
+
+    const result = await this.bindSessionById(message, target, sessionRef);
+    if (result.ok) return;
+    if (result.reason === "owner_conflict") {
+      await this.delivery.sendText(target, result.message);
+      return;
+    }
+    await this.beginSessionSelection(message, target, `没有找到 session \`${sessionRef}\`，请从下面选择。`);
+  }
+
+  private async handleResumeSession(
+    message: ChannelMessage,
+    target: ChannelTarget,
+    query: string | undefined,
+  ): Promise<void> {
+    const allItems = await this.sessionItemsForRoute(message.routeKey);
+    const items = recoverableSessionItems(allItems);
+    if (!query) {
+      await this.beginResumeSelection(message, target, items);
+      return;
+    }
+    const choiceIndex = pageNumberFromText(query);
+    if (choiceIndex !== undefined) {
+      const choice = items[choiceIndex - 1];
+      if (!choice) {
+        await this.beginResumeSelection(message, target, items, `没有第 ${choiceIndex} 项，请重新选择。`);
+        return;
+      }
+      const result = await this.bindSessionById(message, target, choice.id);
+      if (!result.ok) await this.delivery.sendText(target, result.message);
+      return;
+    }
+    if (query.trim().toLowerCase() === "last") {
+      const choice = items.find((item) => !item.current) ?? items[0];
+      if (!choice) {
+        await this.beginResumeSelection(message, target, items);
+        return;
+      }
+      const result = await this.bindSessionById(message, target, choice.id);
+      if (!result.ok) await this.delivery.sendText(target, result.message);
+      return;
+    }
+    const exactItem = allItems.find((item) => item.id === query || item.backendSessionId === query);
+    if (exactItem) {
+      const result = await this.bindSessionById(message, target, exactItem.id);
+      if (!result.ok) await this.delivery.sendText(target, result.message);
+      return;
+    }
+
+    const matches = matchSessionListItems(items, query);
+    if (matches.length === 1) {
+      const result = await this.bindSessionById(message, target, matches[0].id);
+      if (!result.ok) await this.delivery.sendText(target, result.message);
+      return;
+    }
+    if (matches.length > 1) {
+      await this.beginResumeSelection(message, target, matches, `找到 ${matches.length} 个匹配的会话，请回复编号选择。`);
+      return;
+    }
+    await this.beginResumeSelection(message, target, items, `没有找到匹配 \`${query}\` 的可恢复会话，请从下面选择。`);
   }
 
   private async bindSessionById(
@@ -475,15 +542,59 @@ export class BridgeSessionFlow {
       ].filter(Boolean).join("\n"));
       return;
     }
-    const selection: SessionSelectionState = {
-      items: selectableItems,
+    this.beginSelection(message.routeKey, selectableItems, {
+      hiddenUnavailableCount,
+      intro,
+    });
+    await this.delivery.sendText(target, this.sessionSelectionText(this.selections.get(message.routeKey)!));
+  }
+
+  private async beginResumeSelection(
+    message: ChannelMessage,
+    target: ChannelTarget,
+    items: SessionListItem[],
+    intro?: string,
+  ): Promise<void> {
+    if (items.length === 0) {
+      this.selections.delete(message.routeKey);
+      await this.delivery.sendText(target, [
+        intro,
+        "没有可恢复的 Codex 会话。",
+        "可发送 /new 创建新会话。",
+      ].filter(Boolean).join("\n"));
+      return;
+    }
+    this.beginSelection(message.routeKey, items, {
+      title: "恢复最近会话",
+      scopeLabel: "最近可恢复",
+      emptyText: "没有可恢复的 Codex 会话。",
+      intro,
+    });
+    await this.delivery.sendText(target, this.sessionSelectionText(this.selections.get(message.routeKey)!));
+  }
+
+  private beginSelection(
+    routeKey: string,
+    items: SessionListItem[],
+    options: {
+      hiddenUnavailableCount?: number;
+      title?: string;
+      scopeLabel?: string;
+      emptyText?: string;
+      intro?: string;
+    } = {},
+  ): void {
+    this.selections.set(routeKey, {
+      items,
       page: 1,
       pageSize: SESSION_LIST_PAGE_SIZE,
       createdAt: Date.now(),
-      hiddenUnavailableCount,
-    };
-    this.selections.set(message.routeKey, selection);
-    await this.delivery.sendText(target, this.sessionSelectionText(selection, intro));
+      hiddenUnavailableCount: options.hiddenUnavailableCount,
+      title: options.title,
+      scopeLabel: options.scopeLabel,
+      emptyText: options.emptyText,
+      intro: options.intro,
+    });
   }
 
   private async selectableSessionItemsForRoute(routeKey: string): Promise<SessionListItem[]> {
@@ -496,16 +607,25 @@ export class BridgeSessionFlow {
     return items.filter((item) => item.selectable);
   }
 
+  private async sessionItemsForRoute(routeKey: string): Promise<SessionListItem[]> {
+    return buildSessionList({
+      state: this.state,
+      codex: this.codex,
+      routeKey,
+      scope: "selectable",
+    });
+  }
+
   private sessionSelectionText(selection: SessionSelectionState, intro?: string): string {
     const page = paginateSessionList(selection.items, "selectable", selection.page, selection.pageSize);
     selection.page = page.page;
     return formatSessionListPage(page, {
-      title: "切换 Codex 会话",
-      scopeLabel: "可切换会话",
-      emptyText: "没有可切换的 Codex 会话。",
+      title: selection.title ?? "切换 Codex 会话",
+      scopeLabel: selection.scopeLabel ?? "可切换会话",
+      emptyText: selection.emptyText ?? "没有可切换的 Codex 会话。",
       selectionMode: true,
       hiddenUnavailableCount: selection.hiddenUnavailableCount,
-      intro,
+      intro: intro ?? selection.intro,
     });
   }
 }

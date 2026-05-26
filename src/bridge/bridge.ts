@@ -300,9 +300,9 @@ export class Bridge {
         }, message, target, args),
         show: (message, args, commandName) => this.statusTextRenderer.showText(message, args, commandName),
         sessions: (message, args, commandName) => this.statusTextRenderer.sessionsText(message, args, commandName),
-        resumeOrUseSession: async (message, target, sessionRef) => {
+        resumeOrUseSession: async (message, target, command, sessionRef) => {
           this.planWorkflows.delete(message.routeKey);
-          await this.sessionFlow.resumeOrUseSession(message, target, sessionRef);
+          await this.sessionFlow.resumeOrUseSession(message, target, command, sessionRef);
         },
         cancel: (message, target) => handleCancelCommand({
           sessionFlow: this.sessionFlow,

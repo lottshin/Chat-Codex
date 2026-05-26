@@ -85,6 +85,9 @@ test("BridgeStatusText uses root help commands in Claude profile", () => {
   assert.match(text, /\/dir \[path\|set path\|create path\]/);
   assert.match(text, /后续新会话默认工作目录/);
   assert.match(text, /不会切换当前已绑定会话/);
+  assert.match(text, /\/resume \[last\|关键词\|编号\]/);
+  assert.match(text, /\/resume last/);
+  assert.match(text, /标题、工作目录、session id/);
   assert.match(text, /\/compact/);
   assert.match(text, /\/session/);
   assert.match(text, /\/all-sessions/);
@@ -147,6 +150,9 @@ test("BridgeStatusText shows common next steps in Codex profile help", () => {
   assert.match(text, /\/dir \[path\|set path\|create path\]/);
   assert.match(text, /后续新会话默认工作目录/);
   assert.match(text, /发送 `\/sessions` 查看列表，或发送 `\/use` 进入编号选择/);
+  assert.match(text, /\/resume \[last\|关键词\|编号\]/);
+  assert.match(text, /\/resume last/);
+  assert.match(text, /标题、工作目录、session id/);
   assert.match(text, /\/sendfile <任务内容>/);
   assert.match(text, /普通消息里的本地路径、Markdown 链接或 file:\/\/ 引用不会自动作为附件发送/);
   assert.match(text, /最终回复必须声明 `BRIDGE_SEND_FILE: \/absolute\/path\/to\/file`/);
