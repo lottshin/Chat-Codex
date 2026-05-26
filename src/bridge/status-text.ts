@@ -437,6 +437,14 @@ export class BridgeStatusText {
       { command: "/clear", description: "清空当前聊天上下文并创建新会话；需 `/clear confirm` 确认。" },
       { command: "/status", description: "查看状态、运行耗时、队列、审批和上下文 token 用量。" },
       { command: "/usage", description: "查看当前会话模型、上下文窗口/token 用量和基础队列状态。" },
+      {
+        command: "/btw <任务>",
+        description: "启动不打断当前主任务的后台旁路任务，完成后回报结果。",
+        details: [
+          "后台任务使用独立 side session，不会切换当前会话。",
+          "它不会共享当前正在执行 turn 的即时上下文；需要的背景请写进 `/btw` 内容。",
+        ],
+      },
       { command: "/show [status|usage|sessions|files|approvals|plan|whoami|debug]", description: "查看当前聊天上下文、用量、会话、文件、审批和计划信息。" },
       {
         command: "/context-refresh [off|detect|reload|inherit]",

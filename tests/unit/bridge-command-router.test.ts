@@ -42,6 +42,7 @@ test("BridgeCommandRouter treats known root commands as local in Claude profile"
   assert.equal(fixture.router.isBridgeCommand(message(), "ok"), true);
   assert.equal(fixture.router.isBridgeCommand(message(), "1"), true);
   assert.equal(fixture.router.isBridgeCommand(message(), "bridge-help"), true);
+  assert.equal(fixture.router.isBridgeCommand(message(), "bridge-btw"), true);
   assert.equal(fixture.router.isBridgeCommand(message(), "bridge-usage"), true);
   assert.equal(fixture.router.isBridgeCommand(message(), "bridge-dir"), true);
   assert.equal(fixture.router.isBridgeCommand(message(), "bridge-status"), true);
@@ -52,6 +53,7 @@ test("BridgeCommandRouter treats known root commands as local in Claude profile"
 
 test("BridgeCommandRouter classifies bridge-owned command names", () => {
   assert.equal(isBridgeCommandName("compact"), true);
+  assert.equal(isBridgeCommandName("btw"), true);
   assert.equal(isBridgeCommandName("usage"), true);
   assert.equal(isBridgeCommandName("dir"), true);
   assert.equal(isBridgeCommandName("show"), true);
@@ -91,6 +93,15 @@ test("BridgeCommandRouter rejects semantic mutations while route is busy", async
   assert.match(fixture.sent.at(-1) ?? "", /当前对话的 Codex 正在执行/);
   assert.match(fixture.sent.at(-1) ?? "", /下一步.*\/stop/);
   assert.equal(fixture.calls.model, 0);
+});
+
+test("BridgeCommandRouter routes btw command without busy rejection", async () => {
+  const fixture = routerFixture({ busy: true, backend: "claude", commandProfile: "claude" });
+  await fixture.router.handle(message(), target(), "btw", ["quick"], "/btw quick");
+  await fixture.router.handle(message(), target(), "bridge-btw", ["side"], "/bridge-btw side");
+
+  assert.equal(fixture.calls.btw, 2);
+  assert.deepEqual(fixture.btwCalls, ["/btw quick", "/bridge-btw side"]);
 });
 
 test("BridgeCommandRouter routes usage command without busy rejection", async () => {
@@ -346,6 +357,7 @@ function routerFixture(options: {
   const sent: string[] = [];
   const calls = {
     createNewSession: 0,
+    btw: 0,
     usage: 0,
     dir: 0,
     model: 0,
@@ -360,6 +372,7 @@ function routerFixture(options: {
     planWorkflow: 0,
   };
   let newSessionCall: { args: string[]; rawText: string } | undefined;
+  const btwCalls: string[] = [];
   const dirCalls: string[][] = [];
   let groupReceiveCall: { args: string[]; commandName: string } | undefined;
   let sendFileCall: { rawText: string; commandName: string } | undefined;
@@ -389,6 +402,10 @@ function routerFixture(options: {
     usage: async () => {
       calls.usage += 1;
       return "usage";
+    },
+    btw: async (_message, _target, rawText) => {
+      calls.btw += 1;
+      btwCalls.push(rawText);
     },
     status: async () => "status",
     show: async (_message, args, commandName) => `show:${commandName}:${args.join(",")}`,
@@ -443,6 +460,7 @@ function routerFixture(options: {
     get newSessionCall() {
       return newSessionCall;
     },
+    btwCalls,
     dirCalls,
     get groupReceiveCall() {
       return groupReceiveCall;
