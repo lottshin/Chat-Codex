@@ -287,6 +287,59 @@ test("FeishuAdapter converts card actions to command ChannelMessage", async () =
   assert.equal(senderId, "ou_user");
   assert.equal((await adapter.getStatus()).details?.phase, "card-action-received");
 });
+test("FeishuAdapter converts reply card actions to plain ChannelMessage text", async () => {
+  const factory = new FakeFeishuTransportFactory();
+  const adapter = new FeishuAdapter({ ...credentials, transportFactory: factory, now: () => 1_700_000_000_000 });
+  let receivedText = "";
+  let routeKey = "";
+  adapter.onMessage(async (message) => {
+    receivedText = message.text ?? "";
+    routeKey = message.routeKey;
+  });
+
+  await adapter.start();
+  await factory.dispatcher.emitCardAction({
+    app_id: credentials.appId,
+    event_id: "ev_reply_1",
+    open_message_id: "om_card_1",
+    open_id: "ou_user",
+    open_chat_id: "oc_direct",
+    action: { value: { action: "reply:2", routeKey: "feishu:work:group:oc_direct" } },
+  });
+
+  assert.equal(receivedText, "2");
+  assert.equal(routeKey, "feishu:work:group:oc_direct");
+});
+
+test("FeishuAdapter does not deduplicate distinct card actions from the same card", async () => {
+  const factory = new FakeFeishuTransportFactory();
+  const adapter = new FeishuAdapter({ ...credentials, transportFactory: factory, now: () => 1_700_000_000_000 });
+  const received: string[] = [];
+  adapter.onMessage(async (message) => {
+    received.push(message.text ?? "");
+  });
+
+  await adapter.start();
+  await factory.dispatcher.emitCardAction({
+    app_id: credentials.appId,
+    event_id: "ev_reply_1",
+    open_message_id: "om_same_card",
+    open_id: "ou_user",
+    open_chat_id: "oc_direct",
+    action: { value: { action: "reply:1", routeKey: "feishu:work:direct:oc_direct" } },
+  });
+  await factory.dispatcher.emitCardAction({
+    app_id: credentials.appId,
+    event_id: "ev_reply_2",
+    open_message_id: "om_same_card",
+    open_id: "ou_user",
+    open_chat_id: "oc_direct",
+    action: { value: { action: "reply:2", routeKey: "feishu:work:direct:oc_direct" } },
+  });
+
+  assert.deepEqual(received, ["1", "2"]);
+});
+
 test("FeishuAdapter emits ChannelMessage for p2p text events and deduplicates message_id", async () => {
   const factory = new FakeFeishuTransportFactory();
   const adapter = new FeishuAdapter({ ...credentials, transportFactory: factory });

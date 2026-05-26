@@ -7,7 +7,7 @@ export interface FeishuActionCard {
   elements: Array<FeishuCardMarkdownElement | FeishuCardActionElement>;
 }
 
-export interface FeishuCardCommandAction {
+export interface FeishuCardInboundAction {
   text: string;
   routeKey?: string;
 }
@@ -50,14 +50,22 @@ export function buildFeishuActionCard(message: ChannelActionMessage, target?: Ch
   };
 }
 
-export function feishuCardActionToCommand(rawAction: unknown): FeishuCardCommandAction | undefined {
+export function feishuCardActionToInboundText(rawAction: unknown): FeishuCardInboundAction | undefined {
   const value = objectField(rawAction, "value") ?? objectField(rawAction, "action") ?? (isObject(rawAction) ? rawAction : undefined);
   const action = stringField(value, "action");
-  if (!action?.startsWith("cmd:/")) return undefined;
-  return {
-    text: action.slice("cmd:".length),
-    routeKey: stringField(value, "routeKey"),
-  };
+  if (action?.startsWith("cmd:/")) {
+    return {
+      text: action.slice("cmd:".length),
+      routeKey: stringField(value, "routeKey"),
+    };
+  }
+  if (action?.startsWith("reply:")) {
+    return {
+      text: action.slice("reply:".length),
+      routeKey: stringField(value, "routeKey"),
+    };
+  }
+  return undefined;
 }
 
 function feishuButton(button: ChannelButton, target: ChannelTarget | undefined): FeishuCardButtonElement {

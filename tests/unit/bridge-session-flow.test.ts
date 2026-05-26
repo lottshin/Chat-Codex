@@ -7,7 +7,7 @@ import { MockCodexAdapter } from "../../src/codex/mock-codex-adapter.js";
 import { SilentLogger } from "../../src/logging/logger.js";
 import type { ChannelRegistry } from "../../src/channels/registry.js";
 import type { CodexSession, CodexSessionSummary, StartSessionInput } from "../../src/codex/types.js";
-import type { ChannelMessage, ChannelTarget } from "../../src/protocol/channel.js";
+import type { ChannelActionMessage, ChannelMessage, ChannelTarget } from "../../src/protocol/channel.js";
 import { MemoryStateStore } from "../../src/state/memory-state-store.js";
 
 test("BridgeSessionFlow creates new sessions in the startup cwd", async () => {
@@ -80,6 +80,60 @@ test("BridgeSessionFlow reports owner conflicts without rebinding", async () => 
   assert.equal(fixture.state.getBinding("route-a"), undefined);
   assert.match(fixture.sentTexts.at(-1) ?? "", /无法绑定 Codex 会话/);
   assert.match(fixture.sentTexts.at(-1) ?? "", /Owner: route-other/);
+});
+
+test("BridgeSessionFlow sends action message for use selection when buttons are available", async () => {
+  const fixture = sessionFlowFixture({ buttons: true });
+  await fixture.codex.startSession({ routeKey: "seed-1", cwd: "/seed/1", title: "seed 1" });
+  await fixture.codex.startSession({ routeKey: "seed-2", cwd: "/seed/2", title: "seed 2" });
+
+  await fixture.flow.resumeOrUseSession(message("route-a"), target("route-a"), "use", undefined);
+
+  assert.equal(fixture.actionMessages.length, 1);
+  assert.match(fixture.actionMessages[0].message.text, /\*\*切换 Codex 会话\*\*/);
+  assert.deepEqual(fixture.actionMessages[0].message.buttonGroups[0].map((button) => button.action), ["reply:1", "reply:2"]);
+  assert.ok(fixture.actionMessages[0].message.buttonGroups.at(-1)?.some((button) => button.action === "reply:取消"));
+  assert.equal(fixture.sentTexts.length, 0);
+});
+
+test("BridgeSessionFlow sends action message for resume selection when buttons are available", async () => {
+  const codex = new ListedCodexAdapter([
+    sessionSummary("resume-session", "恢复任务", "/repo/resume", "2026-01-01T00:00:00.000Z"),
+  ]);
+  const fixture = sessionFlowFixture({ codex, buttons: true });
+
+  await fixture.flow.resumeOrUseSession(message("route-a"), target("route-a"), "resume", undefined);
+
+  assert.equal(fixture.actionMessages.length, 1);
+  assert.match(fixture.actionMessages[0].message.text, /恢复最近会话/);
+  assert.deepEqual(fixture.actionMessages[0].message.buttonGroups[0].map((button) => button.action), ["reply:1"]);
+});
+
+test("BridgeSessionFlow falls back to text selection without buttons", async () => {
+  const fixture = sessionFlowFixture();
+  await fixture.codex.startSession({ routeKey: "seed", cwd: "/seed", title: "seed" });
+
+  await fixture.flow.resumeOrUseSession(message("route-a"), target("route-a"), "use", undefined);
+
+  assert.equal(fixture.actionMessages.length, 0);
+  assert.match(fixture.sentTexts.at(-1) ?? "", /\*\*切换 Codex 会话\*\*/);
+});
+
+test("BridgeSessionFlow sends action message when paginating selection", async () => {
+  const codex = new ListedCodexAdapter(Array.from({ length: 12 }, (_, index) => sessionSummary(
+    `session-${index + 1}`,
+    `任务 ${index + 1}`,
+    `/repo/${index + 1}`,
+    `2026-01-${String(index + 1).padStart(2, "0")}T00:00:00.000Z`,
+  )));
+  const fixture = sessionFlowFixture({ codex, buttons: true });
+
+  await fixture.flow.resumeOrUseSession(message("route-a"), target("route-a"), "use", undefined);
+  await fixture.flow.handleSessionSelectionReply(message("route-a"), target("route-a"), "n");
+
+  assert.equal(fixture.actionMessages.length, 2);
+  assert.ok(fixture.actionMessages[0].message.buttonGroups.at(-1)?.some((button) => button.action === "reply:n"));
+  assert.ok(fixture.actionMessages[1].message.buttonGroups.at(-1)?.some((button) => button.action === "reply:p"));
 });
 
 test("BridgeSessionFlow shows next steps while selecting a session", async () => {
@@ -221,15 +275,22 @@ function sessionFlowFixture(options: {
   cwd?: string;
   codex?: MockCodexAdapter;
   initialRouteBinding?: { type: "existing"; sessionId: string } | { type: "new" };
+  buttons?: boolean;
 } = {}) {
   const codex = options.codex ?? new MockCodexAdapter();
   const state = new MemoryStateStore();
   const sentTexts: string[] = [];
+  const actionMessages: Array<{ target: ChannelTarget; message: ChannelActionMessage }> = [];
   const delivery = new BridgeDelivery({
     channels: {
+      getCapabilities: () => ({ buttons: options.buttons ?? false }),
       sendText: async (_target: ChannelTarget, text: string) => {
         sentTexts.push(text);
         return { channelId: "mock", messageId: `m-${sentTexts.length}`, deliveredAt: new Date().toISOString() };
+      },
+      sendActionMessage: async (target: ChannelTarget, message: ChannelActionMessage) => {
+        actionMessages.push({ target, message });
+        return { channelId: "mock", messageId: `a-${actionMessages.length}`, deliveredAt: new Date().toISOString() };
       },
     } as unknown as ChannelRegistry,
     approvals: new ApprovalManager(),
@@ -250,7 +311,7 @@ function sessionFlowFixture(options: {
     applyRouteCollaborationModeToSession: () => undefined,
     syncRouteCollaborationModeFromSession: () => "default",
   });
-  return { codex, state, flow, sentTexts };
+  return { codex, state, flow, sentTexts, actionMessages };
 }
 
 class FailingTitleCodexAdapter extends MockCodexAdapter {

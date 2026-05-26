@@ -21,7 +21,7 @@ import type {
 } from "../../protocol/channel.js";
 import type { ChannelDeliveryPolicy } from "../../protocol/delivery-policy.js";
 import { DEFAULT_CHANNEL_DELIVERY_POLICY } from "../../protocol/delivery-policy.js";
-import { buildFeishuActionCard, feishuCardActionToCommand } from "./feishu-card.js";
+import { buildFeishuActionCard, feishuCardActionToInboundText } from "./feishu-card.js";
 import {
   DEFAULT_FEISHU_ACCOUNT_ID,
   DEFAULT_FEISHU_DOMAIN,
@@ -367,8 +367,8 @@ export class FeishuAdapter implements ChannelAdapter {
   }
 
   private async handleCardActionEvent(event: FeishuCardActionEvent): Promise<void> {
-    const command = feishuCardActionToCommand(event.action ?? event.value);
-    if (!command) {
+    const inbound = feishuCardActionToInboundText(event.action ?? event.value);
+    if (!inbound) {
       this.status = {
         ...this.status,
         details: {
@@ -390,8 +390,8 @@ export class FeishuAdapter implements ChannelAdapter {
       };
       return;
     }
-    const messageId = event.open_message_id ?? event.message_id ?? event.event_id ?? `card-action-${this.now()}`;
-    const routeKey = command.routeKey ?? `${this.id}:${this.credentials.accountId ?? DEFAULT_FEISHU_ACCOUNT_ID}:direct:${chatId}`;
+    const messageId = event.event_id ?? event.open_message_id ?? event.message_id ?? `card-action-${this.now()}`;
+    const routeKey = inbound.routeKey ?? `${this.id}:${this.credentials.accountId ?? DEFAULT_FEISHU_ACCOUNT_ID}:direct:${chatId}`;
     const timestamp = new Date(this.now()).toISOString();
     const message: ChannelMessage = {
       id: messageId,
@@ -400,7 +400,7 @@ export class FeishuAdapter implements ChannelAdapter {
       accountId: this.credentials.accountId ?? DEFAULT_FEISHU_ACCOUNT_ID,
       sender: { id: senderId },
       conversation: { id: chatId, kind: routeKey.includes(":group:") ? "group" : "direct", displayName: routeKey.includes(":group:") ? "飞书群聊" : "飞书私聊" },
-      text: command.text,
+      text: inbound.text,
       timestamp,
       raw: event,
     };
