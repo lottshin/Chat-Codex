@@ -1,10 +1,13 @@
 import { Bridge } from "../../bridge/bridge.js";
+import { BridgeDelivery } from "../../bridge/delivery.js";
 import { APPROVAL_SEND_RETRY_DELAY_MS } from "../../bridge/bridge-types.js";
 import { ApprovalManager } from "../../approvals/approval-manager.js";
 import { LimitedTurnScheduler } from "../../bridge/turn-scheduler.js";
 import { ChannelRegistry } from "../../channels/registry.js";
+import { ClaudeApprovalService } from "../../claude/approval-service.js";
 import { createClaudeApprovalRuntime } from "../../claude/approval-runtime.js";
 import { ClaudeExecAdapter } from "../../claude/claude-exec-adapter.js";
+import { ClaudeSdkAdapter } from "../../claude/claude-sdk-adapter.js";
 import { AppServerCodexAdapter } from "../../codex/app-server-codex-adapter.js";
 import { ExecCodexAdapter } from "../../codex/exec-codex-adapter.js";
 import type { CodexAdapter } from "../../codex/types.js";
@@ -36,7 +39,7 @@ export async function startServeBridge(
   const logger = runtimeLogs ? new RuntimeTuiLogger(runtimeLogs) : new ConsoleLogger(false);
   const registry = new ChannelRegistry({ channels: adapters, logger });
   const approvals = new ApprovalManager();
-  const claudeRuntime = (startup.backend ?? "codex") === "claude"
+  const claudeRuntime = (startup.backend ?? "codex") === "claude" && startup.claudeAdapterMode !== "sdk"
     ? await createClaudeApprovalRuntime({
         channels: registry,
         approvals,
@@ -46,7 +49,19 @@ export async function startServeBridge(
         claudeCommand: startup.claudeStatus?.command,
       })
     : undefined;
-  const codex = claudeRuntime?.adapter ?? createRealCodexAdapter(startup);
+  const sdkApprovalService = (startup.backend ?? "codex") === "claude" && startup.claudeAdapterMode === "sdk"
+    ? new ClaudeApprovalService({
+        approvals,
+        delivery: new BridgeDelivery({
+          channels: registry,
+          approvals,
+          logger,
+          approvalSendRetryDelayMs: APPROVAL_SEND_RETRY_DELAY_MS,
+        }),
+        logger,
+      })
+    : undefined;
+  const codex = claudeRuntime?.adapter ?? createRealCodexAdapter(startup, sdkApprovalService);
   const contextRefresh = startup.contextRefresh ?? channelActions.configStore.getContextRefreshDefaults();
   startup.contextRefresh = contextRefresh;
   const bridge = new Bridge({
@@ -107,11 +122,12 @@ export async function startServeBridge(
   }
 }
 
-export function createRealCodexAdapter(startup: PreparedServeStartup): CodexAdapter {
+export function createRealCodexAdapter(startup: PreparedServeStartup, sdkApprovalService?: ClaudeApprovalService): CodexAdapter {
   if ((startup.backend ?? "codex") === "claude") {
     if (startup.claudeStatus && !startup.claudeStatus.available) {
       throw new Error(`Claude Code 不可用: ${startup.claudeStatus.error ?? "unknown error"}`);
     }
+    if (startup.claudeAdapterMode === "sdk") return new ClaudeSdkAdapter({ runPolicy: startup.policy, approvalService: sdkApprovalService });
     return new ClaudeExecAdapter({ runPolicy: startup.policy, claudeCommand: startup.claudeStatus?.command });
   }
   if (startup.codexStatus && !startup.codexStatus.available) {

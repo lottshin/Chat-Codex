@@ -56,6 +56,7 @@ async function prepareClaudeServeStartup(
   rl?: Interface,
   display: { quiet?: boolean; allowUnavailableCodex?: boolean } = {},
 ): Promise<PreparedServeStartup> {
+  const claudeAdapterMode = options.claudeAdapter ?? parseClaudeAdapterMode(process.env.CHAT_CLAUDE_ADAPTER) ?? "exec";
   const status = await checkClaudeCli();
   if (!status.available && !display.allowUnavailableCodex) {
     throw new Error(`Claude Code 不可用: ${status.error ?? "unknown error"}`);
@@ -83,10 +84,18 @@ async function prepareClaudeServeStartup(
     commandProfile: options.commandProfile ?? "claude",
     policy,
     cwd,
+    claudeAdapterMode,
     claudeStatus: status,
     progressMode: options.progressMode,
     maxConcurrentTurns: options.maxConcurrentTurns,
   };
+}
+
+function parseClaudeAdapterMode(value: string | undefined): "exec" | "sdk" | undefined {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized) return undefined;
+  if (normalized === "exec" || normalized === "sdk") return normalized;
+  throw new Error("CHAT_CLAUDE_ADAPTER 只能是 exec 或 sdk");
 }
 
 export function createInitialChannelPlan(_status: ChannelStatus, options: ServeStartupOptions): ServeChannelPlan {

@@ -9,6 +9,8 @@ import { WeixinAdapter, type WeixinLoginStartResult } from "../../channels/weixi
 import { FileWeixinAccountStore } from "../../channels/weixin/weixin-account-store.js";
 import { formatCodexSessionTitleForDisplay, findCodexSessionById, type CodexRunPolicy } from "../../codex/codex-cli.js";
 import { AppServerCodexAdapter } from "../../codex/app-server-codex-adapter.js";
+import { ClaudeExecAdapter } from "../../claude/claude-exec-adapter.js";
+import { ClaudeSdkAdapter } from "../../claude/claude-sdk-adapter.js";
 import { ExecCodexAdapter } from "../../codex/exec-codex-adapter.js";
 import type { CodexAdapter } from "../../codex/types.js";
 import { checkNewSessionWorkdir, resolveNewSessionWorkdir } from "../../codex/workdir.js";
@@ -652,10 +654,17 @@ export class LauncherActions {
   }
 
   private createRealCodexAdapter(): CodexAdapter {
+    const runPolicy = this.startup.policy;
+    if ((this.startup.backend ?? "codex") === "claude") {
+      if (this.startup.claudeStatus && !this.startup.claudeStatus.available) {
+        throw new Error(`Claude Code 不可用: ${this.startup.claudeStatus.error ?? "unknown error"}`);
+      }
+      if (this.startup.claudeAdapterMode === "sdk") return new ClaudeSdkAdapter({ runPolicy });
+      return new ClaudeExecAdapter({ runPolicy, claudeCommand: this.startup.claudeStatus?.command });
+    }
     if (this.startup.codexStatus && !this.startup.codexStatus.available) {
       throw new Error(`Codex 不可用: ${this.startup.codexStatus.error ?? "unknown error"}`);
     }
-    const runPolicy = this.startup.policy;
     if (this.startup.adapterMode === "exec") return new ExecCodexAdapter({ runPolicy, codexCommand: this.startup.codexStatus?.command });
     return new AppServerCodexAdapter({ runPolicy, codexCommand: this.startup.codexStatus?.command });
   }
