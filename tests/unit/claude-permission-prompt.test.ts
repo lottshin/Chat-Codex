@@ -95,6 +95,22 @@ test("normalizeClaudePermissionPrompt maps unknown MCP tools to permission appro
   assert.equal(result.approval.raw, payload);
 });
 
+test("normalizeClaudePermissionPrompt enables session approval when SDK suggestions are present", () => {
+  const suggestions = [{ type: "addRules", behavior: "allow", destination: "session", rules: [{ toolName: "Read", ruleContent: "package.json" }] }];
+  const payload = {
+    tool_name: "Read",
+    tool_use_id: "toolu-4",
+    input: { file_path: "package.json" },
+    suggestions,
+  };
+
+  const result = normalizeClaudePermissionPrompt(payload, context);
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.deepEqual(result.approval.availableDecisions, ["approve", "approve-session", "deny"]);
+  assert.deepEqual(result.approval.permissionSuggestions, suggestions);
+});
 test("normalizeClaudePermissionPrompt fails closed for malformed payloads", () => {
   for (const payload of [
     null,

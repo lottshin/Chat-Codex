@@ -13,6 +13,7 @@ export interface ApprovalRequest {
   reason?: string;
   risk?: "low" | "medium" | "high" | "unknown";
   availableDecisions?: ApprovalDecision[];
+  permissionSuggestions?: unknown[];
   raw?: unknown;
 }
 
