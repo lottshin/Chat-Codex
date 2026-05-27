@@ -1,6 +1,6 @@
 import type { ApprovalDecision, ApprovalRequest, PendingApproval } from "./types.js";
 import { approvalChoices, formatApprovalChoiceSummaryLine } from "./choices.js";
-import { formatApprovalKindForUser } from "../bridge/formatters.js";
+import { formatApprovalKindForUser, formatPermissionSuggestionsForUser } from "../bridge/formatters.js";
 
 export interface ApprovalManagerOptions {
   ttlMs?: number | null;
@@ -140,6 +140,7 @@ export class ApprovalManager {
     if (pending.command) lines.push("待执行命令:", pending.command);
     if (pending.reason) lines.push(`原因: ${pending.reason}`);
     if (pending.risk) lines.push(`风险: ${pending.risk}`);
+    lines.push(...formatPermissionSuggestionsForUser(pending.permissionSuggestions));
     lines.push(
       "",
       "**请选择处理方式**",

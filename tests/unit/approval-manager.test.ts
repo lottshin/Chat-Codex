@@ -31,6 +31,27 @@ test("ApprovalManager creates and resolves approvals", () => {
   assert.equal(resolved.decision, "approve");
 });
 
+test("ApprovalManager renders permission suggestions for session approval", () => {
+  const manager = new ApprovalManager();
+  const pending = manager.create("mock:default:direct:user", "user", {
+    kind: "permissions",
+    sessionId: "s1",
+    turnId: "t1",
+    itemId: "i1",
+    command: "Read: package.json",
+    availableDecisions: ["approve", "approve-session", "deny"],
+    permissionSuggestions: [{ type: "addRules", behavior: "allow", destination: "session", rules: [{ toolName: "Read", ruleContent: "package.json" }] }],
+  });
+
+  const text = manager.formatForChannel(pending);
+
+  assert.match(text, /SDK 权限建议:/);
+  assert.match(text, /addRules allow -> session: Read\(package\.json\)/);
+  assert.match(text, /`\/OK` 或 `\/1`：通过当前审批/);
+  assert.match(text, /`\/P` 或 `\/2`：本会话通过/);
+  assert.match(text, /`\/NO` 或 `\/3`：拒绝当前审批/);
+});
+
 test("ApprovalManager renders dynamic approval choices", () => {
   const manager = new ApprovalManager();
   const pending = manager.create("mock:default:direct:user", "user", {

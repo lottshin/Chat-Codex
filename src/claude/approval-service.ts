@@ -3,6 +3,7 @@ import type { PendingApproval } from "../approvals/types.js";
 import type { BridgeDelivery } from "../bridge/delivery.js";
 import type { Logger } from "../logging/logger.js";
 import type { ChannelTarget } from "../protocol/channel.js";
+import type { ClaudeSdkPermissionUpdate } from "./claude-sdk-client.js";
 import { normalizeClaudePermissionPrompt, type ClaudePermissionPromptContext } from "./permission-prompt.js";
 
 export interface ClaudeApprovalContext extends ClaudePermissionPromptContext {
@@ -19,7 +20,7 @@ export interface ClaudeApprovalServiceOptions {
 }
 
 export type ClaudePermissionPromptResult =
-  | { behavior: "allow" }
+  | { behavior: "allow"; updatedPermissions?: ClaudeSdkPermissionUpdate[] }
   | { behavior: "deny"; message: string };
 
 export class ClaudeApprovalService {
@@ -60,13 +61,20 @@ export class ClaudeApprovalService {
 }
 
 function resultForApproval(approval: PendingApproval): ClaudePermissionPromptResult {
-  if (approval.status === "resolved" && (approval.decision === "approve" || approval.decision === "approve-session")) {
+  if (approval.status === "resolved" && approval.decision === "approve") {
     return { behavior: "allow" };
+  }
+  if (approval.status === "resolved" && approval.decision === "approve-session") {
+    return isClaudeSdkPermissionUpdates(approval.permissionSuggestions) ? { behavior: "allow", updatedPermissions: approval.permissionSuggestions } : { behavior: "allow" };
   }
   if (approval.status === "resolved" && approval.decision === "deny") {
     return deny("远程审批已拒绝。");
   }
   return deny("审批取消或超时，已拒绝。");
+}
+
+function isClaudeSdkPermissionUpdates(value: unknown[] | undefined): value is ClaudeSdkPermissionUpdate[] {
+  return Array.isArray(value);
 }
 
 function deny(message: string): ClaudePermissionPromptResult {

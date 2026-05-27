@@ -10,7 +10,8 @@ export type ClaudePermissionPromptNormalizationResult =
   | { ok: true; approval: ApprovalRequest }
   | { ok: false; reason: "missing_context" | "malformed_payload" };
 
-const AVAILABLE_DECISIONS = ["approve", "deny"] as const;
+const CURRENT_DECISIONS = ["approve", "deny"] as const;
+const SESSION_DECISIONS = ["approve", "approve-session", "deny"] as const;
 
 export function normalizeClaudePermissionPrompt(
   payload: unknown,
@@ -32,6 +33,7 @@ export function normalizeClaudePermissionPrompt(
   const adapterApprovalId = firstString(prompt.tool_use_id, prompt.toolUseId, prompt.id, prompt.requestId, prompt.callId);
   const command = commandForTool(toolName, kind, input);
   const reason = firstString(prompt.reason, prompt.description, input.reason, input.description);
+  const permissionSuggestions = arrayValue(prompt.suggestions);
   return {
     ok: true,
     approval: {
@@ -44,7 +46,8 @@ export function normalizeClaudePermissionPrompt(
       cwd,
       ...(reason ? { reason } : {}),
       ...(kind === "command" && command && riskyCommand(command) ? { risk: "high" } : {}),
-      availableDecisions: [...AVAILABLE_DECISIONS],
+      availableDecisions: permissionSuggestions ? [...SESSION_DECISIONS] : [...CURRENT_DECISIONS],
+      ...(permissionSuggestions ? { permissionSuggestions } : {}),
       raw: payload,
     },
   };
@@ -87,6 +90,10 @@ function firstString(...values: unknown[]): string | undefined {
 
 function objectValue(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+}
+
+function arrayValue(value: unknown): unknown[] | undefined {
+  return Array.isArray(value) && value.length > 0 ? value : undefined;
 }
 
 function stringValue(value: unknown): string | undefined {

@@ -605,6 +605,7 @@ export function formatPendingApprovalStatus(approval: PendingApproval | undefine
     approval.cwd ? `- 工作目录: \`${approval.cwd}\`` : undefined,
     approval.reason ? `- 原因: ${approval.reason}` : undefined,
     approval.command ? "```shell\n" + approval.command + "\n```" : undefined,
+    ...formatPermissionSuggestionsForUser(approval.permissionSuggestions),
     "快捷回复：",
     ...approvalChoices(approval).map((choice) => `\`\`\`text\n${choice.command} 或 ${choice.numeric}\n\`\`\``),
     ...approvalChoices(approval).map(formatApprovalChoiceSummaryLine),
@@ -621,6 +622,41 @@ export function formatApprovalKindForUser(kind: string): string {
     case "legacy_patch": return "旧版补丁审批";
     default: return kind;
   }
+}
+
+export function formatPermissionSuggestionsForUser(suggestions: unknown[] | undefined): string[] {
+  if (!suggestions?.length) return [];
+  return [
+    "SDK 权限建议:",
+    ...suggestions.slice(0, 5).map((suggestion) => `- ${formatPermissionSuggestionForUser(suggestion)}`),
+    ...(suggestions.length > 5 ? [`- 另有 ${suggestions.length - 5} 条建议未显示`] : []),
+  ];
+}
+
+function formatPermissionSuggestionForUser(suggestion: unknown): string {
+  if (!suggestion || typeof suggestion !== "object") return "未知建议";
+  const record = suggestion as Record<string, unknown>;
+  const type = typeof record.type === "string" ? record.type : "update";
+  const destination = typeof record.destination === "string" ? record.destination : "unknown";
+  if (type === "setMode" && typeof record.mode === "string") return `setMode ${record.mode} -> ${destination}`;
+  if ((type === "addDirectories" || type === "removeDirectories") && Array.isArray(record.directories)) {
+    return `${type} -> ${destination}: ${record.directories.filter((item): item is string => typeof item === "string").join(", ")}`;
+  }
+  if ((type === "addRules" || type === "replaceRules" || type === "removeRules") && Array.isArray(record.rules)) {
+    const behavior = typeof record.behavior === "string" ? record.behavior : "unknown";
+    const rules = record.rules.map(formatPermissionRuleForUser).filter(Boolean).join(", ");
+    return `${type} ${behavior} -> ${destination}${rules ? `: ${rules}` : ""}`;
+  }
+  return `${type} -> ${destination}`;
+}
+
+function formatPermissionRuleForUser(rule: unknown): string {
+  if (!rule || typeof rule !== "object") return "";
+  const record = rule as Record<string, unknown>;
+  const toolName = typeof record.toolName === "string" ? record.toolName : undefined;
+  const ruleContent = typeof record.ruleContent === "string" ? record.ruleContent : undefined;
+  if (!toolName) return "";
+  return ruleContent ? `${toolName}(${ruleContent})` : toolName;
 }
 
 export function sleep(ms: number): Promise<void> {

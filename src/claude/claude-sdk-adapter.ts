@@ -19,7 +19,7 @@ import type {
 } from "../codex/types.js";
 import type { CodexRunPolicy, ClaudePermissionMode } from "../codex/codex-cli.js";
 import { codexInputPlainText } from "../codex/input.js";
-import { createClaudeSdkClient, type ClaudeSdkClient, type ClaudeSdkMessage, type ClaudeSdkOptions, type ClaudeSdkQuery, type ClaudeSdkSessionInfo } from "./claude-sdk-client.js";
+import { createClaudeSdkClient, type ClaudeSdkClient, type ClaudeSdkMessage, type ClaudeSdkOptions, type ClaudeSdkPermissionUpdate, type ClaudeSdkQuery, type ClaudeSdkSessionInfo } from "./claude-sdk-client.js";
 import { type ClaudeApprovalContext, type ClaudeApprovalService, type ClaudePermissionPromptResult } from "./approval-service.js";
 
 export interface ClaudeSdkAdapterOptions {
@@ -382,8 +382,10 @@ function mergeDiscoveredSessionSummaries(localSessions: CodexSessionSummary[], d
   return [...localSessions, ...discoveredSummaries];
 }
 
-function permissionResultForSdk(result: ClaudePermissionPromptResult | undefined, toolUseID: string): { behavior: "allow"; toolUseID: string } | { behavior: "deny"; message: string; interrupt?: boolean; toolUseID: string } {
-  if (result?.behavior === "allow") return { behavior: "allow", toolUseID };
+function permissionResultForSdk(result: ClaudePermissionPromptResult | undefined, toolUseID: string): { behavior: "allow"; toolUseID: string; updatedPermissions?: ClaudeSdkPermissionUpdate[] } | { behavior: "deny"; message: string; interrupt?: boolean; toolUseID: string } {
+  if (result?.behavior === "allow") {
+    return result.updatedPermissions ? { behavior: "allow", toolUseID, updatedPermissions: result.updatedPermissions } : { behavior: "allow", toolUseID };
+  }
   return { behavior: "deny", message: result?.message ?? "缺少远程审批上下文，已拒绝。", interrupt: true, toolUseID };
 }
 
