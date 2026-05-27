@@ -19,7 +19,7 @@ import type {
 } from "../codex/types.js";
 import type { CodexRunPolicy, ClaudePermissionMode } from "../codex/codex-cli.js";
 import { codexInputPlainText } from "../codex/input.js";
-import { createClaudeSdkClient, type ClaudeSdkClient, type ClaudeSdkMessage, type ClaudeSdkOptions, type ClaudeSdkQuery } from "./claude-sdk-client.js";
+import { createClaudeSdkClient, type ClaudeSdkClient, type ClaudeSdkMessage, type ClaudeSdkOptions, type ClaudeSdkQuery, type ClaudeSdkSessionInfo } from "./claude-sdk-client.js";
 import { type ClaudeApprovalContext, type ClaudeApprovalService, type ClaudePermissionPromptResult } from "./approval-service.js";
 
 export interface ClaudeSdkAdapterOptions {
@@ -202,18 +202,16 @@ export class ClaudeSdkAdapter implements CodexAdapter {
   }
 
   async listSessions(routeKey?: string): Promise<CodexSessionSummary[]> {
-    return [...this.sessions.values()]
+    const localSessions = [...this.sessions.values()]
       .filter((record) => routeKey ? record.routeKey === routeKey : true)
-      .map((record) => ({
-        id: record.session.id,
-        routeKey: record.routeKey,
-        title: record.session.title,
-        cwd: record.session.cwd,
-        status: record.status,
-        updatedAt: record.updatedAt,
-        backend: "claude",
-        backendSessionId: record.actualSessionId ?? record.session.backendSessionId,
-      }));
+      .map((record) => sessionSummaryForRecord(record));
+    if (routeKey || !this.client.listSessions) return localSessions;
+    try {
+      const discovered = await this.client.listSessions({ limit: 100 });
+      return mergeDiscoveredSessionSummaries(localSessions, discovered);
+    } catch {
+      return localSessions;
+    }
   }
 
   getRunPolicy(sessionId?: string): CodexRunPolicy {
@@ -352,6 +350,36 @@ interface MappedSdkMessage {
   actualSessionId?: string;
   text?: string;
   events: CodexEvent[];
+}
+
+function sessionSummaryForRecord(record: ClaudeSdkSessionRecord): CodexSessionSummary {
+  return {
+    id: record.session.id,
+    routeKey: record.routeKey,
+    title: record.session.title,
+    cwd: record.session.cwd,
+    status: record.status,
+    updatedAt: record.updatedAt,
+    backend: "claude",
+    backendSessionId: record.actualSessionId ?? record.session.backendSessionId,
+  };
+}
+
+function mergeDiscoveredSessionSummaries(localSessions: CodexSessionSummary[], discovered: ClaudeSdkSessionInfo[]): CodexSessionSummary[] {
+  const knownBackendIds = new Set(localSessions.flatMap((session) => session.backendSessionId ? [session.backendSessionId] : []));
+  const knownIds = new Set(localSessions.map((session) => session.id));
+  const discoveredSummaries = discovered
+    .filter((session) => session.sessionId && !knownIds.has(session.sessionId) && !knownBackendIds.has(session.sessionId))
+    .map((session) => ({
+      id: session.sessionId,
+      title: session.customTitle ?? session.summary ?? session.firstPrompt,
+      cwd: session.cwd,
+      status: { type: "idle" } as const,
+      updatedAt: new Date(session.lastModified).toISOString(),
+      backend: "claude" as const,
+      backendSessionId: session.sessionId,
+    }));
+  return [...localSessions, ...discoveredSummaries];
 }
 
 function permissionResultForSdk(result: ClaudePermissionPromptResult | undefined, toolUseID: string): { behavior: "allow"; toolUseID: string } | { behavior: "deny"; message: string; interrupt?: boolean; toolUseID: string } {
