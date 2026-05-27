@@ -227,6 +227,33 @@ test("BridgeSessionFlow shows recent resume list for missing keyword", async () 
   assert.match(text, /known-session/);
 });
 
+test("BridgeSessionFlow resumes Claude sessions by backend session id", async () => {
+  const codex = new ListedCodexAdapter([
+    {
+      ...sessionSummary("claude-local-1", "Claude task", "/repo/claude", "2026-01-01T00:00:00.000Z"),
+      backend: "claude",
+      backendSessionId: "claude-actual-123",
+    },
+  ]);
+  const fixture = sessionFlowFixture({ codex, backend: "claude" });
+
+  await fixture.flow.resumeOrUseSession(message("route-a"), target("route-a"), "resume", "claude-actual-123");
+
+  assert.equal(fixture.state.getBinding("route-a")?.sessionId, "claude-local-1");
+  assert.equal(fixture.state.getSession("claude-local-1")?.backendSessionId, "claude-actual-123");
+  assert.match(fixture.sentTexts.at(-1) ?? "", /claude-local-1/);
+});
+
+test("BridgeSessionFlow resumes unknown Claude UUIDs directly", async () => {
+  const codex = new AssumedClaudeSessionAdapter([]);
+  const fixture = sessionFlowFixture({ codex, backend: "claude" });
+
+  await fixture.flow.resumeOrUseSession(message("route-a"), target("route-a"), "resume", "faa4ddd8-f906-4999-9b5d-9f3e715b25ae");
+
+  assert.equal(fixture.state.getBinding("route-a")?.sessionId, "faa4ddd8-f906-4999-9b5d-9f3e715b25ae");
+  assert.equal(fixture.state.getSession("faa4ddd8-f906-4999-9b5d-9f3e715b25ae")?.backendSessionId, "faa4ddd8-f906-4999-9b5d-9f3e715b25ae");
+});
+
 test("BridgeSessionFlow preserves resume exact-id owner conflict", async () => {
   const codex = new ListedCodexAdapter([
     sessionSummary("owned-session", "已占用", "/repo/owned", "2026-01-01T00:00:00.000Z"),
@@ -274,6 +301,7 @@ test("BridgeSessionFlow keeps initial existing binding scoped to the first direc
 function sessionFlowFixture(options: {
   cwd?: string;
   codex?: MockCodexAdapter;
+  backend?: "codex" | "claude";
   initialRouteBinding?: { type: "existing"; sessionId: string } | { type: "new" };
   buttons?: boolean;
 } = {}) {
@@ -300,6 +328,7 @@ function sessionFlowFixture(options: {
   const flow = new BridgeSessionFlow({
     codex,
     state,
+    backend: options.backend,
     delivery,
     cwd: options.cwd ?? "/workspace",
     initialRouteBinding: options.initialRouteBinding,
@@ -353,6 +382,23 @@ class ListedCodexAdapter extends MockCodexAdapter {
 
   override async listSessions(routeKey?: string): Promise<CodexSessionSummary[]> {
     return this.summaries.filter((session) => routeKey ? session.routeKey === routeKey : true);
+  }
+}
+
+class AssumedClaudeSessionAdapter extends ListedCodexAdapter {
+  override async resumeSession(sessionId: string): Promise<CodexSession> {
+    try {
+      return await super.resumeSession(sessionId);
+    } catch {
+      return {
+        id: sessionId,
+        cwd: "/workspace",
+        createdAt: new Date().toISOString(),
+        title: `claude-sdk:${sessionId}`,
+        backend: "claude",
+        backendSessionId: sessionId,
+      };
+    }
   }
 }
 

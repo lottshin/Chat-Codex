@@ -286,6 +286,7 @@ export class BridgeRouteQueue {
                 if (!updated) await this.delivery.sendText(target, errorText);
               }
             }
+            await this.syncBackendSessionId(session.id, message.routeKey, session.backend);
           } finally {
             await approvalContextRegistration?.dispose();
           }
@@ -332,5 +333,12 @@ export class BridgeRouteQueue {
         this.abortControllers.delete(message.routeKey);
       }
     }
+  }
+
+  private async syncBackendSessionId(sessionId: string, routeKey: string, backend: AiBackend | undefined): Promise<void> {
+    if (backend !== "claude") return;
+    const sessions = await this.codex.listSessions(routeKey).catch(() => []);
+    const backendSessionId = sessions.find((session) => session.id === sessionId)?.backendSessionId;
+    if (backendSessionId) this.state.setSessionBackendSessionId(sessionId, backend, backendSessionId);
   }
 }

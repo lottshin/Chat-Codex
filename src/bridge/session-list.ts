@@ -60,7 +60,7 @@ export async function buildSessionList(options: BuildSessionListOptions): Promis
     items.set(sessionListKey(input.id, input.backend), {
       id: input.id,
       backend: input.backend,
-      backendSessionId: input.backendSessionId,
+      backendSessionId: input.backendSessionId ?? existing?.backendSessionId,
       title: existing?.title ?? input.title,
       cwd: existing?.cwd ?? input.cwd,
       status: existing?.status ?? input.status ?? { type: "unknown" },

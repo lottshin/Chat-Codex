@@ -117,6 +117,33 @@ test("ClaudeSdkAdapter maps SDK messages to Codex events and captures session id
   assert.equal((await adapter.listSessions())[0]?.backendSessionId, "sdk-session-1");
 });
 
+test("ClaudeSdkAdapter uses captured backend session id for later turns", async () => {
+  const client = new FakeClaudeSdkClient();
+  client.messages = [{ type: "system", subtype: "init", session_id: "actual-session" }];
+  const adapter = new ClaudeSdkAdapter({ client });
+  const session = await adapter.startSession({ routeKey: "route-1", cwd: process.cwd() });
+
+  await collect(adapter.run(session.id, "first"));
+  client.messages = [{ type: "result", subtype: "success", session_id: "actual-session", result: "ok" }];
+  await collect(adapter.run(session.id, "second"));
+
+  assert.equal(client.calls[0]?.options?.resume, undefined);
+  assert.equal(client.calls[1]?.options?.resume, "actual-session");
+  assert.equal((await adapter.listSessions())[0]?.id, session.id);
+  assert.equal((await adapter.listSessions())[0]?.backendSessionId, "actual-session");
+});
+
+test("ClaudeSdkAdapter captures backend session id from result without init", async () => {
+  const client = new FakeClaudeSdkClient();
+  client.messages = [{ type: "result", subtype: "success", session_id: "result-session", result: "ok" }];
+  const adapter = new ClaudeSdkAdapter({ client });
+  const session = await adapter.startSession({ routeKey: "route-1", cwd: process.cwd() });
+
+  await collect(adapter.run(session.id, "hi"));
+
+  assert.equal((await adapter.listSessions())[0]?.backendSessionId, "result-session");
+});
+
 test("ClaudeSdkAdapter passes resume, model, effort, and permission options", async () => {
   const client = new FakeClaudeSdkClient();
   client.messages = [{ type: "result", subtype: "success", session_id: "actual-session", result: "ok" }];
