@@ -1,12 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { ClaudeSdkAdapter } from "../../src/claude/claude-sdk-adapter.js";
-import type { ClaudeSdkClient, ClaudeSdkOptions, ClaudeSdkQuery } from "../../src/claude/claude-sdk-client.js";
+import type { ClaudeSdkClient, ClaudeSdkOptions, ClaudeSdkQuery, ClaudeSdkSessionInfo } from "../../src/claude/claude-sdk-client.js";
 
 class FakeClaudeSdkClient implements ClaudeSdkClient {
   readonly calls: Array<{ prompt: string; options?: ClaudeSdkOptions }> = [];
+  readonly listSessionCalls: unknown[] = [];
   messages: unknown[] = [];
+  sessions: ClaudeSdkSessionInfo[] = [];
   error?: Error;
+  listSessionsError?: Error;
   queryRef?: FakeClaudeSdkQuery;
 
   query(params: { prompt: string; options?: ClaudeSdkOptions }): ClaudeSdkQuery {
@@ -14,6 +17,12 @@ class FakeClaudeSdkClient implements ClaudeSdkClient {
     const query = new FakeClaudeSdkQuery(this.messages, this.error, params.options);
     this.queryRef = query;
     return query as unknown as ClaudeSdkQuery;
+  }
+
+  async listSessions(options?: unknown): Promise<ClaudeSdkSessionInfo[]> {
+    this.listSessionCalls.push(options);
+    if (this.listSessionsError) throw this.listSessionsError;
+    return this.sessions;
   }
 }
 
@@ -160,6 +169,80 @@ test("ClaudeSdkAdapter passes resume, model, effort, and permission options", as
   assert.equal(client.calls[0]?.options?.permissionMode, "plan");
 });
 
+test("ClaudeSdkAdapter lists SDK-discovered sessions", async () => {
+  const client = new FakeClaudeSdkClient();
+  client.sessions = [sdkSession("sdk-session-1", { summary: "Discovered task", cwd: "/repo/sdk", lastModified: Date.UTC(2026, 0, 2) })];
+  const adapter = new ClaudeSdkAdapter({ client });
+
+  const sessions = await adapter.listSessions();
+
+  assert.equal(client.listSessionCalls.length, 1);
+  assert.equal(sessions.length, 1);
+  assert.equal(sessions[0]?.id, "sdk-session-1");
+  assert.equal(sessions[0]?.backend, "claude");
+  assert.equal(sessions[0]?.backendSessionId, "sdk-session-1");
+  assert.equal(sessions[0]?.title, "Discovered task");
+  assert.equal(sessions[0]?.cwd, "/repo/sdk");
+  assert.equal(sessions[0]?.updatedAt, new Date(Date.UTC(2026, 0, 2)).toISOString());
+});
+
+test("ClaudeSdkAdapter keeps local sessions and deduplicates discovered backend ids", async () => {
+  const client = new FakeClaudeSdkClient();
+  client.messages = [{ type: "system", subtype: "init", session_id: "actual-session" }];
+  client.sessions = [
+    sdkSession("actual-session", { summary: "Duplicate discovered" }),
+    sdkSession("other-session", { summary: "Other discovered" }),
+  ];
+  const adapter = new ClaudeSdkAdapter({ client });
+  const session = await adapter.startSession({ routeKey: "route-1", cwd: process.cwd(), title: "Local task" });
+  await collect(adapter.run(session.id, "hi"));
+
+  const sessions = await adapter.listSessions();
+
+  assert.equal(sessions.length, 2);
+  assert.equal(sessions[0]?.id, session.id);
+  assert.equal(sessions[0]?.backendSessionId, "actual-session");
+  assert.equal(sessions[1]?.id, "other-session");
+  assert.equal(sessions[1]?.backendSessionId, "other-session");
+});
+
+test("ClaudeSdkAdapter returns local sessions when SDK discovery fails", async () => {
+  const client = new FakeClaudeSdkClient();
+  client.listSessionsError = new Error("discovery failed");
+  const adapter = new ClaudeSdkAdapter({ client });
+  const session = await adapter.startSession({ routeKey: "route-1", cwd: process.cwd(), title: "Local task" });
+
+  const sessions = await adapter.listSessions();
+
+  assert.equal(sessions.length, 1);
+  assert.equal(sessions[0]?.id, session.id);
+  assert.equal(sessions[0]?.title, "Local task");
+});
+
+test("ClaudeSdkAdapter does not query SDK discovery for route-filtered lists", async () => {
+  const client = new FakeClaudeSdkClient();
+  client.sessions = [sdkSession("sdk-session-1")];
+  const adapter = new ClaudeSdkAdapter({ client });
+  await adapter.startSession({ routeKey: "route-1", cwd: process.cwd() });
+
+  const sessions = await adapter.listSessions("route-1");
+
+  assert.equal(client.listSessionCalls.length, 0);
+  assert.equal(sessions.length, 1);
+  assert.equal(sessions[0]?.routeKey, "route-1");
+});
+
+test("ClaudeSdkAdapter resumes SDK-discovered sessions by backend id", async () => {
+  const client = new FakeClaudeSdkClient();
+  client.messages = [{ type: "result", subtype: "success", session_id: "discovered-session", result: "ok" }];
+  const adapter = new ClaudeSdkAdapter({ client });
+  await adapter.resumeSession("discovered-session");
+
+  await collect(adapter.run("discovered-session", "hi"));
+
+  assert.equal(client.calls[0]?.options?.resume, "discovered-session");
+  assert.equal((await adapter.listSessions()).find((session) => session.id === "discovered-session")?.backendSessionId, "discovered-session");
+});
 test("ClaudeSdkAdapter maps SDK errors to failed turns", async () => {
   const client = new FakeClaudeSdkClient();
   client.error = new Error("boom");
@@ -276,6 +359,15 @@ test("ClaudeSdkAdapter omits approval bridge in full permission mode", async () 
   assert.equal(client.calls[0]?.options?.canUseTool, undefined);
   assert.equal(approvalService.requests.length, 0);
 });
+
+function sdkSession(sessionId: string, overrides: Partial<ClaudeSdkSessionInfo> = {}): ClaudeSdkSessionInfo {
+  return {
+    sessionId,
+    summary: "SDK task",
+    lastModified: Date.UTC(2026, 0, 1),
+    ...overrides,
+  };
+}
 
 function isCanUseToolProbe(value: unknown): value is {
   type: "canUseTool";
