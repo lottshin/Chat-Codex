@@ -150,11 +150,7 @@ export class ClaudeSdkAdapter implements CodexAdapter {
       running.query = query;
       for await (const message of query) {
         const mapped = mapSdkMessage(message, sessionId, turnId);
-        if (mapped.actualSessionId) {
-          stored.actualSessionId = mapped.actualSessionId;
-          stored.session.backendSessionId = mapped.actualSessionId;
-          stored.updatedAt = new Date().toISOString();
-        }
+        if (mapped.actualSessionId) this.recordActualSessionId(stored, mapped.actualSessionId);
         if (mapped.text) completedText = mapped.text;
         for (const event of mapped.events) {
           if (event.type === "assistant.completed") completed = true;
@@ -343,6 +339,12 @@ export class ClaudeSdkAdapter implements CodexAdapter {
     const contexts = [...this.approvalContexts.values()].filter((context) => context.sessionId === sessionId);
     if (contexts.length === 1) return contexts[0];
     return undefined;
+  }
+
+  private recordActualSessionId(stored: ClaudeSdkSessionRecord, actualSessionId: string): void {
+    stored.actualSessionId = actualSessionId;
+    stored.session.backendSessionId = actualSessionId;
+    stored.updatedAt = new Date().toISOString();
   }
 }
 

@@ -356,6 +356,11 @@ export class BridgeSessionFlow {
       await this.beginResumeSelection(message, target, matches, `找到 ${matches.length} 个匹配的会话，请回复编号选择。`);
       return;
     }
+    if (this.backend === "claude" && isLikelyClaudeSessionId(query)) {
+      const result = await this.bindSessionById(message, target, query);
+      if (!result.ok) await this.delivery.sendText(target, result.message);
+      return;
+    }
     await this.beginResumeSelection(message, target, items, `没有找到匹配 \`${query}\` 的可恢复会话，请从下面选择。`);
   }
 
@@ -657,4 +662,8 @@ export class BridgeSessionFlow {
 
 function backendSessionIdForPending(binding: { type: "existing"; sessionId: string } | { type: "new" } | { type: "existing"; sessionId: string; backendSessionId?: string }): string | undefined {
   return binding.type === "existing" && "backendSessionId" in binding ? binding.backendSessionId : undefined;
+}
+
+function isLikelyClaudeSessionId(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value.trim());
 }

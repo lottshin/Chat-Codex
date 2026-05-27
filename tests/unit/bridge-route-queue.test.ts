@@ -98,6 +98,18 @@ test("BridgeRouteQueue stops prompt when external update reload fails", async ()
   assert.ok(fixture.sentTexts.some((text) => text.includes("本条消息没有发送")));
 });
 
+test("BridgeRouteQueue syncs Claude backend session id after a turn", async () => {
+  const codex = new BackendSessionCodexAdapter();
+  const fixture = routeQueueFixture({ codex });
+
+  await fixture.queue.enqueuePrompt(message("route-a", "你好"), target("route-a"), "你好");
+  await fixture.queue.waitForWorkers();
+
+  const sessionId = codex.runs[0]?.sessionId;
+  assert.equal(fixture.state.getSession(sessionId)?.backendSessionId, "claude-actual-123");
+  assert.equal(fixture.state.getBinding("route-a")?.backendSessionId, "claude-actual-123");
+});
+
 test("BridgeRouteQueue registers and cleans up run approval context", async () => {
   const codex = new ContextTrackingCodexAdapter();
   const fixture = routeQueueFixture({ codex });
@@ -200,6 +212,26 @@ function routeQueueFixture(options: { codex?: MockCodexAdapter; state?: MemorySt
       currentFingerprint = fingerprint;
     },
   };
+}
+
+class BackendSessionCodexAdapter extends MockCodexAdapter {
+  override async startSession(input: Parameters<MockCodexAdapter["startSession"]>[0]) {
+    const session = await super.startSession(input);
+    return { ...session, backend: "claude" as const };
+  }
+
+  override async *run(sessionId: string, prompt: CodexPromptInput): AsyncIterable<CodexEvent> {
+    const promptText = codexInputPlainText(prompt);
+    this.runs.push({ sessionId, prompt: promptText });
+    yield { type: "turn.started", sessionId, turnId: "backend-turn-1" };
+    yield { type: "assistant.completed", sessionId, turnId: "backend-turn-1", text: "ok" };
+    yield { type: "turn.completed", sessionId, turnId: "backend-turn-1" };
+  }
+
+  override async listSessions(routeKey?: string) {
+    const sessions = await super.listSessions(routeKey);
+    return sessions.map((session) => ({ ...session, backend: "claude" as const, backendSessionId: "claude-actual-123" }));
+  }
 }
 
 class BlockingCodexAdapter extends MockCodexAdapter {

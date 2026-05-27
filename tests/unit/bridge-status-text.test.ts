@@ -208,6 +208,49 @@ test("BridgeStatusText shows backend labels in sessions list", async () => {
   assert.match(text, /`\/use <session>`/);
 });
 
+test("BridgeStatusText keeps local Claude session id when adapter summary omits it", async () => {
+  const state = new MemoryStateStore();
+  state.bindSession(routeKey(), {
+    id: "claude-local-1",
+    cwd: "/tmp/project",
+    createdAt: new Date().toISOString(),
+    title: "claude chat",
+    backend: "claude",
+    backendSessionId: "claude-actual-123",
+  });
+
+  const text = await new BridgeStatusText({
+    backend: "claude",
+    commandProfile: "claude",
+    channels: fakeChannels(),
+    codex: fakeCodex({ type: "idle" }, [{
+      id: "claude-local-1",
+      cwd: "/tmp/project",
+      title: "claude chat",
+      status: { type: "idle" },
+      updatedAt: new Date().toISOString(),
+      backend: "claude",
+    }]),
+    state,
+    approvals: new ApprovalManager(),
+    routeQueueLength: () => 0,
+    deliveryPolicyFor: () => DEFAULT_CHANNEL_DELIVERY_POLICY,
+    shouldConsumePendingInitialRouteBinding: () => false,
+    pendingInitialRouteBinding: () => undefined,
+    isRouteBusy: () => false,
+    routeSteerPendingCount: () => 0,
+    pendingMediaCount: () => 0,
+    compactStateForRoute: () => ({ type: "none" }),
+    collaborationModeForRoute: () => "default",
+    progressModeFor: () => "brief",
+    contextRefreshFor: () => ({ policy: { mode: "off" }, source: "route" }),
+    runPolicyStatus: () => undefined,
+    planWorkflowForRoute: () => undefined,
+  }).sessionsText(message(), [], "sessions");
+
+  assert.match(text, /Claude session: `claude-actual-123`/);
+});
+
 test("BridgeStatusText shows actionable next step for idle bound sessions", async () => {
   const state = new MemoryStateStore();
   state.bindSession(routeKey(), {
