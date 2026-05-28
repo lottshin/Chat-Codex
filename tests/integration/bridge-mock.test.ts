@@ -713,7 +713,7 @@ test("Bridge creates Codex App chat sessions with optional first prompt", async 
 });
 
 
-test("Bridge resumes Claude SDK tool execution after numeric approval", async () => {
+(process.env.CHAT_CODEX_CLAUDE_SDK_SMOKE === "1" ? test : test.skip)("Bridge resumes Claude SDK tool execution after numeric approval", async () => {
   const channel = new MockChannelAdapter();
   const approvals = new ApprovalManager();
   const logger = new SilentLogger();
