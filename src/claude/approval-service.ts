@@ -61,11 +61,10 @@ export class ClaudeApprovalService {
 }
 
 function resultForApproval(approval: PendingApproval): ClaudePermissionPromptResult {
-  if (approval.status === "resolved" && approval.decision === "approve") {
+  if (approval.status === "resolved" && (approval.decision === "approve" || approval.decision === "approve-session")) {
+    const selectedOption = approval.approvalOptions?.find((option) => option.id === approval.selectedOptionId);
+    if (isClaudeSdkPermissionUpdates(selectedOption?.updatedPermissions)) return { behavior: "allow", updatedPermissions: selectedOption.updatedPermissions };
     return { behavior: "allow" };
-  }
-  if (approval.status === "resolved" && approval.decision === "approve-session") {
-    return isClaudeSdkPermissionUpdates(approval.permissionSuggestions) ? { behavior: "allow", updatedPermissions: approval.permissionSuggestions } : { behavior: "allow" };
   }
   if (approval.status === "resolved" && approval.decision === "deny") {
     return deny("远程审批已拒绝。");

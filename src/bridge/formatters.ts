@@ -607,7 +607,7 @@ export function formatPendingApprovalStatus(approval: PendingApproval | undefine
     approval.command ? "```shell\n" + approval.command + "\n```" : undefined,
     ...formatPermissionSuggestionsForUser(approval.permissionSuggestions),
     "快捷回复：",
-    ...approvalChoices(approval).map((choice) => `\`\`\`text\n${choice.command} 或 ${choice.numeric}\n\`\`\``),
+    ...approvalChoices(approval).map((choice) => `\`\`\`text\n${[choice.command, choice.numeric].filter(Boolean).join(" 或 ")}\n\`\`\``),
     ...approvalChoices(approval).map(formatApprovalChoiceSummaryLine),
   ];
 }

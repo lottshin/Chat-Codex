@@ -4,7 +4,7 @@ import path from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { ApprovalManager } from "../../src/approvals/approval-manager.js";
-import { BridgeDelivery } from "../../src/bridge/delivery.js";
+import { approvalActionMessage, BridgeDelivery } from "../../src/bridge/delivery.js";
 import { BRIDGE_SEND_FILE_PREFIX } from "../../src/bridge/media-extractor.js";
 import { SilentLogger } from "../../src/logging/logger.js";
 import type { ChannelRegistry } from "../../src/channels/registry.js";
@@ -25,9 +25,33 @@ test("BridgeDelivery suppresses progress briefly after a progress send failure",
   assert.deepEqual(fixture.sentTexts, []);
 });
 
+test("approvalActionMessage renders buttons from pending approval choices", () => {
+  const message = approvalActionMessage("approval", {
+    approvalKey: "a001",
+    routeKey: "route",
+    requestedBy: "user",
+    requestedAt: new Date().toISOString(),
+    status: "pending",
+    kind: "permissions",
+    sessionId: "s1",
+    turnId: "t1",
+    itemId: "i1",
+    approvalOptions: [
+      { id: "current", decision: "approve", label: "允许本次", description: "通过当前审批" },
+      { id: "remember", decision: "approve-session", label: "记住规则", description: "允许此命令后续不再询问", updatedPermissions: [{ type: "addRules" }] },
+      { id: "accept-edits", decision: "approve-session", label: "Accept edits", description: "切换到 Accept edits", updatedPermissions: [{ type: "setMode", mode: "acceptEdits" }] },
+      { id: "deny", decision: "deny", label: "拒绝", description: "拒绝当前审批" },
+    ],
+  });
+
+  assert.deepEqual(message.buttonGroups.map((group) => group.map((button) => button.action)), [["cmd:/1 a001", "cmd:/2 a001", "cmd:/3 a001"], ["cmd:/4 a001"]]);
+  assert.deepEqual(message.buttonGroups.flat().map((button) => button.text), ["允许本次", "记住规则", "Accept edits", "拒绝"]);
+  assert.deepEqual(message.buttonGroups.flat().map((button) => button.style), ["primary", "default", "default", "danger"]);
+});
+
 test("BridgeDelivery sends action messages when buttons are supported", async () => {
   const fixture = deliveryFixture({ buttons: true, actionMessages: true });
-  const result = await fixture.delivery.deliverActionMessage(target(), approvalActionMessage(), "fallback /OK /P /NO");
+  const result = await fixture.delivery.deliverActionMessage(target(), staticActionMessage(), "fallback /OK /P /NO");
 
   assert.equal(result.messageId, "action-1");
   assert.equal(fixture.sentActionMessages.length, 1);
@@ -37,7 +61,7 @@ test("BridgeDelivery sends action messages when buttons are supported", async ()
 
 test("BridgeDelivery falls back to text when buttons are unsupported", async () => {
   const fixture = deliveryFixture({ buttons: false, actionMessages: true });
-  const result = await fixture.delivery.deliverActionMessage(target(), approvalActionMessage(), "fallback /OK /P /NO");
+  const result = await fixture.delivery.deliverActionMessage(target(), staticActionMessage(), "fallback /OK /P /NO");
 
   assert.equal(result.messageId, "text-1");
   assert.deepEqual(fixture.sentActionMessages, []);
@@ -46,7 +70,7 @@ test("BridgeDelivery falls back to text when buttons are unsupported", async () 
 
 test("BridgeDelivery falls back to text when adapter lacks action message support", async () => {
   const fixture = deliveryFixture({ buttons: true, actionMessages: false });
-  await fixture.delivery.deliverActionMessage(target(), approvalActionMessage(), "fallback /OK /P /NO");
+  await fixture.delivery.deliverActionMessage(target(), staticActionMessage(), "fallback /OK /P /NO");
 
   assert.deepEqual(fixture.sentActionMessages, []);
   assert.deepEqual(fixture.sentTexts, ["fallback /OK /P /NO"]);
@@ -149,7 +173,7 @@ function deliveryFixture(options: { failText?: boolean; media?: boolean; typing?
   };
 }
 
-function approvalActionMessage(): ChannelActionMessage {
+function staticActionMessage(): ChannelActionMessage {
   return {
     text: "approval",
     buttonGroups: [[

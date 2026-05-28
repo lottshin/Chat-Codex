@@ -1,7 +1,7 @@
 import type { AiBackend } from "../backend/metadata.js";
 import type { ApprovalDecision, ApprovalRequest } from "../approvals/types.js";
 import type { ChannelTarget } from "../protocol/channel.js";
-import type { CodexRunPolicy, CodexRunPolicyStatus } from "./codex-cli.js";
+import type { CodexRunPolicy, CodexRunPolicyStatus, ClaudePermissionMode } from "./codex-cli.js";
 import type { CodexPromptInput } from "./input.js";
 
 export type { CodexRunPolicy, CodexRunPolicyStatus } from "./codex-cli.js";
@@ -21,6 +21,7 @@ export type CodexCollaborationMode = typeof CODEX_COLLABORATION_MODES[number];
 
 export interface CodexRunOptions {
   collaborationMode?: CodexCollaborationMode;
+  claudePermissionMode?: ClaudePermissionMode;
 }
 
 export const CODEX_GOAL_STATUSES = ["active", "paused", "budgetLimited", "complete"] as const;

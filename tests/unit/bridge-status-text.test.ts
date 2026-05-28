@@ -106,7 +106,7 @@ test("BridgeStatusText uses root help commands in Claude profile", () => {
   assert.match(text, /`\/permission full confirm`: 高风险完全权限/);
   assert.match(text, /`\/permission bypassPermissions confirm`: Claude Code 高风险模式/);
   assert.doesNotMatch(text, /`\/bridge-permission full confirm`/);
-  assert.match(text, /\/plan-accept-edits/);
+  assert.match(text, /\/plan-edit/);
   assert.match(text, /\/plan-execute/);
   assert.match(text, /别名：`\/1`/);
   assert.doesNotMatch(text, /\/bridge-1/);
@@ -114,7 +114,7 @@ test("BridgeStatusText uses root help commands in Claude profile", () => {
   assert.match(text, /\*\*常用下一步\*\*/);
   assert.match(text, /发送 `\/status`/);
   assert.match(text, /发送 `\/sessions` 查看列表，或发送 `\/use` 进入编号选择/);
-  assert.match(text, /`\/OK`、`\/P`、`\/NO`/);
+  assert.match(text, /审批提示中列出的命令或数字选项/);
 });
 
 test("BridgeStatusText shows common next steps in Codex profile help", () => {
@@ -327,10 +327,9 @@ test("BridgeStatusText shows actionable next step for pending plan workflows", a
 
   assert.match(text, /\*\*待处理计划\*\*/);
   assert.match(text, /下一步：请处理待处理计划/);
-  assert.match(text, /`\/1`/);
-  assert.match(text, /`\/2` 按当前权限执行/);
-  assert.match(text, /\/plan-edit 或 \/2 按当前权限策略执行这个计划/);
-  assert.match(text, /\/permission acceptEdits/);
+  assert.match(text, /`\/1` 用 auto mode 执行/);
+  assert.match(text, /`\/2` 手动审批编辑/);
+  assert.match(text, /\/plan-edit 或 \/2 接受计划并手动审批编辑/);
   assert.doesNotMatch(text, /\/2` 修改/);
   assert.doesNotMatch(text, /切到 Claude acceptEdits 语义/);
   assert.match(text, /`\/3`/);
@@ -362,9 +361,9 @@ test("BridgeStatusText shows pending plan guidance by command profile", async ()
 
   const text = await statusText({ state, commandProfile: "claude", planWorkflow: workflow });
 
-  assert.match(text, /\/plan-execute 或 \/1/);
-  assert.match(text, /\/plan-edit 或 \/2/);
-  assert.match(text, /\/permission acceptEdits/);
+  assert.match(text, /\/plan-execute 或 \/1 接受计划并使用 auto mode 执行/);
+  assert.match(text, /\/plan-edit 或 \/2 接受计划并手动审批编辑/);
+  assert.match(text, /告诉 Claude 要修改什么/);
   assert.match(text, /\/replan <补充> 或 \/3 <补充>/);
   assert.match(text, /\/plan-cancel 或 \/4/);
   assert.doesNotMatch(text, /\/bridge-plan-execute/);

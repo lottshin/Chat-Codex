@@ -2,6 +2,14 @@ export type ApprovalKind = "command" | "file_change" | "permissions" | "network"
 
 export type ApprovalDecision = "approve" | "approve-session" | "deny" | "cancel";
 
+export interface ApprovalOption {
+  id: string;
+  decision: Exclude<ApprovalDecision, "cancel">;
+  label: string;
+  description?: string;
+  updatedPermissions?: unknown[];
+}
+
 export interface ApprovalRequest {
   kind: ApprovalKind;
   adapterApprovalId?: string;
@@ -14,6 +22,7 @@ export interface ApprovalRequest {
   risk?: "low" | "medium" | "high" | "unknown";
   availableDecisions?: ApprovalDecision[];
   permissionSuggestions?: unknown[];
+  approvalOptions?: ApprovalOption[];
   raw?: unknown;
 }
 
@@ -25,5 +34,6 @@ export interface PendingApproval extends ApprovalRequest {
   expiresAt?: string;
   status: "pending" | "resolved" | "expired";
   decision?: ApprovalDecision;
+  selectedOptionId?: string;
   decisionReason?: string;
 }

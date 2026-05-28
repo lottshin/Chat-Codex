@@ -41,12 +41,11 @@ export function formatPlanWorkflowChoices(_commandProfile: CommandNamespaceProfi
   const planEdit = "/plan-edit";
   const replan = "/replan";
   const planCancel = "/plan-cancel";
-  const permission = "/permission";
   return [
-    "Chat-Codex 计划快捷回复（不是 Claude 原生 TUI 选项）：",
-    `${planExecute} 或 /1 执行这个计划，继续按当前权限/审批策略处理工具请求`,
-    `${planEdit} 或 /2 按当前权限策略执行这个计划；如需 Claude acceptEdits，请先发送 ${permission} acceptEdits 明确切换`,
-    `${replan} <补充> 或 /3 <补充> 继续规划/修改计划，不执行代码修改`,
+    "Claude Code 计划快捷回复：",
+    `${planExecute} 或 /1 接受计划并使用 auto mode 执行`,
+    `${planEdit} 或 /2 接受计划并手动审批编辑`,
+    `${replan} <补充> 或 /3 <补充> 告诉 Claude 要修改什么，不执行代码修改`,
     `${planCancel} 或 /4 取消这个待处理计划`,
   ].join("\n");
 }
@@ -55,9 +54,9 @@ export function formatPlanWorkflowActionMessage(commandProfile: CommandNamespace
   return {
     text: formatPlanWorkflowChoices(commandProfile),
     buttonGroups: [[
-      { text: "执行", action: "cmd:/plan-execute", style: "primary" },
-      { text: "按当前权限执行", action: "cmd:/plan-edit", style: "default" },
-      { text: "重新规划", action: "cmd:/replan", style: "default" },
+      { text: "使用 auto mode", action: "cmd:/plan-execute", style: "primary" },
+      { text: "手动审批编辑", action: "cmd:/plan-edit", style: "default" },
+      { text: "修改计划", action: "cmd:/replan", style: "default" },
       { text: "取消", action: "cmd:/plan-cancel", style: "danger" },
     ]],
   };

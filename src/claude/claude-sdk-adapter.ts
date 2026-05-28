@@ -287,7 +287,7 @@ export class ClaudeSdkAdapter implements CodexAdapter {
   private buildQueryOptions(stored: ClaudeSdkSessionRecord, abortController: AbortController, options: CodexRunOptions): ClaudeSdkOptions {
     const runPolicy = this.runPolicyForSession(stored.session.id);
     const collaborationMode = options.collaborationMode ?? this.collaborationModeForSession(stored.session.id);
-    const permissionMode = claudeSdkPermissionModeForPolicy(runPolicy, collaborationMode);
+    const permissionMode = options.claudePermissionMode ?? claudeSdkPermissionModeForPolicy(runPolicy, collaborationMode);
     const modelPolicy = this.modelPolicyForSession(stored.session.id);
     const queryOptions: ClaudeSdkOptions = {
       cwd: stored.session.cwd,
@@ -301,6 +301,7 @@ export class ClaudeSdkAdapter implements CodexAdapter {
     };
     if (this.approvalService && permissionMode !== "bypassPermissions" && permissionMode !== "plan") {
       queryOptions.canUseTool = async (toolName, input, permissionOptions) => {
+
         const result = await this.approvalService?.requestPermission({
           tool_name: toolName,
           toolName,
@@ -315,7 +316,7 @@ export class ClaudeSdkAdapter implements CodexAdapter {
           decisionReason: permissionOptions.decisionReason,
           suggestions: permissionOptions.suggestions,
         }, this.approvalContextFor(stored.session.id));
-        return permissionResultForSdk(result, permissionOptions.toolUseID);
+        return permissionResultForSdk(result, permissionOptions.toolUseID, input);
       };
     }
     return queryOptions;
@@ -382,9 +383,10 @@ function mergeDiscoveredSessionSummaries(localSessions: CodexSessionSummary[], d
   return [...localSessions, ...discoveredSummaries];
 }
 
-function permissionResultForSdk(result: ClaudePermissionPromptResult | undefined, toolUseID: string): { behavior: "allow"; toolUseID: string; updatedPermissions?: ClaudeSdkPermissionUpdate[] } | { behavior: "deny"; message: string; interrupt?: boolean; toolUseID: string } {
+
+function permissionResultForSdk(result: ClaudePermissionPromptResult | undefined, toolUseID: string, input: Record<string, unknown>): { behavior: "allow"; updatedInput: Record<string, unknown>; updatedPermissions?: ClaudeSdkPermissionUpdate[] } | { behavior: "deny"; message: string; interrupt?: boolean; toolUseID: string } {
   if (result?.behavior === "allow") {
-    return result.updatedPermissions ? { behavior: "allow", toolUseID, updatedPermissions: result.updatedPermissions } : { behavior: "allow", toolUseID };
+    return result.updatedPermissions ? { behavior: "allow", updatedInput: input, updatedPermissions: result.updatedPermissions } : { behavior: "allow", updatedInput: input };
   }
   return { behavior: "deny", message: result?.message ?? "缺少远程审批上下文，已拒绝。", interrupt: true, toolUseID };
 }
@@ -393,8 +395,10 @@ function mapSdkMessage(message: ClaudeSdkMessage, sessionId: string, turnId: str
   const record = message as Record<string, unknown>;
   const actualSessionId = typeof record.session_id === "string" ? record.session_id : undefined;
   if (record.type === "assistant") {
+    const plan = assistantPlan(record.message);
     const text = assistantText(record.message);
     const tool = assistantToolName(record.message);
+    if (plan) return { actualSessionId, text: plan, events: [{ type: "assistant.plan", sessionId, turnId, text: plan }] };
     if (text) return { actualSessionId, text, events: [{ type: "assistant.delta", sessionId, turnId, text }] };
     if (tool) return { actualSessionId, events: [{ type: "assistant.progress", sessionId, turnId, text: `正在调用工具: ${tool}`, kind: progressKindForTool(tool) }] };
   }
@@ -422,6 +426,12 @@ function mapSdkMessage(message: ClaudeSdkMessage, sessionId: string, turnId: str
     return { actualSessionId, events: [{ type: "assistant.progress", sessionId, turnId, text: record.summary, kind: "tool" }] };
   }
   return { actualSessionId, events: [] };
+}
+
+function assistantPlan(message: unknown): string {
+  if (!isRecord(message) || !Array.isArray(message.content)) return "";
+  const tool = message.content.find((item) => isRecord(item) && item.type === "tool_use" && item.name === "ExitPlanMode" && isRecord(item.input) && typeof item.input.plan === "string");
+  return isRecord(tool) && isRecord(tool.input) ? tool.input.plan as string : "";
 }
 
 function assistantText(message: unknown): string {

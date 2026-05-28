@@ -342,7 +342,7 @@ export class BridgeStatusText {
       `- 待审批: \`${approvals.length}\``,
       ...formatPendingApprovalStatus(approvals.at(-1)),
       approvals.length > 0
-        ? "下一步：按审批提示发送 `/OK`、`/P`、`/NO` 或数字选项。"
+        ? "下一步：按审批提示发送 审批提示中列出的命令或数字选项。"
         : "当前没有待处理审批。",
     ].join("\n");
   }
@@ -489,9 +489,9 @@ export class BridgeStatusText {
       { command: "/debug", description: "查看调试状态。" },
       { command: "/plan [任务]", description: "进入 Chat-Codex 计划模式；带任务时立即用计划模式处理，计划完成后会显示 Chat-Codex 快捷回复。", feature: "collaborationMode" },
       { command: "/code [任务]", description: "切回默认执行模式，或用默认模式处理任务。", aliases: ["/default [任务]"], feature: "collaborationMode" },
-      { command: "/plan-execute", description: "执行待处理计划，继续按当前权限/审批策略处理工具请求。", aliases: ["/1"], feature: "collaborationMode" },
-      { command: "/plan-edit", description: "按当前权限策略执行待处理计划；如需 Claude acceptEdits，请先明确切换权限模式。", aliases: ["/plan-accept-edits", "/2"], feature: "collaborationMode" },
-      { command: "/replan <补充>", description: "基于待处理计划继续规划/修改计划，不执行代码修改。", aliases: ["/3 <补充>"], feature: "collaborationMode" },
+      { command: "/plan-execute", description: "接受待处理计划并使用 Claude Code auto mode 执行。", aliases: ["/1"], feature: "collaborationMode" },
+      { command: "/plan-edit", description: "接受待处理计划并手动审批编辑。", aliases: ["/2"], feature: "collaborationMode" },
+      { command: "/replan <补充>", description: "告诉 Claude 要修改什么，继续规划但不执行代码修改。", aliases: ["/3 <补充>"], feature: "collaborationMode" },
       { command: "/plan-cancel", description: "取消待处理计划。", aliases: ["/4"], feature: "collaborationMode" },
       {
         command: "/goal [目标]",
@@ -762,7 +762,7 @@ function formatHelpNextStepLines(commandProfile: CommandNamespaceProfile): strin
     `- 查看状态：发送 \`${statusCommand}\`。`,
     `- 新建会话：发送 \`${newCommand}\`。`,
     `- 切换会话：发送 \`${sessionsCommand}\` 查看列表，或发送 \`${useCommand}\` 进入编号选择。`,
-    "- 遇到审批：按审批提示发送 `/OK`、`/P`、`/NO` 或数字选项。",
+    "- 遇到审批：按审批提示发送 审批提示中列出的命令或数字选项。",
     `- 不确定命令：先发送 \`${statusCommand}\` 看当前状态和下一步。`,
   ];
 }
@@ -847,8 +847,8 @@ function formatStatusNextStep(options: {
   hasPlanWorkflow: boolean;
 }): string {
   if (options.compactState.type !== "none") return "- 下一步：按上下文压缩提示继续处理。";
-  if (options.pendingApprovals > 0) return "- 下一步：请处理待审批项，可发送审批提示中的 `/OK`、`/P`、`/NO` 或数字选项。";
-  if (options.hasPlanWorkflow) return "- 下一步：请处理待处理计划，可发送 `/1` 执行、`/2` 按当前权限执行、`/3` 重新规划或 `/4` 取消。";
+  if (options.pendingApprovals > 0) return "- 下一步：请处理待审批项，可发送审批提示中的 审批提示中列出的命令或数字选项。";
+  if (options.hasPlanWorkflow) return "- 下一步：请处理待处理计划，可发送 `/1` 用 auto mode 执行、`/2` 手动审批编辑、`/3` 修改计划或 `/4` 取消。";
   if (options.workerRunning) return "- 下一步：当前任务正在执行；如需中断，请发送 `/stop`。";
   if (!options.binding) return "- 下一步：发送普通消息创建或绑定会话；如需明确选择，请发送 `/new` 或 `/resume`。";
   return "- 下一步：发送普通消息继续任务；如需查看命令，请发送 `/help`。";

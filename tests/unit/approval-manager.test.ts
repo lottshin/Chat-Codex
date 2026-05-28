@@ -71,6 +71,30 @@ test("ApprovalManager renders dynamic approval choices", () => {
   assert.doesNotMatch(text, /\/3/);
 });
 
+
+test("ApprovalManager renders granular approval options", () => {
+  const manager = new ApprovalManager();
+  const pending = manager.create("mock:default:direct:user", "user", {
+    kind: "permissions",
+    sessionId: "s1",
+    turnId: "t1",
+    itemId: "i1",
+    approvalOptions: [
+      { id: "current", decision: "approve", label: "允许本次", description: "通过当前审批" },
+      { id: "sdk-1", decision: "approve-session", label: "记住规则", description: "允许此命令后续不再询问", updatedPermissions: [{ type: "addRules" }] },
+      { id: "sdk-2", decision: "approve-session", label: "Accept edits", description: "切换到 Accept edits", updatedPermissions: [{ type: "setMode", mode: "acceptEdits" }] },
+      { id: "deny", decision: "deny", label: "拒绝", description: "拒绝当前审批" },
+    ],
+  });
+
+  const text = manager.formatForChannel(pending);
+
+  assert.match(text, /`\/OK` 或 `\/1`：通过当前审批/);
+  assert.match(text, /`\/2`：允许此命令后续不再询问/);
+  assert.match(text, /`\/3`：切换到 Accept edits/);
+  assert.match(text, /`\/NO` 或 `\/4`：拒绝当前审批/);
+  assert.doesNotMatch(text, /`\/P`/);
+});
 test("ApprovalManager only expires approvals when ttl is configured", () => {
   const manager = new ApprovalManager({ ttlMs: -1 });
   const pending = manager.create("route-a", "user", {
@@ -119,7 +143,7 @@ test("ApprovalManager rejects wrong route decisions", () => {
   });
 
   assert.throws(() => manager.decide(pending.approvalKey, "route-b", "deny"), /不属于当前会话/);
-  assert.throws(() => manager.decide(pending.approvalKey, "route-b", "deny"), /\/OK、\/NO 或数字选项/);
+  assert.throws(() => manager.decide(pending.approvalKey, "route-b", "deny"), /提示中实际列出的命令/);
 });
 
 test("ApprovalManager cancels pending approvals for a route", () => {
