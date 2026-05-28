@@ -1,6 +1,6 @@
 import type { ApprovalManager } from "../approvals/approval-manager.js";
 import type { AiBackend, CommandNamespaceProfile } from "../backend/metadata.js";
-import type { CodexAdapter, CodexCollaborationMode, CodexPromptInput, CodexSessionStatus } from "../codex/types.js";
+import type { CodexAdapter, CodexCollaborationMode, CodexPromptInput, CodexRunOptions, CodexSessionStatus } from "../codex/types.js";
 import type { Logger } from "../logging/logger.js";
 import type { TranscriptSink } from "../logging/transcript.js";
 import type { ChannelRegistry } from "../channels/registry.js";
@@ -58,6 +58,7 @@ export interface QueuedPrompt {
   target: ChannelTarget;
   input: CodexPromptInput;
   collaborationMode?: CodexCollaborationMode;
+  runOptions?: Omit<CodexRunOptions, "collaborationMode">;
   sendFile: boolean;
 }
 

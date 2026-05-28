@@ -368,8 +368,9 @@ export class Bridge {
           statusText: this.statusTextRenderer,
           runPolicyStatus: (sessionId) => this.runPolicyStatus(sessionId),
         }, message, target, args),
-        approval: (message, target, args, decision) => this.handleApprovalCommand(message, target, args, decision),
+        approval: (message, target, args, decision, optionId) => this.handleApprovalCommand(message, target, args, decision, optionId),
         latestApprovalDecisions: (routeKey) => this.approvals.latest(routeKey),
+        approvalByKey: (approvalKey) => this.approvals.get(approvalKey),
         hasPlanWorkflow: (routeKey) => this.planWorkflows.has(routeKey),
         planWorkflow: (message, target, choice, args) => this.handlePlanWorkflowCommand(message, target, choice, args),
         stop: async (message, target) => {
@@ -576,6 +577,7 @@ export class Bridge {
     target: ChannelTarget,
     args: string[],
     decision: ApprovalDecision,
+    optionId?: string,
   ): Promise<void> {
     if (isFeishuGroupMessage(message) && this.state.isRouteTrusted(message.routeKey)) {
       const approval = this.groupAccess.canApprove(message);
@@ -589,7 +591,7 @@ export class Bridge {
       approvals: this.approvals,
       codex: this.codex,
       delivery: this.delivery,
-    }, message, target, args, decision);
+    }, message, target, args, decision, optionId);
     if (result.handled && result.approvalKey) {
       const messageId = this.approvalActionMessageIds.get(result.approvalKey);
       this.approvalActionMessageIds.delete(result.approvalKey);
@@ -625,12 +627,16 @@ export class Bridge {
     }
     this.planWorkflows.delete(message.routeKey);
     await this.updatePlanActionMessage(workflow, choice);
+    const claudePermissionMode = choice === "execute" ? "auto" : "default";
     if (choice === "edit") {
-      await this.delivery.sendText(target, "将按当前权限策略执行计划；不会自动切换权限模式。如需 Claude acceptEdits，请先用 /permission acceptEdits 明确切换。本次仍按当前权限策略执行。");
+      await this.delivery.sendText(target, "已接受计划，开始执行；后续编辑会继续手动审批。");
     } else {
-      await this.delivery.sendText(target, "已接受计划，开始按当前权限/审批策略执行。");
+      await this.delivery.sendText(target, "已接受计划，开始使用 Claude Code auto mode 执行。");
     }
-    await this.routeQueue.enqueuePrompt(message, target, planExecutionPrompt(workflow), { collaborationMode: "default" });
+    await this.routeQueue.enqueuePrompt(message, target, planExecutionPrompt(workflow), {
+      collaborationMode: "default",
+      runOptions: { claudePermissionMode },
+    });
   }
 
   private async updatePlanActionMessage(workflow: { target: ChannelTarget; actionMessageId?: string }, choice: PlanWorkflowChoice): Promise<void> {
@@ -828,7 +834,7 @@ function approvalActionStatusText(decision: ApprovalDecision, actor: string): st
 
 function planActionStatusText(choice: PlanWorkflowChoice): string {
   if (choice === "execute") return "计划已接受，开始按当前权限/审批策略执行。";
-  if (choice === "edit") return "计划已按当前权限策略开始执行。";
-  if (choice === "replan") return "计划已进入重新规划。";
+  if (choice === "edit") return "计划已接受，开始执行；后续编辑会手动审批。";
+  if (choice === "replan") return "计划已进入修改。";
   return "计划已取消。";
 }

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import type { ApprovalDecision } from "../../src/approvals/types.js";
+import type { ApprovalDecision, ApprovalOption } from "../../src/approvals/types.js";
 import type { PlanWorkflowChoice } from "../../src/bridge/plan-workflow.js";
 import type { AiBackend } from "../../src/backend/metadata.js";
 import { ApprovalManager } from "../../src/approvals/approval-manager.js";
@@ -253,6 +253,36 @@ test("BridgeCommandRouter maps numeric approval replies from latest approval cho
   assert.deepEqual(fixture.approvalDecisions, ["approve", "deny"]);
 });
 
+test("BridgeCommandRouter maps numeric approval replies from explicit approval keys", async () => {
+  const options: ApprovalOption[] = [
+    { id: "current", decision: "approve", label: "允许本次" },
+    { id: "remember", decision: "approve-session", label: "记住规则", updatedPermissions: [{ type: "addRules" }] },
+    { id: "deny", decision: "deny", label: "拒绝" },
+  ];
+  const fixture = routerFixture({ keyedApprovals: { a001: { routeKey: "mock:default:direct:user", approvalOptions: options } } });
+
+  await fixture.router.handle(message(), target(), "2", ["a001"], "/2 a001");
+
+  assert.deepEqual(fixture.approvalDecisions, ["approve-session"]);
+  assert.deepEqual(fixture.approvalOptionIds, ["remember"]);
+  assert.deepEqual(fixture.approvalArgs, [["a001"]]);
+});
+
+
+test("BridgeCommandRouter maps dynamic approval replies beyond /9", async () => {
+  const options: ApprovalOption[] = Array.from({ length: 11 }, (_, index) => ({
+    id: `option-${index + 1}`,
+    decision: index === 10 ? "deny" : "approve-session",
+    label: `选项 ${index + 1}`,
+    updatedPermissions: index === 10 ? undefined : [{ type: "addRules", index }],
+  }));
+  const fixture = routerFixture({ keyedApprovals: { a010: { routeKey: "mock:default:direct:user", approvalOptions: options } } });
+
+  await fixture.router.handle(message(), target(), "10", ["a010"], "/10 a010");
+
+  assert.deepEqual(fixture.approvalDecisions, ["approve-session"]);
+  assert.deepEqual(fixture.approvalOptionIds, ["option-10"]);
+});
 test("BridgeCommandRouter routes plan workflow shortcuts when no approval is pending", async () => {
   const fixture = routerFixture({ hasPlanWorkflow: true });
 
@@ -298,6 +328,36 @@ test("BridgeCommandRouter keeps named approval aliases stable", async () => {
   await fixture.router.handle(message(), target(), "no", [], "/NO");
 
   assert.deepEqual(fixture.approvalDecisions, ["approve", "deny"]);
+});
+
+test("BridgeCommandRouter maps approval aliases to dynamic option ids", async () => {
+  const options: ApprovalOption[] = [
+    { id: "current", decision: "approve", label: "允许本次" },
+    { id: "remember", decision: "approve-session", label: "记住规则", updatedPermissions: [{ type: "addRules" }] },
+    { id: "deny", decision: "deny", label: "拒绝" },
+  ];
+  const fixture = routerFixture({ latestApprovalOptions: options });
+
+  await fixture.router.handle(message(), target(), "ok", [], "/OK");
+  await fixture.router.handle(message(), target(), "p", [], "/P");
+  await fixture.router.handle(message(), target(), "no", [], "/NO");
+
+  assert.deepEqual(fixture.approvalDecisions, ["approve", "approve-session", "deny"]);
+  assert.deepEqual(fixture.approvalOptionIds, ["current", "remember", "deny"]);
+});
+
+test("BridgeCommandRouter keeps approval alias notes from being treated as approval keys", async () => {
+  const options: ApprovalOption[] = [
+    { id: "current", decision: "approve", label: "允许本次" },
+    { id: "deny", decision: "deny", label: "拒绝" },
+  ];
+  const fixture = routerFixture({ latestApprovalOptions: options });
+
+  await fixture.router.handle(message(), target(), "ok", ["好的"], "/OK 好的");
+
+  assert.deepEqual(fixture.approvalDecisions, ["approve"]);
+  assert.deepEqual(fixture.approvalOptionIds, ["current"]);
+  assert.deepEqual(fixture.approvalArgs, [["好的"]]);
 });
 
 test("BridgeCommandRouter routes show commands", async () => {
@@ -366,6 +426,8 @@ function routerFixture(options: {
   busy?: boolean;
   deliveryPolicyFor?: () => ReturnType<typeof normalizeChannelDeliveryPolicy>;
   latestApprovalDecisions?: ApprovalDecision[];
+  latestApprovalOptions?: ApprovalOption[];
+  keyedApprovals?: Record<string, { routeKey: string; availableDecisions?: ApprovalDecision[]; approvalOptions?: ApprovalOption[] }>;
   hasPlanWorkflow?: boolean;
 } = {}) {
   const sent: string[] = [];
@@ -392,6 +454,8 @@ function routerFixture(options: {
   let groupReceiveCall: { args: string[]; commandName: string } | undefined;
   let sendFileCall: { rawText: string; commandName: string } | undefined;
   const approvalDecisions: string[] = [];
+  const approvalOptionIds: Array<string | undefined> = [];
+  const approvalArgs: string[][] = [];
   const planWorkflowChoices: PlanWorkflowChoice[] = [];
   const delivery = new BridgeDelivery({
     channels: {
@@ -456,11 +520,18 @@ function routerFixture(options: {
     permission: async () => {
       calls.permission += 1;
     },
-    approval: async (_message, _target, _args, decision) => {
+    approval: async (_message, _target, args, decision, optionId) => {
       calls.approval += 1;
       approvalDecisions.push(decision);
+      approvalOptionIds.push(optionId);
+      approvalArgs.push(args);
     },
-    latestApprovalDecisions: () => options.latestApprovalDecisions ? { availableDecisions: options.latestApprovalDecisions } : undefined,
+    latestApprovalDecisions: () => options.latestApprovalOptions
+      ? { approvalOptions: options.latestApprovalOptions }
+      : options.latestApprovalDecisions
+        ? { availableDecisions: options.latestApprovalDecisions }
+        : undefined,
+    approvalByKey: (approvalKey) => options.keyedApprovals?.[approvalKey],
     hasPlanWorkflow: () => options.hasPlanWorkflow ?? false,
     planWorkflow: async (_message, _target, choice) => {
       calls.planWorkflow += 1;
@@ -487,6 +558,8 @@ function routerFixture(options: {
       return sendFileCall;
     },
     approvalDecisions,
+    approvalOptionIds,
+    approvalArgs,
     planWorkflowChoices,
     router: new BridgeCommandRouter({
       backend: options.backend,

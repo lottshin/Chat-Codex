@@ -1,4 +1,4 @@
-import type { ApprovalKind, ApprovalRequest } from "../approvals/types.js";
+import type { ApprovalKind, ApprovalOption, ApprovalRequest } from "../approvals/types.js";
 
 export interface ClaudePermissionPromptContext {
   sessionId?: string;
@@ -34,6 +34,7 @@ export function normalizeClaudePermissionPrompt(
   const command = commandForTool(toolName, kind, input);
   const reason = firstString(prompt.reason, prompt.description, input.reason, input.description);
   const permissionSuggestions = arrayValue(prompt.suggestions);
+  const approvalOptions = permissionSuggestions ? approvalOptionsForPermissionSuggestions(permissionSuggestions) : undefined;
   return {
     ok: true,
     approval: {
@@ -48,6 +49,7 @@ export function normalizeClaudePermissionPrompt(
       ...(kind === "command" && command && riskyCommand(command) ? { risk: "high" } : {}),
       availableDecisions: permissionSuggestions ? [...SESSION_DECISIONS] : [...CURRENT_DECISIONS],
       ...(permissionSuggestions ? { permissionSuggestions } : {}),
+      ...(approvalOptions ? { approvalOptions } : {}),
       raw: payload,
     },
   };
@@ -102,6 +104,61 @@ function stringValue(value: unknown): string | undefined {
   return trimmed || undefined;
 }
 
+
+function approvalOptionsForPermissionSuggestions(suggestions: unknown[]): ApprovalOption[] {
+  const sessionOption = sessionApprovalOptionForPermissionSuggestions(suggestions);
+  return [
+    { id: "current", decision: "approve", label: "允许本次", description: "通过当前审批" },
+    ...(sessionOption ? [sessionOption] : []),
+    { id: "deny", decision: "deny", label: "拒绝", description: "拒绝当前审批" },
+  ];
+}
+
+function sessionApprovalOptionForPermissionSuggestions(suggestions: unknown[]): ApprovalOption | undefined {
+  const updates: Record<string, unknown>[] = [];
+  for (const suggestion of suggestions) {
+    const update = objectValue(suggestion);
+    if (!update) return undefined;
+    updates.push(update);
+  }
+  const acceptEdits = updates.some((suggestion) => stringValue(suggestion.type) === "setMode" && stringValue(suggestion.mode) === "acceptEdits");
+  if (acceptEdits) {
+    return {
+      id: "mode-acceptEdits",
+      decision: "approve-session",
+      label: "Accept edits",
+      description: "自动接受后续编辑",
+      updatedPermissions: suggestions,
+    };
+  }
+
+  const ruleSuggestion = updates.find((suggestion) => stringValue(suggestion.type) === "addRules");
+  if (!ruleSuggestion) return undefined;
+  const ruleLabel = labelForRuleUpdate(ruleSuggestion) ?? "允许后续同类操作不再询问";
+  return {
+    id: optionIdForRuleUpdate(ruleSuggestion),
+    decision: "approve-session",
+    label: "不再询问",
+    description: ruleLabel,
+    updatedPermissions: suggestions,
+  };
+}
+
+function optionIdForRuleUpdate(record: Record<string, unknown>): string {
+  const rules = Array.isArray(record.rules) ? record.rules : [];
+  const firstRule = objectValue(rules[0]);
+  const toolName = stringValue(firstRule?.toolName);
+  return toolName ? `remember-${toolName.toLowerCase()}` : "remember";
+}
+
+function labelForRuleUpdate(record: Record<string, unknown> | undefined): string | undefined {
+  const rules = Array.isArray(record?.rules) ? record.rules : [];
+  const firstRule = objectValue(rules[0]);
+  const toolName = stringValue(firstRule?.toolName);
+  if (toolName === "Bash") return "允许此命令后续不再询问";
+  if (toolName) return `允许 ${toolName} 后续同类操作不再询问`;
+  return undefined;
+}
 function riskyCommand(command: string): boolean {
   return /(^|\s)(sudo|rm|chmod|chown|mv|dd|mkfs|diskutil)(\s|$)/.test(command);
 }

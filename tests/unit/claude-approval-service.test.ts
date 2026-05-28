@@ -34,6 +34,28 @@ test("ClaudeApprovalService treats approve-session as current request allow", as
   assert.deepEqual(await request, { behavior: "allow" });
 });
 
+test("ClaudeApprovalService treats approve-session without selected option as current request allow", async () => {
+  const suggestion = { type: "addRules", behavior: "allow", destination: "session", rules: [{ toolName: "Bash", ruleContent: "npm test" }] };
+  const fixture = serviceFixture();
+  const request = fixture.service.requestPermission({ ...payload, suggestions: [suggestion] }, fixture.context);
+  await fixture.delivery.created;
+
+  fixture.approvals.decide(fixture.sent[0].approvalKey, fixture.context.routeKey, "approve-session");
+
+  assert.deepEqual(await request, { behavior: "allow" });
+});
+
+test("ClaudeApprovalService returns selected native-like option permissions", async () => {
+  const suggestionA = { type: "addRules", behavior: "allow", destination: "localSettings", rules: [{ toolName: "Bash", ruleContent: "npm test" }] };
+  const suggestionB = { type: "setMode", mode: "acceptEdits", destination: "session" };
+  const fixture = serviceFixture();
+  const request = fixture.service.requestPermission({ ...payload, suggestions: [suggestionA, suggestionB] }, fixture.context);
+  await fixture.delivery.created;
+
+  fixture.approvals.decide(fixture.sent[0].approvalKey, fixture.context.routeKey, "approve-session", "mode-acceptEdits");
+
+  assert.deepEqual(await request, { behavior: "allow", updatedPermissions: [suggestionA, suggestionB] });
+});
 test("ClaudeApprovalService denies rejected permission prompts", async () => {
   const fixture = serviceFixture();
   const request = fixture.service.requestPermission(payload, fixture.context);

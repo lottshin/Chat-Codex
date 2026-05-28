@@ -1,4 +1,5 @@
 import type { ApprovalManager } from "../approvals/approval-manager.js";
+import { approvalChoices } from "../approvals/choices.js";
 import type { PendingApproval } from "../approvals/types.js";
 import type { Logger } from "../logging/logger.js";
 import { backendDisplayName, type AiBackend } from "../backend/metadata.js";
@@ -55,7 +56,7 @@ export class BridgeDelivery {
 
   async sendApprovalTextUntilDelivered(routeKey: string, target: ChannelTarget, pending: PendingApproval): Promise<SendResult | undefined> {
     const text = this.approvals.formatForChannel(pending, this.backendName);
-    const actionMessage = approvalActionMessage(text);
+    const actionMessage = approvalActionMessage(text, pending);
     let failures = 0;
     while (this.isApprovalStillPending(routeKey, pending.approvalKey)) {
       try {
@@ -235,13 +236,22 @@ export class BridgeDelivery {
   }
 }
 
-function approvalActionMessage(text: string): ChannelActionMessage {
+export function approvalActionMessage(text: string, pending: PendingApproval): ChannelActionMessage {
+  const buttons = approvalChoices(pending).map((choice) => ({
+    text: choice.buttonText,
+    action: `cmd:${choice.numeric} ${pending.approvalKey}`,
+    style: choice.buttonStyle,
+  }));
   return {
     text,
-    buttonGroups: [[
-      { text: "允许", action: "cmd:/OK", style: "primary" },
-      { text: "本轮允许", action: "cmd:/P", style: "default" },
-      { text: "拒绝", action: "cmd:/NO", style: "danger" },
-    ]],
+    buttonGroups: chunkButtons(buttons, 3),
   };
+}
+
+function chunkButtons<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
 }

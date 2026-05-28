@@ -1,48 +1,91 @@
-import type { ApprovalDecision, PendingApproval } from "./types.js";
+import type { ApprovalDecision, ApprovalOption, PendingApproval } from "./types.js";
 
 export interface ApprovalChoice {
   decision: ApprovalDecision;
-  command: string;
+  command?: string;
   numeric: string;
   description: string;
+  buttonText: string;
+  buttonStyle: "primary" | "default" | "danger";
+  optionId?: string;
 }
 
 const DEFAULT_VISIBLE_DECISIONS: ApprovalDecision[] = ["approve", "approve-session", "deny"];
 
-export function effectiveApprovalDecisions(approval: Pick<PendingApproval, "availableDecisions">): ApprovalDecision[] {
+export function effectiveApprovalDecisions(approval: Pick<PendingApproval, "availableDecisions" | "approvalOptions">): ApprovalDecision[] {
+  if (approval.approvalOptions?.length) return approval.approvalOptions.map((option) => option.decision);
   const decisions = approval.availableDecisions?.filter(uniqueDecision) ?? [];
   const visible = decisions.filter((decision) => decision !== "cancel");
   return visible.length > 0 ? visible : [...DEFAULT_VISIBLE_DECISIONS];
 }
 
-export function approvalChoices(approval: Pick<PendingApproval, "availableDecisions">): ApprovalChoice[] {
+export function approvalChoices(approval: Pick<PendingApproval, "availableDecisions" | "approvalOptions">): ApprovalChoice[] {
+  const options = approval.approvalOptions;
+  if (options?.length) {
+    return options.map((option, index) => ({
+      decision: option.decision,
+      command: commandForOption(option, options),
+      numeric: `/${index + 1}`,
+      description: option.description ?? option.label,
+      buttonText: option.label,
+      buttonStyle: buttonStyleForOption(option),
+      optionId: option.id,
+    }));
+  }
   return effectiveApprovalDecisions(approval).map((decision, index) => ({
     decision,
     command: commandForDecision(decision),
     numeric: `/${index + 1}`,
     description: descriptionForDecision(decision),
+    buttonText: buttonTextForDecision(decision),
+    buttonStyle: buttonStyleForDecision(decision),
   }));
 }
 
 export function formatApprovalChoiceLine(choice: ApprovalChoice): string {
-  return `${choice.command} 或 ${choice.numeric}：${choice.description}`;
+  return choice.command ? `${choice.command} 或 ${choice.numeric}：${choice.description}` : `${choice.numeric}：${choice.description}`;
 }
 
 export function formatApprovalChoiceSummaryLine(choice: ApprovalChoice): string {
-  return `- \`${choice.command}\` 或 \`${choice.numeric}\`：${choice.description}`;
+  return choice.command ? `- \`${choice.command}\` 或 \`${choice.numeric}\`：${choice.description}` : `- \`${choice.numeric}\`：${choice.description}`;
+}
+
+export interface ApprovalSelection {
+  decision: ApprovalDecision;
+  optionId?: string;
+}
+
+export function selectionForNumericApprovalChoice(
+  approval: Pick<PendingApproval, "availableDecisions" | "approvalOptions"> | undefined,
+  numeric: string,
+): ApprovalSelection | undefined {
+  const index = Number.parseInt(numeric, 10) - 1;
+  if (!Number.isInteger(index) || index < 0) return undefined;
+  const choice = approvalChoices(approval ?? { availableDecisions: undefined, approvalOptions: undefined })[index];
+  return choice ? { decision: choice.decision, ...(choice.optionId ? { optionId: choice.optionId } : {}) } : undefined;
 }
 
 export function decisionForNumericApprovalChoice(
-  approval: Pick<PendingApproval, "availableDecisions"> | undefined,
+  approval: Pick<PendingApproval, "availableDecisions" | "approvalOptions"> | undefined,
   numeric: string,
 ): ApprovalDecision | undefined {
-  const index = Number.parseInt(numeric, 10) - 1;
-  if (!Number.isInteger(index) || index < 0) return undefined;
-  return approvalChoices(approval ?? { availableDecisions: undefined })[index]?.decision;
+  return selectionForNumericApprovalChoice(approval, numeric)?.decision;
+}
+
+export function selectionForApprovalAlias(
+  approval: Pick<PendingApproval, "availableDecisions" | "approvalOptions"> | undefined,
+  decision: ApprovalDecision,
+): ApprovalSelection | undefined {
+  if (approval?.approvalOptions?.length) {
+    const option = optionForAlias(approval.approvalOptions, decision);
+    return option ? { decision: option.decision, optionId: option.id } : undefined;
+  }
+  if (approval && !isApprovalDecisionAvailable(approval, decision)) return undefined;
+  return { decision };
 }
 
 export function isApprovalDecisionAvailable(
-  approval: Pick<PendingApproval, "availableDecisions">,
+  approval: Pick<PendingApproval, "availableDecisions" | "approvalOptions">,
   decision: ApprovalDecision,
 ): boolean {
   return effectiveApprovalDecisions(approval).includes(decision);
@@ -53,6 +96,44 @@ export function unavailableApprovalDecisionMessage(decision: ApprovalDecision): 
     `当前审批不支持${descriptionForDecision(decision)}。`,
     "下一步：请发送审批提示中实际列出的命令；不确定时发送 /status 查看当前待处理审批。",
   ].join("\n");
+}
+
+function commandForOption(option: ApprovalOption, options: ApprovalOption[]): string | undefined {
+  if (option.decision === "approve" && !option.updatedPermissions?.length) return "/OK";
+  if (option.decision === "deny") return "/NO";
+  const persistentOptions = options.filter((candidate) => candidate.updatedPermissions?.length);
+  if (persistentOptions.length === 1 && option.id === persistentOptions[0]?.id) return "/P";
+  return undefined;
+}
+
+function optionForAlias(options: ApprovalOption[], decision: ApprovalDecision): ApprovalOption | undefined {
+  if (decision === "approve") return options.find((option) => option.decision === "approve" && !option.updatedPermissions?.length);
+  if (decision === "approve-session") {
+    const persistentOptions = options.filter((option) => option.updatedPermissions?.length);
+    if (persistentOptions.length === 1) return persistentOptions[0];
+    return undefined;
+  }
+  if (decision === "deny") return options.find((option) => option.decision === "deny");
+  return undefined;
+}
+
+function buttonStyleForOption(option: ApprovalOption): "primary" | "default" | "danger" {
+  if (option.decision === "deny") return "danger";
+  if (option.decision === "approve" && !option.updatedPermissions?.length) return "primary";
+  return "default";
+}
+
+function buttonTextForDecision(decision: ApprovalDecision): string {
+  if (decision === "approve") return "允许";
+  if (decision === "approve-session") return "本会话允许";
+  if (decision === "deny") return "拒绝";
+  return "取消";
+}
+
+function buttonStyleForDecision(decision: ApprovalDecision): "primary" | "default" | "danger" {
+  if (decision === "approve") return "primary";
+  if (decision === "deny") return "danger";
+  return "default";
 }
 
 function commandForDecision(decision: ApprovalDecision): string {

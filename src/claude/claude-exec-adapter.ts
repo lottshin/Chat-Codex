@@ -160,7 +160,7 @@ export class ClaudeExecAdapter implements CodexAdapter {
     stored.updatedAt = new Date().toISOString();
     yield { type: "turn.started", sessionId, turnId, startedAt };
 
-    const child = spawnClaude(this.claudeCommand, this.buildArgs(stored, promptText, { collaborationMode: options.collaborationMode }), {
+    const child = spawnClaude(this.claudeCommand, this.buildArgs(stored, promptText, { collaborationMode: options.collaborationMode, claudePermissionMode: options.claudePermissionMode }), {
       cwd: stored.session.cwd,
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -438,7 +438,7 @@ export class ClaudeExecAdapter implements CodexAdapter {
     return text.trim();
   }
 
-  private buildArgs(stored: ClaudeSessionRecord, prompt: string, overrides: { resume?: boolean; permissionMode?: ClaudePermissionMode; collaborationMode?: CodexCollaborationMode } = {}): string[] {
+  private buildArgs(stored: ClaudeSessionRecord, prompt: string, overrides: { resume?: boolean; permissionMode?: ClaudePermissionMode; claudePermissionMode?: ClaudePermissionMode; collaborationMode?: CodexCollaborationMode } = {}): string[] {
     const args = ["-p", prompt, "--output-format", "stream-json", "--verbose"];
     if (overrides.resume !== false && stored.actualSessionId) args.unshift("--resume", stored.actualSessionId);
     const modelPolicy = this.modelPolicyForSession(stored.session.id);
@@ -446,7 +446,7 @@ export class ClaudeExecAdapter implements CodexAdapter {
     if (modelPolicy.claudeEffort) args.push("--effort", modelPolicy.claudeEffort);
     const runPolicy = this.runPolicyForSession(stored.session.id);
     const collaborationMode = overrides.collaborationMode ?? this.collaborationModeForSession(stored.session.id);
-    const permissionMode = overrides.permissionMode ?? claudePermissionModeForPolicy(runPolicy, collaborationMode);
+    const permissionMode = overrides.permissionMode ?? overrides.claudePermissionMode ?? claudePermissionModeForPolicy(runPolicy, collaborationMode);
     args.push("--permission-mode", permissionMode);
     if (this.mcpConfigPath && permissionMode !== "bypassPermissions") {
       args.push("--mcp-config", this.mcpConfigPath);
@@ -565,6 +565,10 @@ export function parseClaudeJsonLine(line: string, sessionId: string, turnId: str
         .join("\n");
       const tool = parsed.message.content.find((item) => item.type === "tool_use");
       if (text) return { actualSessionId, text, event: { type: "assistant.delta", sessionId, turnId, text } };
+      if (tool?.name === "ExitPlanMode" && isObject(tool.input)) {
+        const plan = stringField(tool.input, "plan");
+        if (plan) return { actualSessionId, text: plan, event: { type: "assistant.plan", sessionId, turnId, text: plan } };
+      }
       if (tool?.name) {
         return { actualSessionId, event: { type: "assistant.progress", sessionId, turnId, text: `正在调用工具: ${tool.name}`, kind: progressKindForTool(tool.name) } };
       }

@@ -97,6 +97,27 @@ test("parseClaudeJsonLine maps tool use to progress", () => {
   });
 });
 
+test("parseClaudeJsonLine maps ExitPlanMode tool use to plan event", () => {
+  const parsed = parseClaudeJsonLine(
+    JSON.stringify({
+      type: "assistant",
+      session_id: "claude-session",
+      message: { content: [{ type: "tool_use", name: "ExitPlanMode", input: { plan: "# Plan\n- Do it" } }] },
+    }),
+    "local-session",
+    "turn-1",
+  );
+
+  assert.equal(parsed?.actualSessionId, "claude-session");
+  assert.equal(parsed?.text, "# Plan\n- Do it");
+  assert.deepEqual(parsed?.event, {
+    type: "assistant.plan",
+    sessionId: "local-session",
+    turnId: "turn-1",
+    text: "# Plan\n- Do it",
+  });
+});
+
 test("ClaudeExecAdapter reports non-interactive approval support", () => {
   const adapter = new ClaudeExecAdapter();
 

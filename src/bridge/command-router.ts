@@ -1,5 +1,5 @@
-import type { ApprovalDecision } from "../approvals/types.js";
-import { decisionForNumericApprovalChoice } from "../approvals/choices.js";
+import type { ApprovalDecision, ApprovalOption } from "../approvals/types.js";
+import { selectionForApprovalAlias, selectionForNumericApprovalChoice } from "../approvals/choices.js";
 import { backendSupportsFeature, unsupportedCommandMessage, type AiBackend, type BackendCommandFeature, type CommandNamespaceProfile } from "../backend/metadata.js";
 import type { Logger } from "../logging/logger.js";
 import type { ChannelMessage, ChannelTarget } from "../protocol/channel.js";
@@ -58,6 +58,11 @@ const BRIDGE_COMMAND_NAMES = new Set([
   "2",
   "3",
   "4",
+  "5",
+  "6",
+  "7",
+  "8",
+  "9",
   "p",
   "yes-session",
   "ok-session",
@@ -116,8 +121,9 @@ export interface BridgeCommandHandlers {
   sendFile(message: ChannelMessage, target: ChannelTarget, rawText: string, commandName: string): Promise<void>;
   model(message: ChannelMessage, target: ChannelTarget, args: string[]): Promise<void>;
   permission(message: ChannelMessage, target: ChannelTarget, args: string[]): Promise<void>;
-  approval(message: ChannelMessage, target: ChannelTarget, args: string[], decision: ApprovalDecision): Promise<void>;
-  latestApprovalDecisions?(routeKey: string): { availableDecisions?: ApprovalDecision[] } | undefined;
+  approval(message: ChannelMessage, target: ChannelTarget, args: string[], decision: ApprovalDecision, optionId?: string): Promise<void>;
+  latestApprovalDecisions?(routeKey: string): { availableDecisions?: ApprovalDecision[]; approvalOptions?: ApprovalOption[] } | undefined;
+  approvalByKey?(approvalKey: string): { routeKey: string; availableDecisions?: ApprovalDecision[]; approvalOptions?: ApprovalOption[] } | undefined;
   hasPlanWorkflow?(routeKey: string): boolean;
   planWorkflow(message: ChannelMessage, target: ChannelTarget, choice: PlanWorkflowChoice, args: string[]): Promise<void>;
   stop(message: ChannelMessage, target: ChannelTarget): Promise<void>;
@@ -176,6 +182,10 @@ export class BridgeCommandRouter {
     const canonicalName = canonicalBridgeCommandName(name) ?? name.toLowerCase();
     if (isRouteBusyMutationCommand(canonicalName, args, rawText) && await this.isRouteExecutionBusy(message.routeKey)) {
       await this.delivery.sendText(target, ROUTE_BUSY_MUTATION_REJECT_TEXT);
+      return;
+    }
+    if (isNumericApprovalCommand(canonicalName)) {
+      await this.handleNumericShortcut(message, target, canonicalName, args);
       return;
     }
     switch (canonicalName) {
@@ -296,54 +306,38 @@ export class BridgeCommandRouter {
       case "ok":
       case "yes":
         if (await this.rejectUnsupported(target, name, "interactiveApprovals", "远程交互审批")) return;
-        await this.handlers.approval(message, target, [], "approve");
+        await this.handleApprovalAlias(message, target, args, "approve");
         return;
       case "1":
       case "2":
-      case "3": {
-        const latestApproval = this.handlers.latestApprovalDecisions?.(message.routeKey);
-        if (latestApproval) {
-          if (await this.rejectUnsupported(target, name, "interactiveApprovals", "远程交互审批")) return;
-          const decision = decisionForNumericApprovalChoice(latestApproval, name) ?? legacyNumericApprovalDecision(name);
-          await this.handlers.approval(message, target, [], decision);
-          return;
-        }
-        if (this.handlers.hasPlanWorkflow?.(message.routeKey)) {
-          if (await this.rejectUnsupported(target, name, "collaborationMode", "计划工作流")) return;
-          await this.handlers.planWorkflow(message, target, name === "1" ? "execute" : name === "2" ? "edit" : "replan", args);
-          return;
-        }
-        if (await this.rejectUnsupported(target, name, "interactiveApprovals", "远程交互审批")) return;
-        await this.handlers.approval(message, target, [], legacyNumericApprovalDecision(name));
-        return;
-      }
+      case "3":
       case "4":
-        if (this.handlers.hasPlanWorkflow?.(message.routeKey)) {
-          if (await this.rejectUnsupported(target, name, "collaborationMode", "计划工作流")) return;
-          await this.handlers.planWorkflow(message, target, "cancel", args);
-          return;
-        }
-        await this.delivery.sendText(target, unknownCommandMessage(name, this.commandProfile));
+      case "5":
+      case "6":
+      case "7":
+      case "8":
+      case "9":
+        await this.handleNumericShortcut(message, target, canonicalName, args);
         return;
       case "p":
       case "yes-session":
       case "ok-session":
       case "approve-session":
         if (await this.rejectUnsupported(target, name, "interactiveApprovals", "远程交互审批")) return;
-        await this.handlers.approval(message, target, args, "approve-session");
+        await this.handleApprovalAlias(message, target, args, "approve-session");
         return;
       case "no":
         if (await this.rejectUnsupported(target, name, "interactiveApprovals", "远程交互审批")) return;
-        await this.handlers.approval(message, target, [], "deny");
+        await this.handleApprovalAlias(message, target, args, "deny");
         return;
       case "approve":
         if (await this.rejectUnsupported(target, name, "interactiveApprovals", "远程交互审批")) return;
-        await this.handlers.approval(message, target, args, "approve");
+        await this.handleApprovalAlias(message, target, args, "approve");
         return;
       case "deny":
       case "reject":
         if (await this.rejectUnsupported(target, name, "interactiveApprovals", "远程交互审批")) return;
-        await this.handlers.approval(message, target, args, "deny");
+        await this.handleApprovalAlias(message, target, args, "deny");
         return;
       case "stop":
         await this.handlers.stop(message, target);
@@ -359,6 +353,47 @@ export class BridgeCommandRouter {
   isBridgeCommand(message: ChannelMessage, name: string): boolean {
     if (refreshCommandFor(this.deliveryPolicyFor(message), name)) return true;
     return Boolean(canonicalBridgeCommandName(name));
+  }
+
+  private async handleApprovalAlias(
+    message: ChannelMessage,
+    target: ChannelTarget,
+    args: string[],
+    decision: ApprovalDecision,
+  ): Promise<void> {
+    const keyedApproval = this.handlers.approvalByKey?.(args[0] ?? "");
+    const latestApproval = keyedApproval?.routeKey === message.routeKey ? keyedApproval : this.handlers.latestApprovalDecisions?.(message.routeKey);
+    const selection = selectionForApprovalAlias(latestApproval, decision);
+    await this.handlers.approval(message, target, args, selection?.decision ?? decision, selection?.optionId);
+  }
+
+  private async handleNumericShortcut(
+    message: ChannelMessage,
+    target: ChannelTarget,
+    name: string,
+    args: string[],
+  ): Promise<void> {
+    const keyedApproval = this.handlers.approvalByKey?.(args[0] ?? "");
+    const latestApproval = keyedApproval?.routeKey === message.routeKey ? keyedApproval : this.handlers.latestApprovalDecisions?.(message.routeKey);
+    if (latestApproval) {
+      if (await this.rejectUnsupported(target, name, "interactiveApprovals", "远程交互审批")) return;
+      const selection = selectionForNumericApprovalChoice(latestApproval, name);
+      if (selection) {
+        await this.handlers.approval(message, target, args, selection.decision, selection.optionId);
+        return;
+      }
+    }
+    if ((name === "1" || name === "2" || name === "3" || name === "4") && this.handlers.hasPlanWorkflow?.(message.routeKey)) {
+      if (await this.rejectUnsupported(target, name, "collaborationMode", "计划工作流")) return;
+      await this.handlers.planWorkflow(message, target, name === "1" ? "execute" : name === "2" ? "edit" : name === "3" ? "replan" : "cancel", args);
+      return;
+    }
+    if (name === "1" || name === "2" || name === "3") {
+      if (await this.rejectUnsupported(target, name, "interactiveApprovals", "远程交互审批")) return;
+      await this.handlers.approval(message, target, [], legacyNumericApprovalDecision(name));
+      return;
+    }
+    await this.delivery.sendText(target, unknownCommandMessage(name, this.commandProfile));
   }
 
   private async rejectUnsupported(
@@ -383,21 +418,11 @@ function unknownCommandMessage(name: string, commandProfile: CommandNamespacePro
   return `未知命令: /${name}\n下一步：发送 /help 查看可用命令。`;
 }
 
-function isApprovalAlias(name: string): boolean {
-  return name === "ok"
-    || name === "yes"
-    || name === "p"
-    || name === "yes-session"
-    || name === "ok-session"
-    || name === "approve-session"
-    || name === "no"
-    || name === "approve"
-    || name === "deny"
-    || name === "reject";
-}
 
-function isNumericShortcut(name: string): boolean {
-  return name === "1" || name === "2" || name === "3" || name === "4";
+function isNumericApprovalCommand(name: string): boolean {
+  if (!/^\d+$/.test(name)) return false;
+  const value = Number(name);
+  return Number.isSafeInteger(value) && value > 0;
 }
 
 function legacyNumericApprovalDecision(name: string): ApprovalDecision {

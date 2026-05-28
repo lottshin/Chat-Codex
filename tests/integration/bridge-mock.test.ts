@@ -4,6 +4,11 @@ import { Bridge } from "../../src/bridge/bridge.js";
 import { ChannelRegistry } from "../../src/channels/registry.js";
 import { MockChannelAdapter } from "../../src/channels/mock/mock-channel-adapter.js";
 import { MockCodexAdapter } from "../../src/codex/mock-codex-adapter.js";
+import { ClaudeSdkAdapter } from "../../src/claude/claude-sdk-adapter.js";
+import { ClaudeApprovalService } from "../../src/claude/approval-service.js";
+import { ApprovalManager } from "../../src/approvals/approval-manager.js";
+import { BridgeDelivery } from "../../src/bridge/delivery.js";
+import { SilentLogger } from "../../src/logging/logger.js";
 import { truncateDisplayText } from "../../src/codex/codex-cli.js";
 import { codexInputPlainText, normalizeCodexInput } from "../../src/codex/input.js";
 import type { CodexAdapter, CodexBackgroundEventHandler, CodexCollaborationMode, CodexCompactResult, CodexEvent, CodexGoal, CodexPromptInput, CodexRunOptions, CodexSession, CodexSessionContextUsage, CodexSessionStatus, CodexSessionSummary, CodexTurnInput, StartSessionInput } from "../../src/codex/types.js";
@@ -297,11 +302,13 @@ class PlanFinalCodexAdapter extends MockCodexAdapter {
 class PlanWorkflowCodexAdapter extends MockCodexAdapter {
   readonly prompts: string[] = [];
   readonly modeRuns: Array<CodexCollaborationMode | undefined> = [];
+  readonly permissionModeRuns: Array<CodexRunOptions["claudePermissionMode"]> = [];
 
   override async *run(sessionId: string, prompt: CodexPromptInput, options: CodexRunOptions = {}): AsyncIterable<CodexEvent> {
     const promptText = codexInputPlainText(prompt);
     this.prompts.push(promptText);
     this.modeRuns.push(options.collaborationMode);
+    this.permissionModeRuns.push(options.claudePermissionMode);
     const turnId = `plan-workflow-turn-${this.prompts.length}`;
     yield { type: "turn.started", sessionId, turnId };
     if (options.collaborationMode === "plan") {
@@ -668,7 +675,7 @@ test("Bridge sends approval action buttons when channel supports buttons", async
   assert.equal(channel.sentActionMessages.length, 1);
   const approvalActions = channel.sentActionMessages[0]?.message;
   assert.ok(approvalActions?.text.includes("Codex 请求审批"));
-  assert.deepEqual(approvalActions?.buttonGroups[0]?.map((button) => button.action), ["cmd:/OK", "cmd:/P", "cmd:/NO"]);
+  assert.deepEqual(approvalActions?.buttonGroups[0]?.map((button) => button.action), ["cmd:/1 a001", "cmd:/2 a001", "cmd:/3 a001"]);
   assert.equal(channel.sentMessages.some((message) => message.text.includes("Codex 请求审批")), false);
 
   await channel.emitText("/OK");
@@ -705,6 +712,31 @@ test("Bridge creates Codex App chat sessions with optional first prompt", async 
   assert.ok(channel.sentMessages.some((message) => message.text.includes("Mock Codex 回复: 帮我总结这个项目")));
 });
 
+
+(process.env.CHAT_CODEX_CLAUDE_SDK_SMOKE === "1" ? test : test.skip)("Bridge resumes Claude SDK tool execution after numeric approval", async () => {
+  const channel = new MockChannelAdapter();
+  const approvals = new ApprovalManager();
+  const logger = new SilentLogger();
+  const delivery = new BridgeDelivery({ channels: new ChannelRegistry({ channels: [channel], logger }), approvals, logger, approvalSendRetryDelayMs: 1, backend: "claude" });
+  const approvalService = new ClaudeApprovalService({ approvals, delivery, logger });
+  const adapter = new ClaudeSdkAdapter({ approvalService });
+  const bridge = new Bridge({ channel, codex: adapter, approvals, logger, cwd: process.cwd() });
+  const fileName = `bridge-sdk-approval-${Date.now()}.tmp`;
+  await bridge.start();
+
+  try {
+    await channel.emitText("/new");
+    const promptPromise = channel.emitText(`必须调用 Bash 工具，命令必须完全等于：cmd /c type nul > ${fileName}。不要调用任何其他命令，不要解释。`);
+    await waitFor(() => channel.sentMessages.some((message) => message.text.includes("请选择处理方式")), 90_000);
+    await channel.emitText("/1");
+    await waitFor(() => fs.existsSync(path.join(process.cwd(), fileName)), 90_000);
+    await promptPromise;
+    assert.equal(fs.existsSync(path.join(process.cwd(), fileName)), true);
+  } finally {
+    fs.rmSync(path.join(process.cwd(), fileName), { force: true });
+    await bridge.stop();
+  }
+});
 test("Bridge handles compact confirmation and success over mock channel", async () => {
   const channel = new MockChannelAdapter({ typing: true });
   const codex = new ContextUsageCodexAdapter();
@@ -1142,11 +1174,10 @@ test("Bridge switches persistent collaboration mode with /plan and /code", async
   assert.ok(help.includes("- `/plan [任务]`: 进入 Chat-Codex 计划模式；带任务时立即用计划模式处理"));
   assert.ok(help.includes("- `/code [任务]`: 切回默认执行模式，或用默认模式处理任务。"));
   assert.ok(help.includes("  - 别名：`/default [任务]`"));
-  assert.ok(help.includes("- `/plan-execute`: 执行待处理计划"));
+  assert.ok(help.includes("- `/plan-execute`: 接受待处理计划并使用 Claude Code auto mode 执行。"));
   assert.ok(help.includes("  - 别名：`/1`"));
-  assert.ok(help.includes("- `/plan-edit`: 按当前权限策略执行待处理计划"));
-  assert.ok(help.includes("如需 Claude acceptEdits，请先明确切换权限模式"));
-  assert.ok(help.includes("  - 别名：`/plan-accept-edits`、`/2`"));
+  assert.ok(help.includes("- `/plan-edit`: 接受待处理计划并手动审批编辑。"));
+  assert.ok(help.includes("  - 别名：`/2`"));
   assert.equal(help.includes("切到 Claude acceptEdits 语义"), false);
   assert.ok(channel.sentMessages.some((message) => message.text.includes("已进入 Plan mode")));
   assert.ok(channel.sentMessages.some((message) => message.text.includes("已切回默认执行模式")));
@@ -1185,19 +1216,17 @@ test("Bridge shows Chat-Codex plan workflow choices and executes accepted plan",
   await bridge.waitForIdle();
   await bridge.stop();
 
-  const planMessage = channel.sentMessages.find((message) => message.text.includes("Chat-Codex 计划快捷回复"))?.text ?? "";
+  const planMessage = channel.sentMessages.find((message) => message.text.includes("Claude Code 计划快捷回复"))?.text ?? "";
   const statusMessage = channel.sentMessages.find((message) => message.text.includes("**待处理计划**"))?.text ?? "";
-  assert.ok(planMessage.includes("不是 Claude 原生 TUI 选项"));
-  assert.ok(planMessage.includes("/plan-execute 或 /1"));
-  assert.ok(planMessage.includes("/plan-edit 或 /2 按当前权限策略执行这个计划"));
-  assert.ok(planMessage.includes("/permission acceptEdits"));
-  assert.ok(planMessage.includes("/replan <补充> 或 /3 <补充> 继续规划/修改计划，不执行代码修改"));
-  assert.equal(planMessage.includes("切到 Claude acceptEdits 语义"), false);
+  assert.ok(planMessage.includes("/plan-execute 或 /1 接受计划并使用 auto mode 执行"));
+  assert.ok(planMessage.includes("/plan-edit 或 /2 接受计划并手动审批编辑"));
+  assert.ok(planMessage.includes("/replan <补充> 或 /3 <补充> 告诉 Claude 要修改什么，不执行代码修改"));
   assert.ok(statusMessage.includes("下一步：请处理待处理计划"));
-  assert.ok(statusMessage.includes("/2") && statusMessage.includes("按当前权限执行"));
-  assert.equal(statusMessage.includes("/2` 修改"), false);
+  assert.ok(statusMessage.includes("/1") && statusMessage.includes("auto mode"));
+  assert.ok(statusMessage.includes("/2") && statusMessage.includes("手动审批编辑"));
   assert.ok(statusMessage.includes("/1") && statusMessage.includes("/4"));
   assert.deepEqual(codex.modeRuns, ["plan", "default"]);
+  assert.deepEqual(codex.permissionModeRuns, [undefined, "auto"]);
   assert.match(codex.prompts[1], /请按以下已批准的计划执行/);
   assert.match(codex.prompts[1], /实现小功能/);
 });
@@ -1211,7 +1240,7 @@ test("Bridge sends plan workflow action buttons when channel supports buttons", 
   await channel.emitText("/plan 实现小功能");
   await bridge.waitForIdle();
 
-  const planActions = channel.sentActionMessages.find((message) => message.message.text.includes("Chat-Codex 计划快捷回复"))?.message;
+  const planActions = channel.sentActionMessages.find((message) => message.message.text.includes("Claude Code 计划快捷回复"))?.message;
   assert.ok(planActions);
   assert.ok(planActions.text.includes("实现小功能"));
   assert.deepEqual(planActions.buttonGroups[0]?.map((button) => button.action), ["cmd:/plan-execute", "cmd:/plan-edit", "cmd:/replan", "cmd:/plan-cancel"]);
@@ -1222,10 +1251,28 @@ test("Bridge sends plan workflow action buttons when channel supports buttons", 
   await bridge.stop();
 
   assert.deepEqual(codex.modeRuns, ["plan", "default"]);
+  assert.deepEqual(codex.permissionModeRuns, [undefined, "auto"]);
   assert.match(codex.prompts[1], /请按以下已批准的计划执行/);
   assert.equal(channel.updatedMessages.length, 1);
   assert.equal(channel.updatedMessages[0]?.messageId, "mock-action-1");
   assert.match(channel.updatedMessages[0]?.text ?? "", /计划已接受/);
+});
+
+test("Bridge /2 executes accepted plan with manual edit approvals", async () => {
+  const channel = new MockChannelAdapter();
+  const codex = new PlanWorkflowCodexAdapter();
+  const bridge = new Bridge({ channel, codex, cwd: process.cwd() });
+
+  await bridge.start();
+  await channel.emitText("/plan 实现小功能");
+  await bridge.waitForIdle();
+  await channel.emitText("/2");
+  await bridge.waitForIdle();
+  await bridge.stop();
+
+  assert.deepEqual(codex.modeRuns, ["plan", "default"]);
+  assert.deepEqual(codex.permissionModeRuns, [undefined, "default"]);
+  assert.ok(channel.sentMessages.some((message) => message.text.includes("手动审批编辑")));
 });
 
 test("Bridge replans and cancels pending plan workflow", async () => {
@@ -1316,10 +1363,10 @@ test("Bridge keeps Claude profile root approval and plan shortcuts local when pe
 
   assert.deepEqual(codex.modeRuns, ["plan", "default"]);
   assert.ok(channel.sentMessages.some((message) => message.text.includes("已接受计划")));
-  const planMessage = channel.sentMessages.find((message) => message.text.includes("Chat-Codex 计划快捷回复"))?.text ?? "";
-  assert.ok(planMessage.includes("/plan-execute 或 /1"));
-  assert.ok(planMessage.includes("/plan-edit 或 /2"));
-  assert.ok(planMessage.includes("/permission acceptEdits"));
+  const planMessage = channel.sentMessages.find((message) => message.text.includes("Claude Code 计划快捷回复"))?.text ?? "";
+  assert.ok(planMessage.includes("/plan-execute 或 /1 接受计划并使用 auto mode 执行"));
+  assert.ok(planMessage.includes("/plan-edit 或 /2 接受计划并手动审批编辑"));
+  assert.ok(planMessage.includes("告诉 Claude 要修改什么"));
   assert.ok(planMessage.includes("/replan <补充> 或 /3 <补充>"));
   assert.ok(planMessage.includes("/plan-cancel 或 /4"));
   assert.equal(planMessage.includes("/bridge-plan-execute"), false);

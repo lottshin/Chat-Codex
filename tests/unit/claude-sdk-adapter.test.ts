@@ -127,6 +127,21 @@ test("ClaudeSdkAdapter maps SDK messages to Codex events and captures session id
   assert.equal((await adapter.listSessions())[0]?.backendSessionId, "sdk-session-1");
 });
 
+test("ClaudeSdkAdapter maps ExitPlanMode tool use to plan events", async () => {
+  const client = new FakeClaudeSdkClient();
+  client.messages = [
+    { type: "assistant", session_id: "sdk-session-1", message: { content: [{ type: "tool_use", name: "ExitPlanMode", input: { plan: "# Plan\n\n1. Do it" } }] } },
+    { type: "result", subtype: "success", session_id: "sdk-session-1", result: "Plan ready for review." },
+  ];
+  const adapter = new ClaudeSdkAdapter({ client });
+  const session = await adapter.startSession({ routeKey: "route-1", cwd: process.cwd() });
+
+  const events = await collect(adapter.run(session.id, "make a plan", { collaborationMode: "plan" }));
+
+  assert.ok(events.some((event) => event.type === "assistant.plan" && event.text === "# Plan\n\n1. Do it"));
+  assert.ok(events.some((event) => event.type === "assistant.completed" && event.text === "Plan ready for review."));
+});
+
 test("ClaudeSdkAdapter uses captured backend session id for later turns", async () => {
   const client = new FakeClaudeSdkClient();
   client.messages = [{ type: "system", subtype: "init", session_id: "actual-session" }];
@@ -318,15 +333,29 @@ test("ClaudeSdkAdapter maps SDK canUseTool allow decisions", async () => {
 
   registration.dispose();
   assert.equal(approvalService.requests.length, 1);
-  assert.deepEqual(client.queryRef?.canUseToolResults[0], { behavior: "allow", toolUseID: "tool-1" });
+  assert.deepEqual(client.queryRef?.canUseToolResults[0], { behavior: "allow", updatedInput: { file_path: "package.json" } });
 });
 
-test("ClaudeSdkAdapter returns SDK updatedPermissions for approve-session decisions", async () => {
+test("ClaudeSdkAdapter forwards rich SDK canUseTool metadata for approval probes", async () => {
   const client = new FakeClaudeSdkClient();
-  const updatedPermissions: ClaudeSdkPermissionUpdate[] = [{ type: "addRules", behavior: "allow", destination: "session", rules: [{ toolName: "Read", ruleContent: "package.json" }] }];
+  const updatedPermissions: ClaudeSdkPermissionUpdate[] = [
+    { type: "addRules", behavior: "allow", destination: "session", rules: [{ toolName: "Read", ruleContent: "package.json" }] },
+    { type: "setMode", mode: "acceptEdits", destination: "session" },
+  ];
   const approvalService = fakeApprovalService({ behavior: "allow", updatedPermissions });
   client.messages = [
-    { type: "canUseTool", toolName: "Read", input: { file_path: "package.json" }, toolUseID: "tool-1", suggestions: updatedPermissions },
+    {
+      type: "canUseTool",
+      toolName: "Read",
+      input: { file_path: "package.json" },
+      toolUseID: "tool-1",
+      title: "Read file?",
+      displayName: "Read",
+      description: "Read package metadata",
+      blockedPath: "package.json",
+      decisionReason: "requires permission",
+      suggestions: updatedPermissions,
+    },
     { type: "result", subtype: "success", session_id: "sdk-session", result: "ok" },
   ];
   const adapter = new ClaudeSdkAdapter({ client, approvalService: approvalService as never });
@@ -336,8 +365,21 @@ test("ClaudeSdkAdapter returns SDK updatedPermissions for approve-session decisi
   await collect(adapter.run(session.id, "hi"));
 
   registration.dispose();
-  assert.deepEqual((approvalService.requests[0] as { suggestions?: unknown[] }).suggestions, updatedPermissions);
-  assert.deepEqual(client.queryRef?.canUseToolResults[0], { behavior: "allow", toolUseID: "tool-1", updatedPermissions });
+  assert.deepEqual(approvalService.requests[0], {
+    tool_name: "Read",
+    toolName: "Read",
+    input: { file_path: "package.json" },
+    tool_input: { file_path: "package.json" },
+    tool_use_id: "tool-1",
+    toolUseId: "tool-1",
+    title: "Read file?",
+    displayName: "Read",
+    description: "Read package metadata",
+    blockedPath: "package.json",
+    decisionReason: "requires permission",
+    suggestions: updatedPermissions,
+  });
+  assert.deepEqual(client.queryRef?.canUseToolResults[0], { behavior: "allow", updatedInput: { file_path: "package.json" }, updatedPermissions });
 });
 test("ClaudeSdkAdapter maps SDK canUseTool deny decisions", async () => {
   const client = new FakeClaudeSdkClient();
@@ -363,6 +405,20 @@ test("ClaudeSdkAdapter reports interactive approvals when approval service is co
 
   assert.equal(status.interactiveApprovals, true);
   assert.equal(status.effectiveApprovalPolicy, "on-request");
+});
+
+test("ClaudeSdkAdapter omits approval bridge in plan mode unless probe is enabled", async () => {
+  const client = new FakeClaudeSdkClient();
+  const approvalService = fakeApprovalService({ behavior: "allow" });
+  client.messages = [{ type: "result", subtype: "success", session_id: "sdk-session", result: "ok" }];
+  const adapter = new ClaudeSdkAdapter({ client, approvalService: approvalService as never });
+  const session = await adapter.startSession({ routeKey: "route-1", cwd: process.cwd() });
+  adapter.setCollaborationMode("plan", session.id);
+
+  await collect(adapter.run(session.id, "hi"));
+
+  assert.equal(client.calls[0]?.options?.permissionMode, "plan");
+  assert.equal(client.calls[0]?.options?.canUseTool, undefined);
 });
 
 test("ClaudeSdkAdapter omits approval bridge in full permission mode", async () => {

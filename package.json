@@ -43,6 +43,7 @@
     "test": "npm run build && node scripts/run-tests.mjs unit integration",
     "test:unit": "npm run build && node scripts/run-tests.mjs unit",
     "test:integration": "npm run build && node scripts/run-tests.mjs integration",
+    "smoke:plan": "npm run build && node scripts/smoke-plan-workflow.mjs",
     "chat-codex": "npm run build && node dist/src/cli.js",
     "cli:chat-codex": "npm run build && node dist/src/cli.js",
     "cli:mock": "npm run build && node dist/src/cli.js test",

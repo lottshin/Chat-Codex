@@ -1,6 +1,6 @@
 import type { ApprovalManager } from "../approvals/approval-manager.js";
 import { backendDisplayName, type AiBackend, type CommandNamespaceProfile } from "../backend/metadata.js";
-import type { CodexAdapter, CodexCollaborationMode, CodexProgressKind, CodexPromptInput, CodexRunApprovalContextRegistration } from "../codex/types.js";
+import type { CodexAdapter, CodexCollaborationMode, CodexProgressKind, CodexPromptInput, CodexRunApprovalContextRegistration, CodexRunOptions } from "../codex/types.js";
 import { codexInputPlainText, codexInputText, withCodexInputText } from "../codex/input.js";
 import type { TranscriptSink } from "../logging/transcript.js";
 import type { ChannelMessage, ChannelTarget } from "../protocol/channel.js";
@@ -94,7 +94,7 @@ export class BridgeRouteQueue {
     message: ChannelMessage,
     target: ChannelTarget,
     prompt: CodexPromptInput,
-    options?: { collaborationMode?: CodexCollaborationMode; sendFile?: boolean },
+    options?: { collaborationMode?: CodexCollaborationMode; runOptions?: Omit<CodexRunOptions, "collaborationMode">; sendFile?: boolean },
   ): Promise<void> {
     if (this.sessionFlow.shouldAskBeforeBindingSession(message)) {
       await this.delivery.sendText(target, this.sessionFlow.unboundRoutePromptText(message));
@@ -107,6 +107,7 @@ export class BridgeRouteQueue {
       target,
       input: prompt,
       collaborationMode: options?.collaborationMode ?? this.currentCollaborationMode(message.routeKey),
+      runOptions: options?.runOptions,
       sendFile: options?.sendFile ?? false,
     });
     this.queues.set(message.routeKey, queue);
@@ -175,7 +176,7 @@ export class BridgeRouteQueue {
       const task = queue?.shift();
       if (!task) return;
       try {
-        await this.forwardPrompt(task.message, task.target, task.input, queue?.length ?? 0, task.sendFile, task.collaborationMode);
+        await this.forwardPrompt(task.message, task.target, task.input, queue?.length ?? 0, task.sendFile, task.collaborationMode, task.runOptions);
       } catch (error) {
         if (error instanceof TurnSchedulerAbortError) continue;
         const errorText = `Codex 执行失败: ${error instanceof Error ? error.message : String(error)}`;
@@ -192,6 +193,7 @@ export class BridgeRouteQueue {
     remainingQueued: number,
     sendFile: boolean,
     collaborationMode: CodexCollaborationMode | undefined,
+    runOptions: Omit<CodexRunOptions, "collaborationMode"> | undefined,
   ): Promise<void> {
     const refreshMode = this.contextRefresh?.effectivePolicy(message.routeKey).policy.mode;
     const session = await this.sessionFlow.ensureSession(message, {
@@ -236,7 +238,7 @@ export class BridgeRouteQueue {
               : withCodexInputText(prompt, withSendFileInstruction(promptText))
             : prompt;
           try {
-            for await (const event of this.codex.run(session.id, codexPrompt, collaborationMode ? { collaborationMode } : undefined)) {
+            for await (const event of this.codex.run(session.id, codexPrompt, { ...runOptions, ...(collaborationMode ? { collaborationMode } : {}) })) {
               if (event.type === "turn.started") {
                 currentTurnStartedAt = event.startedAt ?? new Date().toISOString();
                 const registeredApprovalContext = this.codex.registerRunApprovalContext?.({

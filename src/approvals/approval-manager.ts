@@ -93,7 +93,7 @@ export class ApprovalManager {
     });
   }
 
-  decide(approvalKey: string, routeKey: string, decision: ApprovalDecision): PendingApproval {
+  decide(approvalKey: string, routeKey: string, decision: ApprovalDecision, selectedOptionId?: string): PendingApproval {
     this.expireOld();
     const pending = this.approvals.get(approvalKey);
     if (!pending) {
@@ -105,7 +105,7 @@ export class ApprovalManager {
     if (pending.routeKey !== routeKey) {
       throw new Error([
         `审批请求 ${approvalKey} 不属于当前会话`,
-        "下一步：请回到收到审批提示的原聊天，并发送提示中列出的命令，例如 /OK、/NO 或数字选项。",
+        "下一步：请回到收到审批提示的原聊天，并发送提示中实际列出的命令。",
       ].join("\n"));
     }
     if (pending.status !== "pending") {
@@ -114,7 +114,16 @@ export class ApprovalManager {
         "下一步：如需继续，请发送新的任务；如需查看当前状态，请发送 /status。",
       ].join("\n"));
     }
-    this.finalize(pending, { status: "resolved", decision });
+    if (selectedOptionId) {
+      const selectedOption = pending.approvalOptions?.find((option) => option.id === selectedOptionId);
+      if (!selectedOption || selectedOption.decision !== decision) {
+        throw new Error([
+          `审批选项无效: ${selectedOptionId}`,
+          "下一步：请发送审批提示中实际列出的命令；不确定时发送 /status 查看当前待处理审批。",
+        ].join("\n"));
+      }
+    }
+    this.finalize(pending, { status: "resolved", decision, selectedOptionId });
     return pending;
   }
 
@@ -169,11 +178,12 @@ export class ApprovalManager {
 
   private finalize(
     approval: PendingApproval,
-    updates: Pick<PendingApproval, "status" | "decision" | "decisionReason">,
+    updates: Pick<PendingApproval, "status" | "decision" | "decisionReason"> & Pick<Partial<PendingApproval>, "selectedOptionId">,
   ): void {
     approval.status = updates.status;
     approval.decision = updates.decision;
     approval.decisionReason = updates.decisionReason;
+    approval.selectedOptionId = updates.selectedOptionId;
     this.approvals.set(approval.approvalKey, approval);
     this.notifyWaiters(approval);
   }
