@@ -37,15 +37,15 @@ test("approvalActionMessage renders buttons from pending approval choices", () =
     turnId: "t1",
     itemId: "i1",
     approvalOptions: [
-      { id: "current", decision: "approve", label: "允许本次", description: "通过当前审批" },
-      { id: "remember", decision: "approve-session", label: "记住规则", description: "允许此命令后续不再询问", updatedPermissions: [{ type: "addRules" }] },
-      { id: "accept-edits", decision: "approve-session", label: "Accept edits", description: "切换到 Accept edits", updatedPermissions: [{ type: "setMode", mode: "acceptEdits" }] },
-      { id: "deny", decision: "deny", label: "拒绝", description: "拒绝当前审批" },
+      { id: "current", decision: "approve", label: "Yes", description: "Yes" },
+      { id: "remember", decision: "approve-session", label: "Don't ask again", description: "Yes, and don't ask again for: cmd *", updatedPermissions: [{ type: "addRules" }] },
+      { id: "accept-edits", decision: "approve-session", label: "Allow edits", description: "Yes, allow all edits during this session", updatedPermissions: [{ type: "setMode", mode: "acceptEdits" }] },
+      { id: "deny", decision: "deny", label: "No", description: "No" },
     ],
   });
 
   assert.deepEqual(message.buttonGroups.map((group) => group.map((button) => button.action)), [["cmd:/1 a001", "cmd:/2 a001", "cmd:/3 a001"], ["cmd:/4 a001"]]);
-  assert.deepEqual(message.buttonGroups.flat().map((button) => button.text), ["允许本次", "记住规则", "Accept edits", "拒绝"]);
+  assert.deepEqual(message.buttonGroups.flat().map((button) => button.text), ["Yes", "Don't ask again", "Allow edits", "No"]);
   assert.deepEqual(message.buttonGroups.flat().map((button) => button.style), ["primary", "default", "default", "danger"]);
 });
 

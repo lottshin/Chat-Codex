@@ -126,9 +126,9 @@ test("normalizeClaudePermissionPrompt creates native-like approval options from 
   assert.equal(result.ok, true);
   if (!result.ok) return;
   assert.deepEqual(result.approval.approvalOptions?.map((option) => ({ id: option.id, decision: option.decision, label: option.label, description: option.description, updatedPermissions: option.updatedPermissions })), [
-    { id: "current", decision: "approve", label: "允许本次", description: "通过当前审批", updatedPermissions: undefined },
-    { id: "remember-bash", decision: "approve-session", label: "不再询问", description: "允许此命令后续不再询问", updatedPermissions: [addRule, addDirectory] },
-    { id: "deny", decision: "deny", label: "拒绝", description: "拒绝当前审批", updatedPermissions: undefined },
+    { id: "current", decision: "approve", label: "Yes", description: "Yes", updatedPermissions: undefined },
+    { id: "remember-bash", decision: "approve-session", label: "Don't ask again", description: "Yes, and don't ask again for: npm *", updatedPermissions: [addRule, addDirectory] },
+    { id: "deny", decision: "deny", label: "No", description: "No", updatedPermissions: undefined },
   ]);
 });
 
@@ -145,9 +145,28 @@ test("normalizeClaudePermissionPrompt creates accept-edits approval option", () 
   assert.equal(result.ok, true);
   if (!result.ok) return;
   assert.deepEqual(result.approval.approvalOptions?.map((option) => ({ id: option.id, decision: option.decision, label: option.label, description: option.description, updatedPermissions: option.updatedPermissions })), [
-    { id: "current", decision: "approve", label: "允许本次", description: "通过当前审批", updatedPermissions: undefined },
-    { id: "mode-acceptEdits", decision: "approve-session", label: "Accept edits", description: "自动接受后续编辑", updatedPermissions: [acceptEdits] },
-    { id: "deny", decision: "deny", label: "拒绝", description: "拒绝当前审批", updatedPermissions: undefined },
+    { id: "current", decision: "approve", label: "Yes", description: "Yes", updatedPermissions: undefined },
+    { id: "mode-acceptEdits", decision: "approve-session", label: "Allow edits", description: "Yes, allow all edits during this session", updatedPermissions: [acceptEdits] },
+    { id: "deny", decision: "deny", label: "No", description: "No", updatedPermissions: undefined },
+  ]);
+});
+
+test("normalizeClaudePermissionPrompt summarizes read directory rules from SDK suggestions", () => {
+  const addRule = { type: "addRules", behavior: "allow", destination: "session", rules: [{ toolName: "Read", ruleContent: "//c/Users/New_god/cc-option-smoke/**" }] };
+
+  const result = normalizeClaudePermissionPrompt({
+    tool_name: "Read",
+    tool_use_id: "toolu-read-options",
+    input: { file_path: "C:\\Users\\New_god\\cc-option-smoke\\a.txt" },
+    suggestions: [addRule],
+  }, context);
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.deepEqual(result.approval.approvalOptions?.map((option) => ({ id: option.id, decision: option.decision, label: option.label, description: option.description })), [
+    { id: "current", decision: "approve", label: "Yes", description: "Yes" },
+    { id: "remember-read", decision: "approve-session", label: "Don't ask again", description: "Yes, allow reading from cc-option-smoke/ during this session" },
+    { id: "deny", decision: "deny", label: "No", description: "No" },
   ]);
 });
 
