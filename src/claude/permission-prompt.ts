@@ -108,9 +108,9 @@ function stringValue(value: unknown): string | undefined {
 function approvalOptionsForPermissionSuggestions(suggestions: unknown[]): ApprovalOption[] {
   const sessionOption = sessionApprovalOptionForPermissionSuggestions(suggestions);
   return [
-    { id: "current", decision: "approve", label: "允许本次", description: "通过当前审批" },
+    { id: "current", decision: "approve", label: "Yes", description: "Yes" },
     ...(sessionOption ? [sessionOption] : []),
-    { id: "deny", decision: "deny", label: "拒绝", description: "拒绝当前审批" },
+    { id: "deny", decision: "deny", label: "No", description: "No" },
   ];
 }
 
@@ -126,19 +126,19 @@ function sessionApprovalOptionForPermissionSuggestions(suggestions: unknown[]): 
     return {
       id: "mode-acceptEdits",
       decision: "approve-session",
-      label: "Accept edits",
-      description: "自动接受后续编辑",
+      label: "Allow edits",
+      description: "Yes, allow all edits during this session",
       updatedPermissions: suggestions,
     };
   }
 
   const ruleSuggestion = updates.find((suggestion) => stringValue(suggestion.type) === "addRules");
   if (!ruleSuggestion) return undefined;
-  const ruleLabel = labelForRuleUpdate(ruleSuggestion) ?? "允许后续同类操作不再询问";
+  const ruleLabel = labelForRuleUpdate(ruleSuggestion) ?? "Yes, don't ask again for this session";
   return {
     id: optionIdForRuleUpdate(ruleSuggestion),
     decision: "approve-session",
-    label: "不再询问",
+    label: "Don't ask again",
     description: ruleLabel,
     updatedPermissions: suggestions,
   };
@@ -155,9 +155,28 @@ function labelForRuleUpdate(record: Record<string, unknown> | undefined): string
   const rules = Array.isArray(record?.rules) ? record.rules : [];
   const firstRule = objectValue(rules[0]);
   const toolName = stringValue(firstRule?.toolName);
-  if (toolName === "Bash") return "允许此命令后续不再询问";
-  if (toolName) return `允许 ${toolName} 后续同类操作不再询问`;
+  const ruleContent = stringValue(firstRule?.ruleContent);
+  if (toolName === "Bash") return `Yes, and don't ask again for: ${summarizeBashRule(ruleContent)}`;
+  if (toolName === "Read") {
+    const directory = summarizeReadDirectoryRule(ruleContent);
+    return directory ? `Yes, allow reading from ${directory} during this session` : "Yes, allow reading during this session";
+  }
+  if (toolName) return `Yes, don't ask again for ${toolName}`;
   return undefined;
+}
+
+function summarizeBashRule(ruleContent: string | undefined): string {
+  if (!ruleContent) return "this command";
+  const parts = ruleContent.split(/\s+/).filter(Boolean);
+  return parts.length > 0 ? `${parts[0]} *` : ruleContent;
+}
+
+function summarizeReadDirectoryRule(ruleContent: string | undefined): string | undefined {
+  if (!ruleContent) return undefined;
+  const normalized = ruleContent.replace(/\\/g, "/").replace(/\/\*\*$/, "");
+  const parts = normalized.split("/").filter(Boolean);
+  const last = parts.at(-1);
+  return last ? `${last}/` : undefined;
 }
 function riskyCommand(command: string): boolean {
   return /(^|\s)(sudo|rm|chmod|chown|mv|dd|mkfs|diskutil)(\s|$)/.test(command);

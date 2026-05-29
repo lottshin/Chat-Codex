@@ -327,13 +327,13 @@ test("BridgeStatusText shows actionable next step for pending plan workflows", a
 
   assert.match(text, /\*\*待处理计划\*\*/);
   assert.match(text, /下一步：请处理待处理计划/);
-  assert.match(text, /`\/1` 用 auto mode 执行/);
+  assert.match(text, /`\/1` 使用 auto mode/);
   assert.match(text, /`\/2` 手动审批编辑/);
-  assert.match(text, /\/plan-edit 或 \/2 接受计划并手动审批编辑/);
+  assert.match(text, /\/plan-edit 或 \/2 Yes, manually approve edits/);
   assert.doesNotMatch(text, /\/2` 修改/);
   assert.doesNotMatch(text, /切到 Claude acceptEdits 语义/);
   assert.match(text, /`\/3`/);
-  assert.match(text, /`\/4`/);
+  assert.doesNotMatch(text, /`\/4`/);
 });
 
 test("BridgeStatusText shows pending plan guidance by command profile", async () => {
@@ -361,11 +361,11 @@ test("BridgeStatusText shows pending plan guidance by command profile", async ()
 
   const text = await statusText({ state, commandProfile: "claude", planWorkflow: workflow });
 
-  assert.match(text, /\/plan-execute 或 \/1 接受计划并使用 auto mode 执行/);
-  assert.match(text, /\/plan-edit 或 \/2 接受计划并手动审批编辑/);
-  assert.match(text, /告诉 Claude 要修改什么/);
+  assert.match(text, /\/plan-execute 或 \/1 Yes, and use auto mode/);
+  assert.match(text, /\/plan-edit 或 \/2 Yes, manually approve edits/);
+  assert.match(text, /Tell Claude what to change/);
   assert.match(text, /\/replan <补充> 或 \/3 <补充>/);
-  assert.match(text, /\/plan-cancel 或 \/4/);
+  assert.doesNotMatch(text, /\/plan-cancel 或 \/4/);
   assert.doesNotMatch(text, /\/bridge-plan-execute/);
   assert.doesNotMatch(text, /\/bridge-permission acceptEdits/);
 });

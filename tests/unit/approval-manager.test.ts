@@ -80,19 +80,19 @@ test("ApprovalManager renders granular approval options", () => {
     turnId: "t1",
     itemId: "i1",
     approvalOptions: [
-      { id: "current", decision: "approve", label: "允许本次", description: "通过当前审批" },
-      { id: "sdk-1", decision: "approve-session", label: "记住规则", description: "允许此命令后续不再询问", updatedPermissions: [{ type: "addRules" }] },
-      { id: "sdk-2", decision: "approve-session", label: "Accept edits", description: "切换到 Accept edits", updatedPermissions: [{ type: "setMode", mode: "acceptEdits" }] },
-      { id: "deny", decision: "deny", label: "拒绝", description: "拒绝当前审批" },
+      { id: "current", decision: "approve", label: "Yes", description: "Yes" },
+      { id: "sdk-1", decision: "approve-session", label: "Don't ask again", description: "Yes, and don't ask again for: cmd *", updatedPermissions: [{ type: "addRules" }] },
+      { id: "sdk-2", decision: "approve-session", label: "Allow edits", description: "Yes, allow all edits during this session", updatedPermissions: [{ type: "setMode", mode: "acceptEdits" }] },
+      { id: "deny", decision: "deny", label: "No", description: "No" },
     ],
   });
 
   const text = manager.formatForChannel(pending);
 
-  assert.match(text, /`\/OK` 或 `\/1`：通过当前审批/);
-  assert.match(text, /`\/2`：允许此命令后续不再询问/);
-  assert.match(text, /`\/3`：切换到 Accept edits/);
-  assert.match(text, /`\/NO` 或 `\/4`：拒绝当前审批/);
+  assert.match(text, /`\/OK` 或 `\/1`：Yes/);
+  assert.match(text, /`\/2`：Yes, and don't ask again for: cmd \*/);
+  assert.match(text, /`\/3`：Yes, allow all edits during this session/);
+  assert.match(text, /`\/NO` 或 `\/4`：No/);
   assert.doesNotMatch(text, /`\/P`/);
 });
 test("ApprovalManager only expires approvals when ttl is configured", () => {

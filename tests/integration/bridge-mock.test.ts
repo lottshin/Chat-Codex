@@ -1216,15 +1216,16 @@ test("Bridge shows Chat-Codex plan workflow choices and executes accepted plan",
   await bridge.waitForIdle();
   await bridge.stop();
 
-  const planMessage = channel.sentMessages.find((message) => message.text.includes("Claude Code 计划快捷回复"))?.text ?? "";
+  const planMessage = channel.sentMessages.find((message) => message.text.includes("Claude has written up a plan"))?.text ?? "";
   const statusMessage = channel.sentMessages.find((message) => message.text.includes("**待处理计划**"))?.text ?? "";
-  assert.ok(planMessage.includes("/plan-execute 或 /1 接受计划并使用 auto mode 执行"));
-  assert.ok(planMessage.includes("/plan-edit 或 /2 接受计划并手动审批编辑"));
-  assert.ok(planMessage.includes("/replan <补充> 或 /3 <补充> 告诉 Claude 要修改什么，不执行代码修改"));
+  assert.ok(planMessage.includes("/plan-execute 或 /1 Yes, and use auto mode"));
+  assert.ok(planMessage.includes("/plan-edit 或 /2 Yes, manually approve edits"));
+  assert.ok(planMessage.includes("/replan <补充> 或 /3 <补充> Tell Claude what to change"));
+  assert.equal(planMessage.includes("/plan-cancel"), false);
   assert.ok(statusMessage.includes("下一步：请处理待处理计划"));
   assert.ok(statusMessage.includes("/1") && statusMessage.includes("auto mode"));
-  assert.ok(statusMessage.includes("/2") && statusMessage.includes("手动审批编辑"));
-  assert.ok(statusMessage.includes("/1") && statusMessage.includes("/4"));
+  assert.ok(statusMessage.includes("/2") && statusMessage.includes("manually approve edits"));
+  assert.ok(statusMessage.includes("/3") && statusMessage.includes("Tell Claude what to change"));
   assert.deepEqual(codex.modeRuns, ["plan", "default"]);
   assert.deepEqual(codex.permissionModeRuns, [undefined, "auto"]);
   assert.match(codex.prompts[1], /请按以下已批准的计划执行/);
@@ -1240,10 +1241,10 @@ test("Bridge sends plan workflow action buttons when channel supports buttons", 
   await channel.emitText("/plan 实现小功能");
   await bridge.waitForIdle();
 
-  const planActions = channel.sentActionMessages.find((message) => message.message.text.includes("Claude Code 计划快捷回复"))?.message;
+  const planActions = channel.sentActionMessages.find((message) => message.message.text.includes("Claude has written up a plan"))?.message;
   assert.ok(planActions);
   assert.ok(planActions.text.includes("实现小功能"));
-  assert.deepEqual(planActions.buttonGroups[0]?.map((button) => button.action), ["cmd:/plan-execute", "cmd:/plan-edit", "cmd:/replan", "cmd:/plan-cancel"]);
+  assert.deepEqual(planActions.buttonGroups[0]?.map((button) => button.action), ["cmd:/plan-execute", "cmd:/plan-edit", "cmd:/replan"]);
   assert.equal(channel.sentMessages.some((message) => message.text.includes("Chat-Codex 计划快捷回复")), false);
 
   await channel.emitText("/plan-execute");
@@ -1272,7 +1273,7 @@ test("Bridge /2 executes accepted plan with manual edit approvals", async () => 
 
   assert.deepEqual(codex.modeRuns, ["plan", "default"]);
   assert.deepEqual(codex.permissionModeRuns, [undefined, "default"]);
-  assert.ok(channel.sentMessages.some((message) => message.text.includes("手动审批编辑")));
+  assert.ok(channel.sentMessages.some((message) => message.text.includes("manually approve edits")));
 });
 
 test("Bridge replans and cancels pending plan workflow", async () => {
@@ -1363,12 +1364,12 @@ test("Bridge keeps Claude profile root approval and plan shortcuts local when pe
 
   assert.deepEqual(codex.modeRuns, ["plan", "default"]);
   assert.ok(channel.sentMessages.some((message) => message.text.includes("已接受计划")));
-  const planMessage = channel.sentMessages.find((message) => message.text.includes("Claude Code 计划快捷回复"))?.text ?? "";
-  assert.ok(planMessage.includes("/plan-execute 或 /1 接受计划并使用 auto mode 执行"));
-  assert.ok(planMessage.includes("/plan-edit 或 /2 接受计划并手动审批编辑"));
-  assert.ok(planMessage.includes("告诉 Claude 要修改什么"));
+  const planMessage = channel.sentMessages.find((message) => message.text.includes("Claude has written up a plan"))?.text ?? "";
+  assert.ok(planMessage.includes("/plan-execute 或 /1 Yes, and use auto mode"));
+  assert.ok(planMessage.includes("/plan-edit 或 /2 Yes, manually approve edits"));
+  assert.ok(planMessage.includes("Tell Claude what to change"));
   assert.ok(planMessage.includes("/replan <补充> 或 /3 <补充>"));
-  assert.ok(planMessage.includes("/plan-cancel 或 /4"));
+  assert.equal(planMessage.includes("/plan-cancel"), false);
   assert.equal(planMessage.includes("/bridge-plan-execute"), false);
 });
 
