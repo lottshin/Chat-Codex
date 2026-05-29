@@ -6,7 +6,7 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
 
 const ENABLE_ENV = "CHAT_CODEX_CAPTURE_CLAUDE_OPTIONS";
 const CASES = {
-  "bash-current": "Use Bash to run `node --version` and report the output.",
+  "bash-current": "Use the Bash tool exactly once to run `rm --version`. Do not run any command other than `rm --version`.",
   "read-package": "Use the Read tool to read package.json from the current working directory and summarize the package name.",
   "write-probe": "Use the Write tool to create capture-claude-native-options-probe.txt containing exactly: capture probe",
 };
@@ -16,6 +16,7 @@ function usage() {
     "Usage: CHAT_CODEX_CAPTURE_CLAUDE_OPTIONS=1 npm run smoke:claude-options:capture -- --case <name> [--out <path>]",
     "",
     `Available cases: ${Object.keys(CASES).join(", ")}`,
+    "bash-current uses `rm --version` because harmless commands can bypass permission prompts in default mode.",
     "",
     "This manual script captures raw Claude SDK canUseTool permission metadata only.",
     "It denies captured tool requests and is not part of default CI.",
