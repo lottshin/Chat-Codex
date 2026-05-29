@@ -13,12 +13,13 @@ test("Claude native option capture script requires explicit env gate", () => {
 
   assert.equal(result.status, 2);
   assert.match(result.stdout, /CHAT_CODEX_CAPTURE_CLAUDE_OPTIONS=1/);
+  assert.match(result.stdout, /rm --version/);
 });
 
 test("Claude native option compare script normalizes evidence with BOM", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "claude-native-options-test-"));
   const evidencePath = path.join(dir, "evidence.json");
-  fs.writeFileSync(evidencePath, `﻿${JSON.stringify({
+  const evidence = JSON.stringify({
     schemaVersion: 1,
     caseName: "bash-current",
     events: [{
@@ -34,7 +35,8 @@ test("Claude native option compare script normalizes evidence with BOM", () => {
         }],
       },
     }],
-  })}`);
+  });
+  fs.writeFileSync(evidencePath, `﻿${evidence}`);
 
   try {
     const result = spawnSync(process.execPath, ["scripts/compare-claude-native-options.mjs", "--evidence", evidencePath], {
