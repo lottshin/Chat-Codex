@@ -260,6 +260,36 @@ test("FeishuAdapter sends action messages as interactive cards", async () => {
   assert.deepEqual(card.elements?.[1]?.actions?.map((action) => action.value?.routeKey), ["feishu:work:direct:oc_user", "feishu:work:direct:oc_user"]);
 });
 
+test("FeishuAdapter renders each button group as a separate action row", async () => {
+  const factory = new FakeFeishuTransportFactory();
+  const adapter = new FeishuAdapter({ ...credentials, transportFactory: factory, connectOnStart: false });
+  await adapter.start();
+
+  await adapter.sendActionMessage({
+    channelId: "feishu",
+    routeKey: "feishu:work:direct:oc_user",
+    accountId: "work",
+    conversation: { id: "oc_user", kind: "direct" },
+    recipient: { id: "ou_user" },
+    context: { sourceMessageId: "om_source" },
+  }, {
+    text: "请选择",
+    buttonGroups: [
+      [{ text: "执行：自动模式", action: "cmd:/plan-execute", style: "primary" }],
+      [{ text: "执行：逐项审批", action: "cmd:/plan-edit", style: "default" }],
+      [{ text: "修改计划", action: "cmd:/replan", style: "default" }],
+    ],
+  });
+
+  const card = JSON.parse(factory.client.replyPayloads[0].data.content) as {
+    elements?: Array<{ tag?: string; actions?: Array<{ text?: { content?: string }; value?: { action?: string; routeKey?: string } }> }>;
+  };
+  const actionRows = card.elements?.filter((element) => element.tag === "action") ?? [];
+  assert.deepEqual(actionRows.map((row) => row.actions?.map((action) => action.text?.content)), [["执行：自动模式"], ["执行：逐项审批"], ["修改计划"]]);
+  assert.deepEqual(actionRows.map((row) => row.actions?.map((action) => action.value?.action)), [["cmd:/plan-execute"], ["cmd:/plan-edit"], ["cmd:/replan"]]);
+  assert.deepEqual(actionRows.map((row) => row.actions?.map((action) => action.value?.routeKey)), [["feishu:work:direct:oc_user"], ["feishu:work:direct:oc_user"], ["feishu:work:direct:oc_user"]]);
+});
+
 test("FeishuAdapter converts card actions to command ChannelMessage", async () => {
   const factory = new FakeFeishuTransportFactory();
   const adapter = new FeishuAdapter({ ...credentials, transportFactory: factory, now: () => 1_700_000_000_000 });

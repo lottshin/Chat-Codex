@@ -41,21 +41,21 @@ export function formatPlanWorkflowChoices(_commandProfile: CommandNamespaceProfi
   const planEdit = "/plan-edit";
   const replan = "/replan";
   return [
-    "Claude has written up a plan and is ready to execute. Would you like to proceed?",
-    `${planExecute} 或 /1 Yes, and use auto mode`,
-    `${planEdit} 或 /2 Yes, manually approve edits`,
-    `${replan} <补充> 或 /3 <补充> Tell Claude what to change`,
+    "Claude 已写好计划，可以继续执行。请选择下一步：",
+    `${planExecute} 或 /1：按自动模式执行计划`,
+    `${planEdit} 或 /2：执行计划，编辑操作逐项审批`,
+    `${replan} <补充> 或 /3 <补充>：告诉 Claude 要修改什么`,
   ].join("\n");
 }
 
 export function formatPlanWorkflowActionMessage(commandProfile: CommandNamespaceProfile = "codex"): ChannelActionMessage {
   return {
     text: formatPlanWorkflowChoices(commandProfile),
-    buttonGroups: [[
-      { text: "Use auto mode", action: "cmd:/plan-execute", style: "primary" },
-      { text: "Manually approve edits", action: "cmd:/plan-edit", style: "default" },
-      { text: "Tell Claude what to change", action: "cmd:/replan", style: "default" },
-    ]],
+    buttonGroups: [
+      [{ text: "执行：自动模式", action: "cmd:/plan-execute", style: "primary" }],
+      [{ text: "执行：逐项审批", action: "cmd:/plan-edit", style: "default" }],
+      [{ text: "修改计划", action: "cmd:/replan", style: "default" }],
+    ],
   };
 }
 

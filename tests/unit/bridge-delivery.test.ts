@@ -44,8 +44,8 @@ test("approvalActionMessage renders buttons from pending approval choices", () =
     ],
   });
 
-  assert.deepEqual(message.buttonGroups.map((group) => group.map((button) => button.action)), [["cmd:/1 a001", "cmd:/2 a001", "cmd:/3 a001"], ["cmd:/4 a001"]]);
-  assert.deepEqual(message.buttonGroups.flat().map((button) => button.text), ["Yes", "Don't ask again", "Allow edits", "No"]);
+  assert.deepEqual(message.buttonGroups.map((group) => group.map((button) => button.action)), [["cmd:/1 a001", "cmd:/2 a001"], ["cmd:/3 a001", "cmd:/4 a001"]]);
+  assert.deepEqual(message.buttonGroups.flat().map((button) => button.text), ["允许", "不再询问", "允许编辑", "拒绝"]);
   assert.deepEqual(message.buttonGroups.flat().map((button) => button.style), ["primary", "default", "default", "danger"]);
 });
 

@@ -244,7 +244,7 @@ export function approvalActionMessage(text: string, pending: PendingApproval): C
   }));
   return {
     text,
-    buttonGroups: chunkButtons(buttons, 3),
+    buttonGroups: chunkButtons(buttons, 2),
   };
 }
 
