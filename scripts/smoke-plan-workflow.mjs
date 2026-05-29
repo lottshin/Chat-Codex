@@ -35,7 +35,7 @@ async function smokePlanChoice(choice, expectedPermissionMode) {
     await channel.emitText("/plan smoke the plan workflow");
     await bridge.waitForIdle();
     assert.equal(codex.modeRuns[0], "plan");
-    assert.ok(channel.sentActionMessages.some((item) => item.message.text.includes("Claude has written up a plan")), "plan choices were not rendered");
+    assert.ok(channel.sentActionMessages.some((item) => item.message.text.includes("Claude 已写好计划")), "plan choices were not rendered");
 
     await channel.emitText(choice);
     await bridge.waitForIdle();

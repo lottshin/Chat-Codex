@@ -27,7 +27,7 @@ export function approvalChoices(approval: Pick<PendingApproval, "availableDecisi
       command: commandForOption(option, options),
       numeric: `/${index + 1}`,
       description: option.description ?? option.label,
-      buttonText: option.label,
+      buttonText: buttonTextForOption(option),
       buttonStyle: buttonStyleForOption(option),
       optionId: option.id,
     }));
@@ -115,6 +115,18 @@ function optionForAlias(options: ApprovalOption[], decision: ApprovalDecision): 
   }
   if (decision === "deny") return options.find((option) => option.decision === "deny");
   return undefined;
+}
+
+function buttonTextForOption(option: ApprovalOption): string {
+  if (option.decision === "deny") return "拒绝";
+  if (option.decision === "approve" && !option.updatedPermissions?.length) return "允许";
+  if (option.updatedPermissions?.some(isAcceptEditsUpdate)) return "允许编辑";
+  if (option.updatedPermissions?.length || option.label === "Don't ask again") return "不再询问";
+  return option.label;
+}
+
+function isAcceptEditsUpdate(update: unknown): boolean {
+  return Boolean(update && typeof update === "object" && "type" in update && update.type === "setMode" && "mode" in update && update.mode === "acceptEdits");
 }
 
 function buttonStyleForOption(option: ApprovalOption): "primary" | "default" | "danger" {

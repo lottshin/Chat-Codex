@@ -848,7 +848,7 @@ function formatStatusNextStep(options: {
 }): string {
   if (options.compactState.type !== "none") return "- 下一步：按上下文压缩提示继续处理。";
   if (options.pendingApprovals > 0) return "- 下一步：请处理待审批项，可发送审批提示中的 审批提示中列出的命令或数字选项。";
-  if (options.hasPlanWorkflow) return "- 下一步：请处理待处理计划，可发送 `/1` 使用 auto mode、`/2` 手动审批编辑、或 `/3` 告诉 Claude 要修改什么。";
+  if (options.hasPlanWorkflow) return "- 下一步：请处理待处理计划，可点卡片按钮，或发送 `/1` 自动执行、`/2` 逐项审批编辑、`/3 <补充>` 修改计划。";
   if (options.workerRunning) return "- 下一步：当前任务正在执行；如需中断，请发送 `/stop`。";
   if (!options.binding) return "- 下一步：发送普通消息创建或绑定会话；如需明确选择，请发送 `/new` 或 `/resume`。";
   return "- 下一步：发送普通消息继续任务；如需查看命令，请发送 `/help`。";
