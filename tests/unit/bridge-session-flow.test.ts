@@ -9,6 +9,7 @@ import type { ChannelRegistry } from "../../src/channels/registry.js";
 import type { CodexResumeSessionOptions, CodexSession, CodexSessionSummary, StartSessionInput } from "../../src/codex/types.js";
 import type { ChannelActionMessage, ChannelMessage, ChannelTarget } from "../../src/protocol/channel.js";
 import { MemoryStateStore } from "../../src/state/memory-state-store.js";
+import { ROUTE_BUSY_MUTATION_REJECT_TEXT } from "../../src/bridge/bridge-types.js";
 
 test("BridgeSessionFlow rehydrates adapter for persisted Claude bindings", async () => {
   const codex = new HintCapturingClaudeSessionAdapter([]);
@@ -143,7 +144,7 @@ test("BridgeSessionFlow falls back to text selection without buttons", async () 
   assert.match(fixture.sentTexts.at(-1) ?? "", /\*\*切换 Codex 会话\*\*/);
 });
 
-test("BridgeSessionFlow sends action message when paginating selection", async () => {
+test("BridgeSessionFlow updates the selection action message when paginating", async () => {
   const codex = new ListedCodexAdapter(Array.from({ length: 12 }, (_, index) => sessionSummary(
     `session-${index + 1}`,
     `任务 ${index + 1}`,
@@ -155,9 +156,86 @@ test("BridgeSessionFlow sends action message when paginating selection", async (
   await fixture.flow.resumeOrUseSession(message("route-a"), target("route-a"), "use", undefined);
   await fixture.flow.handleSessionSelectionReply(message("route-a"), target("route-a"), "n");
 
-  assert.equal(fixture.actionMessages.length, 2);
+  assert.equal(fixture.actionMessages.length, 1);
+  assert.equal(fixture.updatedTexts.length, 1);
+  assert.equal(fixture.updatedTexts[0].messageId, "a-1");
   assert.ok(fixture.actionMessages[0].message.buttonGroups.at(-1)?.some((button) => button.action === "reply:n"));
-  assert.ok(fixture.actionMessages[1].message.buttonGroups.at(-1)?.some((button) => button.action === "reply:p"));
+  assert.match(fixture.updatedTexts[0].text, /页码: `2 \/ 2`/);
+  assert.match(fixture.updatedTexts[0].text, /Session: `session-2`/);
+  assert.equal(fixture.sentTexts.length, 0);
+});
+
+test("BridgeSessionFlow updates the selection action message after a successful choice", async () => {
+  const fixture = sessionFlowFixture({ buttons: true });
+  const first = await fixture.codex.startSession({ routeKey: "seed-1", cwd: "/seed/1", title: "seed 1" });
+  await fixture.codex.startSession({ routeKey: "seed-2", cwd: "/seed/2", title: "seed 2" });
+
+  await fixture.flow.resumeOrUseSession(message("route-a"), target("route-a"), "use", undefined);
+  await fixture.flow.handleSessionSelectionReply(message("route-a"), target("route-a"), "1");
+
+  assert.equal(fixture.actionMessages.length, 1);
+  assert.equal(fixture.updatedTexts.length, 1);
+  assert.equal(fixture.updatedTexts[0].messageId, "a-1");
+  assert.match(fixture.updatedTexts[0].text, /已绑定 Codex 会话/);
+  assert.match(fixture.updatedTexts[0].text, new RegExp(first.id));
+  assert.equal(fixture.sentTexts.length, 0);
+});
+
+test("BridgeSessionFlow updates the selection action message when cancelling", async () => {
+  const fixture = sessionFlowFixture({ buttons: true });
+  await fixture.codex.startSession({ routeKey: "seed", cwd: "/seed", title: "seed" });
+
+  await fixture.flow.resumeOrUseSession(message("route-a"), target("route-a"), "use", undefined);
+  await fixture.flow.handleSessionSelectionReply(message("route-a"), target("route-a"), "取消");
+
+  assert.equal(fixture.actionMessages.length, 1);
+  assert.equal(fixture.updatedTexts.length, 1);
+  assert.equal(fixture.updatedTexts[0].messageId, "a-1");
+  assert.match(fixture.updatedTexts[0].text, /已退出切换会话/);
+  assert.equal(fixture.sentTexts.length, 0);
+});
+
+test("BridgeSessionFlow updates the selection action message when the route is busy", async () => {
+  const fixture = sessionFlowFixture({ buttons: true, busy: true });
+  await fixture.codex.startSession({ routeKey: "seed", cwd: "/seed", title: "seed" });
+
+  await fixture.flow.resumeOrUseSession(message("route-a"), target("route-a"), "use", undefined);
+  await fixture.flow.handleSessionSelectionReply(message("route-a"), target("route-a"), "1");
+
+  assert.equal(fixture.actionMessages.length, 1);
+  assert.equal(fixture.updatedTexts.length, 1);
+  assert.equal(fixture.updatedTexts[0].messageId, "a-1");
+  assert.equal(fixture.updatedTexts[0].text, ROUTE_BUSY_MUTATION_REJECT_TEXT);
+  assert.equal(fixture.sentTexts.length, 0);
+});
+
+test("BridgeSessionFlow updates the selection action message when binding fails", async () => {
+  const codex = new FailingResumeListedCodexAdapter([
+    sessionSummary("broken-session", "broken", "/repo/broken", "2026-01-01T00:00:00.000Z"),
+  ]);
+  const fixture = sessionFlowFixture({ codex, buttons: true });
+
+  await fixture.flow.resumeOrUseSession(message("route-a"), target("route-a"), "use", undefined);
+  await fixture.flow.handleSessionSelectionReply(message("route-a"), target("route-a"), "1");
+
+  assert.equal(fixture.actionMessages.length, 1);
+  assert.equal(fixture.updatedTexts.length, 1);
+  assert.equal(fixture.updatedTexts[0].messageId, "a-1");
+  assert.match(fixture.updatedTexts[0].text, /resume exploded/);
+  assert.equal(fixture.sentTexts.length, 0);
+});
+
+test("BridgeSessionFlow falls back to text when selection action message update fails", async () => {
+  const fixture = sessionFlowFixture({ buttons: true, failUpdates: true });
+  await fixture.codex.startSession({ routeKey: "seed", cwd: "/seed", title: "seed" });
+
+  await fixture.flow.resumeOrUseSession(message("route-a"), target("route-a"), "use", undefined);
+  await fixture.flow.handleSessionSelectionReply(message("route-a"), target("route-a"), "取消");
+
+  assert.equal(fixture.updateAttempts.length, 1);
+  assert.equal(fixture.updateAttempts[0].messageId, "a-1");
+  assert.deepEqual(fixture.updatedTexts, []);
+  assert.deepEqual(fixture.sentTexts, ["已退出切换会话。"]);
 });
 
 test("BridgeSessionFlow shows next steps while selecting a session", async () => {
@@ -352,11 +430,15 @@ function sessionFlowFixture(options: {
   backend?: "codex" | "claude";
   initialRouteBinding?: { type: "existing"; sessionId: string } | { type: "new" };
   buttons?: boolean;
+  busy?: boolean;
+  failUpdates?: boolean;
 } = {}) {
   const codex = options.codex ?? new MockCodexAdapter();
   const state = new MemoryStateStore();
   const sentTexts: string[] = [];
   const actionMessages: Array<{ target: ChannelTarget; message: ChannelActionMessage }> = [];
+  const updatedTexts: Array<{ target: ChannelTarget; messageId: string; text: string }> = [];
+  const updateAttempts: Array<{ target: ChannelTarget; messageId: string; text: string }> = [];
   const delivery = new BridgeDelivery({
     channels: {
       getCapabilities: () => ({ buttons: options.buttons ?? false }),
@@ -367,6 +449,12 @@ function sessionFlowFixture(options: {
       sendActionMessage: async (target: ChannelTarget, message: ChannelActionMessage) => {
         actionMessages.push({ target, message });
         return { channelId: "mock", messageId: `a-${actionMessages.length}`, deliveredAt: new Date().toISOString() };
+      },
+      updateText: async (target: ChannelTarget, messageId: string, text: string) => {
+        updateAttempts.push({ target, messageId, text });
+        if (options.failUpdates) throw new Error("update failed");
+        updatedTexts.push({ target, messageId, text });
+        return { channelId: "mock", messageId, deliveredAt: new Date().toISOString() };
       },
     } as unknown as ChannelRegistry,
     approvals: new ApprovalManager(),
@@ -381,14 +469,14 @@ function sessionFlowFixture(options: {
     cwd: options.cwd ?? "/workspace",
     initialRouteBinding: options.initialRouteBinding,
     unboundRoutePolicy: "auto_new",
-    isRouteExecutionBusy: async () => false,
+    isRouteExecutionBusy: async () => options.busy ?? false,
     applyStoredSessionRunPolicy: () => undefined,
     collaborationModeForRoute: () => "default",
     hasRouteCollaborationMode: () => false,
     applyRouteCollaborationModeToSession: () => undefined,
     syncRouteCollaborationModeFromSession: () => "default",
   });
-  return { codex, state, flow, sentTexts, actionMessages };
+  return { codex, state, flow, sentTexts, actionMessages, updatedTexts, updateAttempts };
 }
 
 class FailingTitleCodexAdapter extends MockCodexAdapter {
@@ -430,6 +518,12 @@ class ListedCodexAdapter extends MockCodexAdapter {
 
   override async listSessions(routeKey?: string): Promise<CodexSessionSummary[]> {
     return this.summaries.filter((session) => routeKey ? session.routeKey === routeKey : true);
+  }
+}
+
+class FailingResumeListedCodexAdapter extends ListedCodexAdapter {
+  override async resumeSession(_sessionId: string): Promise<CodexSession> {
+    throw new Error("resume exploded");
   }
 }
 

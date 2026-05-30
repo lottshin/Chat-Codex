@@ -1,6 +1,6 @@
 import type { ApprovalManager } from "../approvals/approval-manager.js";
 import type { AiBackend, CommandNamespaceProfile } from "../backend/metadata.js";
-import type { CodexAdapter, CodexCollaborationMode, CodexPromptInput, CodexRunOptions, CodexSessionStatus } from "../codex/types.js";
+import type { CodexAdapter, CodexCollaborationMode, CodexPromptInput, CodexRunOptions, CodexSession, CodexSessionStatus } from "../codex/types.js";
 import type { Logger } from "../logging/logger.js";
 import type { TranscriptSink } from "../logging/transcript.js";
 import type { ChannelRegistry } from "../channels/registry.js";
@@ -122,6 +122,7 @@ export interface SessionSelectionState {
   page: number;
   pageSize: number;
   createdAt: number;
+  actionMessageId?: string;
   hiddenUnavailableCount?: number;
   title?: string;
   scopeLabel?: string;
@@ -135,7 +136,7 @@ export type CompactState =
   | { type: "running"; sessionId: string; startedAt: string };
 
 export type BindSessionResult =
-  | { ok: true }
+  | { ok: true; session: CodexSession; mode: CodexCollaborationMode }
   | { ok: false; reason: "owner_conflict" | "resume_failed"; message: string };
 
 export type InitialRouteBinding =
