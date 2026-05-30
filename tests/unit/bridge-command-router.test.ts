@@ -34,6 +34,8 @@ test("BridgeCommandRouter treats known root commands as local in Claude profile"
   assert.equal(fixture.router.isBridgeCommand(message(), "dir"), true);
   assert.equal(fixture.router.isBridgeCommand(message(), "show"), true);
   assert.equal(fixture.router.isBridgeCommand(message(), "sendfile"), true);
+  assert.equal(fixture.router.isBridgeCommand(message(), "skills"), true);
+  assert.equal(fixture.router.isBridgeCommand(message(), "skill"), true);
   assert.equal(fixture.router.isBridgeCommand(message(), "model"), true);
   assert.equal(fixture.router.isBridgeCommand(message(), "permission"), true);
   assert.equal(fixture.router.isBridgeCommand(message(), "compact"), true);
@@ -59,6 +61,8 @@ test("BridgeCommandRouter classifies bridge-owned command names", () => {
   assert.equal(isBridgeCommandName("show"), true);
   assert.equal(isBridgeCommandName("plan"), true);
   assert.equal(isBridgeCommandName("permission"), true);
+  assert.equal(isBridgeCommandName("skills"), true);
+  assert.equal(isBridgeCommandName("skill"), true);
   assert.equal(isBridgeCommandName("simplify"), false);
   assert.equal(isBridgeCommandName("claude-api"), false);
 });
@@ -93,6 +97,16 @@ test("BridgeCommandRouter rejects semantic mutations while route is busy", async
   assert.match(fixture.sent.at(-1) ?? "", /当前对话的 Codex 正在执行/);
   assert.match(fixture.sent.at(-1) ?? "", /下一步.*\/stop/);
   assert.equal(fixture.calls.model, 0);
+});
+
+test("BridgeCommandRouter handles skills commands locally", async () => {
+  const fixture = routerFixture({ busy: true, backend: "claude", commandProfile: "claude" });
+  await fixture.router.handle(message(), target(), "skills", [], "/skills");
+  await fixture.router.handle(message(), target(), "skill", [], "/skill");
+
+  assert.equal(fixture.calls.skills, 2);
+  assert.equal(fixture.sent.at(-2), "skills");
+  assert.equal(fixture.sent.at(-1), "skills");
 });
 
 test("BridgeCommandRouter routes btw command without busy rejection", async () => {
@@ -445,6 +459,7 @@ function routerFixture(options: {
     compact: 0,
     approval: 0,
     sendFile: 0,
+    skills: 0,
     planWorkflow: 0,
   };
   let newSessionCall: { args: string[]; rawText: string } | undefined;
@@ -513,6 +528,10 @@ function routerFixture(options: {
     sendFile: async (_message, _target, rawText, commandName) => {
       calls.sendFile += 1;
       sendFileCall = { rawText, commandName };
+    },
+    skills: async () => {
+      calls.skills += 1;
+      return "skills";
     },
     model: async () => {
       calls.model += 1;

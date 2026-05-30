@@ -47,6 +47,8 @@ const BRIDGE_COMMAND_NAMES = new Set([
   "grop",
   "name",
   "sendfile",
+  "skills",
+  "skill",
   "model",
   "permission",
   "permissions",
@@ -119,6 +121,7 @@ export interface BridgeCommandHandlers {
   groupReceive(message: ChannelMessage, target: ChannelTarget, args: string[], commandName: string): Promise<void>;
   groupName(message: ChannelMessage, target: ChannelTarget, args: string[]): Promise<void>;
   sendFile(message: ChannelMessage, target: ChannelTarget, rawText: string, commandName: string): Promise<void>;
+  skills(message: ChannelMessage): Promise<string>;
   model(message: ChannelMessage, target: ChannelTarget, args: string[]): Promise<void>;
   permission(message: ChannelMessage, target: ChannelTarget, args: string[]): Promise<void>;
   approval(message: ChannelMessage, target: ChannelTarget, args: string[], decision: ApprovalDecision, optionId?: string): Promise<void>;
@@ -291,6 +294,10 @@ export class BridgeCommandRouter {
       case "sendfile":
         if (await this.rejectUnsupported(target, "sendfile", "sendfile", "文件发送协议")) return;
         await this.handlers.sendFile(message, target, rawText, name);
+        return;
+      case "skills":
+      case "skill":
+        await this.delivery.sendText(target, await this.handlers.skills(message));
         return;
       case "model":
         if (await this.rejectUnsupported(target, "model", "model", "模型切换")) return;

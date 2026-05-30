@@ -353,6 +353,7 @@ export class Bridge {
           delivery: this.delivery,
           routeQueue: this.routeQueue,
         }, message, target, rawText, commandName),
+        skills: (message) => this.statusTextRenderer.skillsText(message),
         model: (message, target, args) => handleModelCommand({
           codex: this.codex,
           state: this.state,

@@ -230,6 +230,7 @@ These commands are sent from Weixin or Feishu private chats. Command messages by
 | `/model effort <effort>` | Switch reasoning effort only |
 | `/model default` | Clear the current session model override |
 | `/sendfile <task>` | Allow Codex to declare files for this turn |
+| `/skills` / `/skill` | List discovered Claude Code skills; call one with `/<skill-name> <task>` |
 | `/compact` | Compact the current session history; requires `/compact confirm` |
 | `/progress [brief\|detailed\|silent]` | Progress delivery mode for non-Weixin channels |
 | `/fff` | Weixin-only silent refresh |

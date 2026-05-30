@@ -69,7 +69,8 @@ export class ClaudeExecAdapter implements CodexAdapter {
   private readonly sessions = new Map<string, ClaudeSessionRecord>();
   private readonly runningProcesses = new Map<string, RunningClaudeProcess>();
   private readonly promptSlashCommands = new Set<string>();
-  private promptSlashCommandRefresh: Promise<readonly string[]> | undefined;
+  private readonly promptSkills = new Set<string>();
+  private promptCapabilityRefresh: Promise<void> | undefined;
   private readonly approvalContexts = new Map<string, ClaudeApprovalContext>();
   private sessionSequence = 0;
   private approvalContextSequence = 0;
@@ -190,9 +191,7 @@ export class ClaudeExecAdapter implements CodexAdapter {
           stored.session.backendSessionId = parsed.actualSessionId;
           stored.updatedAt = new Date().toISOString();
         }
-        if (parsed?.promptSlashCommands) {
-          for (const command of parsed.promptSlashCommands) this.promptSlashCommands.add(command);
-        }
+        this.capturePromptCapabilities(parsed);
         if (parsed?.text) stdoutText += parsed.text;
         const event = parsed?.event;
         if (!event) continue;
@@ -367,24 +366,38 @@ export class ClaudeExecAdapter implements CodexAdapter {
   }
 
   listPromptSlashCommands(): readonly string[] {
-    return [...this.promptSlashCommands].sort();
+    return [...new Set([...this.promptSlashCommands, ...this.promptSkills])].sort();
   }
 
   async refreshPromptSlashCommands(): Promise<readonly string[]> {
-    if (this.promptSlashCommands.size > 0) return this.listPromptSlashCommands();
-    this.promptSlashCommandRefresh ??= this.probePromptSlashCommands().finally(() => {
-      this.promptSlashCommandRefresh = undefined;
-    });
-    return this.promptSlashCommandRefresh;
+    await this.refreshPromptCapabilities();
+    return this.listPromptSlashCommands();
   }
 
-  private async probePromptSlashCommands(): Promise<readonly string[]> {
+  listPromptSkills(): readonly string[] {
+    return [...this.promptSkills].sort();
+  }
+
+  async refreshPromptSkills(): Promise<readonly string[]> {
+    await this.refreshPromptCapabilities();
+    return this.listPromptSkills();
+  }
+
+  private async refreshPromptCapabilities(): Promise<void> {
+    if (this.promptSlashCommands.size > 0 || this.promptSkills.size > 0) return;
+    this.promptCapabilityRefresh ??= this.probePromptCapabilities().finally(() => {
+      this.promptCapabilityRefresh = undefined;
+    });
+    await this.promptCapabilityRefresh;
+  }
+
+  private async probePromptCapabilities(): Promise<void> {
     const args = ["-p", "/context", "--output-format", "stream-json", "--verbose", "--permission-mode", "plan"];
     const child = spawnClaude(this.claudeCommand, args, {
       cwd: process.cwd(),
       stdio: ["ignore", "pipe", "pipe"],
     });
-    if (!child.stdout || !child.stderr) return this.listPromptSlashCommands();
+    if (!child.stdout || !child.stderr) return;
     const closePromise = new Promise<number | null>((resolve) => child.on("close", resolve));
     child.stderr.resume();
     const turnId = `claude-slash-probe-${Date.now()}`;
@@ -392,14 +405,13 @@ export class ClaudeExecAdapter implements CodexAdapter {
     for await (const line of lines) {
       if (!line.trim()) continue;
       const parsed = parseClaudeJsonLine(line, "claude-slash-probe", turnId);
-      if (parsed?.promptSlashCommands) {
-        for (const command of parsed.promptSlashCommands) this.promptSlashCommands.add(command);
+      this.capturePromptCapabilities(parsed);
+      if (parsed?.promptSlashCommands || parsed?.promptSkills) {
         child.kill("SIGTERM");
         break;
       }
     }
     await closePromise;
-    return this.listPromptSlashCommands();
   }
 
   private async runOneShot(stored: ClaudeSessionRecord, prompt: string, options: { resume: boolean; permissionMode?: ClaudePermissionMode } = { resume: true }): Promise<string> {
@@ -426,9 +438,7 @@ export class ClaudeExecAdapter implements CodexAdapter {
         stored.actualSessionId = parsed.actualSessionId;
         stored.session.backendSessionId = parsed.actualSessionId;
       }
-      if (parsed?.promptSlashCommands) {
-        for (const command of parsed.promptSlashCommands) this.promptSlashCommands.add(command);
-      }
+      this.capturePromptCapabilities(parsed);
       if (parsed?.text) text += parsed.text;
       if (parsed?.event?.type === "turn.failed") stderr += parsed.event.error;
     }
@@ -471,6 +481,16 @@ export class ClaudeExecAdapter implements CodexAdapter {
 
   private collaborationModeForSession(sessionId?: string): CodexCollaborationMode {
     return (sessionId ? this.sessionCollaborationModes.get(sessionId) : undefined) ?? this.defaultCollaborationMode;
+  }
+
+  private capturePromptCapabilities(parsed: ParsedClaudeJsonLine | undefined): void {
+    if (!parsed) return;
+    if (parsed.promptSlashCommands) {
+      for (const command of parsed.promptSlashCommands) this.promptSlashCommands.add(command);
+    }
+    if (parsed.promptSkills) {
+      for (const skill of parsed.promptSkills) this.promptSkills.add(skill);
+    }
   }
 }
 
@@ -538,6 +558,7 @@ export interface ParsedClaudeJsonLine {
   text?: string;
   event?: CodexEvent;
   promptSlashCommands?: string[];
+  promptSkills?: string[];
 }
 
 export function parseClaudeJsonLine(line: string, sessionId: string, turnId: string): ParsedClaudeJsonLine | undefined {
@@ -586,7 +607,8 @@ export function parseClaudeJsonLine(line: string, sessionId: string, turnId: str
       return {
         actualSessionId,
         event: { type: "assistant.progress", sessionId, turnId, text: `Claude Code: ${parsed.subtype}`, kind: "other" },
-        promptSlashCommands: parsed.subtype === "init" ? promptSlashCommandsFromInit(parsed.slash_commands, parsed.skills) : undefined,
+        promptSlashCommands: parsed.subtype === "init" ? promptSlashCommandsFromInit(parsed.slash_commands) : undefined,
+        promptSkills: parsed.subtype === "init" ? promptSkillsFromInit(parsed.skills) : undefined,
       };
     }
     return actualSessionId ? { actualSessionId } : undefined;
@@ -595,9 +617,18 @@ export function parseClaudeJsonLine(line: string, sessionId: string, turnId: str
   }
 }
 
-function promptSlashCommandsFromInit(slashCommands: unknown, skills: unknown): string[] | undefined {
+function promptSlashCommandsFromInit(slashCommands: unknown): string[] | undefined {
   const commands = new Set<string>();
-  for (const value of [...valuesFromUnknown(slashCommands), ...valuesFromUnknown(skills)]) {
+  for (const value of valuesFromUnknown(slashCommands)) {
+    const normalized = normalizePromptSlashCommand(value);
+    if (normalized) commands.add(normalized);
+  }
+  return commands.size > 0 ? [...commands].sort() : undefined;
+}
+
+function promptSkillsFromInit(skills: unknown): string[] | undefined {
+  const commands = new Set<string>();
+  for (const value of valuesFromUnknown(skills)) {
     const normalized = normalizePromptSlashCommand(value);
     if (normalized) commands.add(normalized);
   }

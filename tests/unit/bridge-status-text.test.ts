@@ -95,6 +95,7 @@ test("BridgeStatusText uses root help commands in Claude profile", () => {
   assert.match(text, /\/progress \[brief\|detailed\|silent\]/);
   assert.match(text, /\/mode/);
   assert.match(text, /\/sendfile <任务内容>/);
+  assert.match(text, /\/skills/);
   assert.match(text, /普通消息里的本地路径、Markdown 链接或 file:\/\/ 引用不会自动作为附件发送/);
   assert.match(text, /渠道必须支持图片\/文件发送/);
   assert.doesNotMatch(text, /\/bridge-sendfile <任务内容>/);
@@ -154,6 +155,7 @@ test("BridgeStatusText shows common next steps in Codex profile help", () => {
   assert.match(text, /\/resume last/);
   assert.match(text, /标题、工作目录、session id/);
   assert.match(text, /\/sendfile <任务内容>/);
+  assert.match(text, /\/skills/);
   assert.match(text, /普通消息里的本地路径、Markdown 链接或 file:\/\/ 引用不会自动作为附件发送/);
   assert.match(text, /最终回复必须声明 `BRIDGE_SEND_FILE: \/absolute\/path\/to\/file`/);
   assert.match(text, /渠道必须支持图片\/文件发送/);
@@ -421,6 +423,41 @@ test("BridgeStatusText shows permission guidance by command profile", () => {
   assert.match(claudeText, /`\/permission full confirm`/);
   assert.match(claudeText, /`\/permission bypassPermissions confirm`/);
   assert.doesNotMatch(claudeText, /`\/bridge-permission full confirm`/);
+});
+
+test("BridgeStatusText lists Claude skills without ordinary slash commands", async () => {
+  const codex = {
+    ...fakeCodex({ type: "idle" }),
+    listPromptSkills: () => ["help", "scholar-kit"],
+    refreshPromptSkills: async () => ["/frontend-design", "scholar-kit", "scholar-kit"],
+  } as CodexAdapter;
+  const text = await new BridgeStatusText({
+    backend: "claude",
+    commandProfile: "claude",
+    channels: fakeChannels(),
+    codex,
+    state: new MemoryStateStore(),
+    approvals: new ApprovalManager(),
+    routeQueueLength: () => 0,
+    deliveryPolicyFor: () => DEFAULT_CHANNEL_DELIVERY_POLICY,
+    shouldConsumePendingInitialRouteBinding: () => false,
+    pendingInitialRouteBinding: () => undefined,
+    isRouteBusy: () => false,
+    routeSteerPendingCount: () => 0,
+    pendingMediaCount: () => 0,
+    compactStateForRoute: () => ({ type: "none" }),
+    collaborationModeForRoute: () => "default",
+    progressModeFor: () => "brief",
+    contextRefreshFor: () => ({ policy: { mode: "off" }, source: "route" }),
+    runPolicyStatus: () => undefined,
+    planWorkflowForRoute: () => undefined,
+  }).skillsText(message());
+
+  assert.match(text, /\*\*Claude Code skills\*\*/);
+  assert.match(text, /`\/frontend-design`/);
+  assert.match(text, /`\/scholar-kit`/);
+  assert.doesNotMatch(text, /`\/help`/);
+  assert.match(text, /\/scholar-kit 查资料/);
 });
 
 test("BridgeStatusText shows progress guidance by command profile", () => {

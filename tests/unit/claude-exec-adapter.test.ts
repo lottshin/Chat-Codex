@@ -33,11 +33,13 @@ test("parseClaudeJsonLine captures slash commands and skills from init events", 
   );
 
   assert.deepEqual(parsed?.promptSlashCommands, [
-    "claude-api",
-    "frontend-design",
     "help",
     "review",
     "security-review",
+  ]);
+  assert.deepEqual(parsed?.promptSkills, [
+    "claude-api",
+    "frontend-design",
     "simplify",
   ]);
 });

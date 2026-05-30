@@ -365,6 +365,7 @@ type ChannelMessage = {
 - `/goal resume`
 - `/goal clear`
 - `/permission [approval|full confirm]`
+- `/skills` / `/skill`
 - `/OK`
 - `/NO`
 - `/stop`
@@ -389,7 +390,7 @@ busy 判定必须是 route 级，不是全局级。当前 route 满足以下任�
 
 busy route 下允许的命令：
 
-- 只读命令：`/help`、`/status`、`/sessions`、`/whoami`、`/debug`、`/permission`、`/model`、`/goal`。
+- 只读命令：`/help`、`/status`、`/sessions`、`/whoami`、`/debug`、`/permission`、`/model`、`/goal`、`/skills`。
 - 运行控制命令：`/stop`、`/OK`、`/P`、`/NO`。
 - 投递视图命令：`/progress brief|detailed|silent`，因为它只影响当前 route 的进度投递模式，不改变 Codex 执行语义。
 - 普通文本不是命令；当当前 active turn 支持 mid-turn steer 时，优先投递到当前 turn。steer 不可用、失败或当前 turn 不可 steer 时，继续按当前 route 队列策略处理；入队时必须快照本轮 `sendFile` 和 collaboration mode。

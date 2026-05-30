@@ -62,6 +62,8 @@ export class ClaudeSdkAdapter implements CodexAdapter {
   private readonly sessionCollaborationModes = new Map<string, CodexCollaborationMode>();
   private readonly sessions = new Map<string, ClaudeSdkSessionRecord>();
   private readonly runningQueries = new Map<string, RunningClaudeSdkQuery>();
+  private readonly promptSlashCommands = new Set<string>();
+  private readonly promptSkills = new Set<string>();
   private readonly approvalContexts = new Map<string, ClaudeApprovalContext>();
   private sessionSequence = 0;
   private approvalContextSequence = 0;
@@ -150,6 +152,7 @@ export class ClaudeSdkAdapter implements CodexAdapter {
       running.query = query;
       for await (const message of query) {
         const mapped = mapSdkMessage(message, sessionId, turnId);
+        this.capturePromptCapabilities(mapped);
         if (mapped.actualSessionId) this.recordActualSessionId(stored, mapped.actualSessionId);
         if (mapped.text) completedText = mapped.text;
         for (const event of mapped.events) {
@@ -284,6 +287,22 @@ export class ClaudeSdkAdapter implements CodexAdapter {
     };
   }
 
+  listPromptSlashCommands(): readonly string[] {
+    return [...new Set([...this.promptSlashCommands, ...this.promptSkills])].sort();
+  }
+
+  async refreshPromptSlashCommands(): Promise<readonly string[]> {
+    return this.listPromptSlashCommands();
+  }
+
+  listPromptSkills(): readonly string[] {
+    return [...this.promptSkills].sort();
+  }
+
+  async refreshPromptSkills(): Promise<readonly string[]> {
+    return this.listPromptSkills();
+  }
+
   private buildQueryOptions(stored: ClaudeSdkSessionRecord, abortController: AbortController, options: CodexRunOptions): ClaudeSdkOptions {
     const runPolicy = this.runPolicyForSession(stored.session.id);
     const collaborationMode = options.collaborationMode ?? this.collaborationModeForSession(stored.session.id);
@@ -345,12 +364,23 @@ export class ClaudeSdkAdapter implements CodexAdapter {
     stored.session.backendSessionId = actualSessionId;
     stored.updatedAt = new Date().toISOString();
   }
+
+  private capturePromptCapabilities(mapped: MappedSdkMessage): void {
+    if (mapped.promptSlashCommands) {
+      for (const command of mapped.promptSlashCommands) this.promptSlashCommands.add(command);
+    }
+    if (mapped.promptSkills) {
+      for (const skill of mapped.promptSkills) this.promptSkills.add(skill);
+    }
+  }
 }
 
 interface MappedSdkMessage {
   actualSessionId?: string;
   text?: string;
   events: CodexEvent[];
+  promptSlashCommands?: string[];
+  promptSkills?: string[];
 }
 
 function sessionSummaryForRecord(record: ClaudeSdkSessionRecord): CodexSessionSummary {
@@ -416,7 +446,12 @@ function mapSdkMessage(message: ClaudeSdkMessage, sessionId: string, turnId: str
   }
   if (record.type === "system") {
     const progress = systemProgress(record);
-    if (progress) return { actualSessionId, events: [{ type: "assistant.progress", sessionId, turnId, text: progress, kind: "other" }] };
+    return {
+      actualSessionId,
+      events: progress ? [{ type: "assistant.progress", sessionId, turnId, text: progress, kind: "other" }] : [],
+      promptSlashCommands: record.subtype === "init" ? promptSlashCommandsFromInit(record.slash_commands) : undefined,
+      promptSkills: record.subtype === "init" ? promptSkillsFromInit(record.skills) : undefined,
+    };
   }
   if (record.type === "tool_progress") {
     const name = typeof record.tool_name === "string" ? record.tool_name : "tool";
@@ -480,6 +515,44 @@ function systemProgress(record: Record<string, unknown>): string | undefined {
   if (record.subtype === "task_notification" && typeof record.summary === "string") return record.summary;
   if (record.subtype === "permission_denied" && typeof record.message === "string") return record.message;
   return undefined;
+}
+
+function promptSlashCommandsFromInit(slashCommands: unknown): string[] | undefined {
+  const commands = new Set<string>();
+  for (const value of valuesFromUnknown(slashCommands)) {
+    const normalized = normalizePromptSlashCommand(value);
+    if (normalized) commands.add(normalized);
+  }
+  return commands.size > 0 ? [...commands].sort() : undefined;
+}
+
+function promptSkillsFromInit(skills: unknown): string[] | undefined {
+  const commands = new Set<string>();
+  for (const value of valuesFromUnknown(skills)) {
+    const normalized = normalizePromptSlashCommand(value);
+    if (normalized) commands.add(normalized);
+  }
+  return commands.size > 0 ? [...commands].sort() : undefined;
+}
+
+function valuesFromUnknown(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  return [];
+}
+
+function normalizePromptSlashCommand(value: unknown): string | undefined {
+  const raw = typeof value === "string"
+    ? value
+    : isRecord(value)
+      ? stringField(value, "name") ?? stringField(value, "command")
+      : undefined;
+  const normalized = raw?.trim().replace(/^\/+/, "").toLowerCase();
+  return normalized || undefined;
+}
+
+function stringField(value: Record<string, unknown>, key: string): string | undefined {
+  const field = value[key];
+  return typeof field === "string" ? field : undefined;
 }
 
 function progressKindForTool(name: string): CodexProgressKind {
