@@ -212,4 +212,6 @@ export interface CodexAdapter {
   compactSession?(sessionId: string): Promise<CodexCompactResult>;
   listPromptSlashCommands?(): readonly string[];
   refreshPromptSlashCommands?(): Promise<readonly string[]>;
+  listPromptSkills?(): readonly string[];
+  refreshPromptSkills?(): Promise<readonly string[]>;
 }

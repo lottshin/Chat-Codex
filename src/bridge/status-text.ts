@@ -527,6 +527,12 @@ export class BridgeStatusText {
         feature: "sendfile",
       },
       {
+        command: "/skills",
+        description: "列出当前 Claude Code 会话暴露的 skills。",
+        aliases: ["/skill"],
+        details: ["发送 `/<skill-name> <任务>` 可调用对应 skill，例如 `/scholar-kit 查资料`。"],
+      },
+      {
         command: "/compact",
         description: "压缩当前会话的历史上下文。",
         details: ["`/compact confirm`: 确认并开始压缩。", "`/cancel`: 取消等待中的压缩确认。"],
@@ -593,6 +599,34 @@ export class BridgeStatusText {
 
   private commandSupported(entry: HelpCommand): boolean {
     return !entry.feature || backendSupportsFeature(this.backend, entry.feature);
+  }
+
+  async skillsText(_message: ChannelMessage): Promise<string> {
+    let skills: readonly string[] = [];
+    let refreshFailed = false;
+    try {
+      skills = await this.codex.refreshPromptSkills?.() ?? this.codex.listPromptSkills?.() ?? [];
+    } catch {
+      refreshFailed = true;
+      skills = this.codex.listPromptSkills?.() ?? [];
+    }
+    const normalized = [...new Set(skills
+      .map((skill) => skill.trim())
+      .filter(Boolean)
+      .map((skill) => skill.startsWith("/") ? skill : `/${skill}`))]
+      .sort((a, b) => a.localeCompare(b));
+    return [
+      "**Claude Code skills**",
+      refreshFailed ? "- 刷新失败，下面显示当前缓存。" : undefined,
+      normalized.length > 0 ? "" : undefined,
+      ...(normalized.length > 0
+        ? [
+          ...normalized.map((skill) => `- \`${skill}\``),
+          "",
+          "用法：发送 `/<skill-name> <任务>` 调用对应 skill，例如 `/scholar-kit 查资料`。",
+        ]
+        : ["- 当前还没有从 Claude Code 会话拿到 skills。", "- 下一步：先发送一条普通任务初始化 Claude 会话，然后再发送 `/skills`。"]),
+    ].filter(Boolean).join("\n");
   }
 
   progressModeText(routeKey: string): string {

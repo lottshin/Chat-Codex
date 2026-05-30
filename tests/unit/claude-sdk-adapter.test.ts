@@ -111,7 +111,7 @@ test("ClaudeSdkAdapter starts Claude sessions", async () => {
 test("ClaudeSdkAdapter maps SDK messages to Codex events and captures session id", async () => {
   const client = new FakeClaudeSdkClient();
   client.messages = [
-    { type: "system", subtype: "init", session_id: "sdk-session-1" },
+    { type: "system", subtype: "init", session_id: "sdk-session-1", slash_commands: ["/help"], skills: ["scholar-kit", { name: "frontend-design" }] },
     { type: "assistant", session_id: "sdk-session-1", message: { content: [{ type: "text", text: "hello" }] } },
     { type: "result", subtype: "success", session_id: "sdk-session-1", result: "hello done" },
   ];
@@ -125,6 +125,8 @@ test("ClaudeSdkAdapter maps SDK messages to Codex events and captures session id
   assert.ok(events.some((event) => event.type === "assistant.completed" && event.text === "hello done"));
   assert.equal(events.at(-1)?.type, "turn.completed");
   assert.equal((await adapter.listSessions())[0]?.backendSessionId, "sdk-session-1");
+  assert.deepEqual(adapter.listPromptSkills(), ["frontend-design", "scholar-kit"]);
+  assert.deepEqual(adapter.listPromptSlashCommands(), ["frontend-design", "help", "scholar-kit"]);
 });
 
 test("ClaudeSdkAdapter maps ExitPlanMode tool use to plan events", async () => {
