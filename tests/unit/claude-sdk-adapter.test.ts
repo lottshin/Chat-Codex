@@ -187,6 +187,27 @@ test("ClaudeSdkAdapter passes resume, model, effort, and permission options", as
   assert.equal(client.calls[0]?.options?.permissionMode, "plan");
 });
 
+test("ClaudeSdkAdapter resumes bridge-local records with native Claude session hints", async () => {
+  const client = new FakeClaudeSdkClient();
+  client.messages = [{ type: "result", subtype: "success", session_id: "native-session", result: "ok" }];
+  const adapter = new ClaudeSdkAdapter({ client });
+
+  const session = await adapter.resumeSession("bridge-local-1", {
+    backendSessionId: "native-session",
+    cwd: "D:/repo/bridge",
+    title: "Persisted task",
+    createdAt: "2026-05-29T00:00:00.000Z",
+  });
+  await collect(adapter.run("bridge-local-1", "hi"));
+
+  assert.equal(session.id, "bridge-local-1");
+  assert.equal(session.backendSessionId, "native-session");
+  assert.equal(session.cwd, "D:/repo/bridge");
+  assert.equal(session.title, "Persisted task");
+  assert.equal(session.createdAt, "2026-05-29T00:00:00.000Z");
+  assert.equal(client.calls[0]?.options?.resume, "native-session");
+});
+
 test("ClaudeSdkAdapter lists SDK-discovered sessions", async () => {
   const client = new FakeClaudeSdkClient();
   client.sessions = [sdkSession("sdk-session-1", { summary: "Discovered task", cwd: "/repo/sdk", lastModified: Date.UTC(2026, 0, 2) })];

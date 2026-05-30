@@ -156,9 +156,10 @@ export class MemoryStateStore {
     return this.sessionBindings.claimSessionOwner(routeKey, sessionId, options);
   }
 
-  activateOwnedSession(routeKey: string, session: CodexSession): ActivateSessionResult {
-    const backend = session.backend ?? "codex";
-    const result = this.sessionBindings.activateOwnedSession(routeKey, session, { backend, backendSessionId: session.backendSessionId });
+  activateOwnedSession(routeKey: string, session: CodexSession, options: { backend?: AiBackend; backendSessionId?: string } = {}): ActivateSessionResult {
+    const backend = options.backend ?? session.backend ?? "codex";
+    const backendSessionId = options.backendSessionId ?? session.backendSessionId;
+    const result = this.sessionBindings.activateOwnedSession(routeKey, session, { backend, backendSessionId });
     if (!result.ok) return result;
     const existing = this.sessions.get(session.id);
     this.sessions.set(session.id, {
@@ -167,7 +168,7 @@ export class MemoryStateStore {
       ownerRouteKey: routeKey,
       status: existing?.status ?? { type: "idle" },
       backend,
-      backendSessionId: session.backendSessionId ?? existing?.backendSessionId,
+      backendSessionId: backendSessionId ?? existing?.backendSessionId,
       runPolicy: this.getSessionRunPolicy(session.id),
       updatedAt: new Date().toISOString(),
       lastError: existing?.lastError,

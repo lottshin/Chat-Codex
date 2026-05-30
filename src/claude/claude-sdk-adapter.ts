@@ -10,6 +10,7 @@ import type {
   CodexPromptInput,
   CodexRunApprovalContext,
   CodexRunApprovalContextRegistration,
+  CodexResumeSessionOptions,
   CodexRunOptions,
   CodexRunPolicyStatus,
   CodexSession,
@@ -105,22 +106,23 @@ export class ClaudeSdkAdapter implements CodexAdapter {
     return session;
   }
 
-  async resumeSession(sessionId: string): Promise<CodexSession> {
+  async resumeSession(sessionId: string, options: CodexResumeSessionOptions = {}): Promise<CodexSession> {
     const stored = this.sessions.get(sessionId);
     if (stored) return stored.session;
     const now = new Date().toISOString();
+    const actualSessionId = options.backendSessionId ?? sessionId;
     const session: CodexSession = {
       id: sessionId,
-      cwd: process.cwd(),
-      title: `claude-sdk:${sessionId}`,
+      cwd: options.cwd ?? process.cwd(),
+      title: options.title ?? `claude-sdk:${actualSessionId}`,
       backend: "claude",
-      backendSessionId: sessionId,
-      createdAt: now,
+      backendSessionId: actualSessionId,
+      createdAt: options.createdAt ?? now,
     };
     this.sessions.set(session.id, {
       session,
       status: { type: "idle" },
-      actualSessionId: sessionId,
+      actualSessionId,
       updatedAt: now,
     });
     this.sessionRunPolicies.set(session.id, cloneRunPolicy(this.defaultRunPolicy));

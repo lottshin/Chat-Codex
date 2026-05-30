@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { ClaudeExecAdapter, parseClaudeJsonLine } from "../../src/claude/claude-exec-adapter.js";
+import type { ClaudeSdkClient, ClaudeSdkSessionInfo } from "../../src/claude/claude-sdk-client.js";
 
 test("parseClaudeJsonLine captures session id from system events", () => {
   const parsed = parseClaudeJsonLine(
@@ -118,6 +119,39 @@ test("parseClaudeJsonLine maps ExitPlanMode tool use to plan event", () => {
     turnId: "turn-1",
     text: "# Plan\n- Do it",
   });
+});
+
+test("ClaudeExecAdapter lists native Claude Code sessions", async () => {
+  const adapter = new ClaudeExecAdapter({
+    sdkClient: fakeClaudeSdkClient([
+      sdkSession("native-claude-1", { customTitle: "Native task", cwd: "D:/repo/native", lastModified: Date.UTC(2026, 4, 29, 10, 0, 0) }),
+      sdkSession("native-claude-2", { summary: "Continue fix", cwd: "D:/repo/other", lastModified: Date.UTC(2026, 4, 29, 9, 0, 0) }),
+    ]),
+  });
+
+  const sessions = await adapter.listSessions();
+
+  assert.equal(sessions.length, 2);
+  assert.equal(sessions[0]?.id, "native-claude-1");
+  assert.equal(sessions[0]?.backend, "claude");
+  assert.equal(sessions[0]?.backendSessionId, "native-claude-1");
+  assert.equal(sessions[0]?.title, "Native task");
+  assert.equal(sessions[0]?.cwd, "D:/repo/native");
+});
+
+test("ClaudeExecAdapter deduplicates native Claude sessions against local records", async () => {
+  const adapter = new ClaudeExecAdapter({
+    sdkClient: fakeClaudeSdkClient([
+      sdkSession("actual-session", { customTitle: "native duplicate", cwd: "D:/repo/native" }),
+      sdkSession("other-session", { customTitle: "native other", cwd: "D:/repo/other" }),
+    ]),
+  });
+  await adapter.resumeSession("claude-local-1", { backendSessionId: "actual-session", cwd: "D:/repo/bridge", title: "bridge record" });
+
+  const sessions = await adapter.listSessions();
+
+  assert.deepEqual(sessions.map((session) => session.id), ["claude-local-1", "other-session"]);
+  assert.equal(sessions[0]?.backendSessionId, "actual-session");
 });
 
 test("ClaudeExecAdapter reports non-interactive approval support", () => {
@@ -326,3 +360,24 @@ test("ClaudeExecAdapter registers tokenized approval contexts", () => {
   assert.equal(adapter.getOnlyActiveApprovalContext(), undefined);
   assert.equal(adapter.getApprovalContext(registration.token ?? ""), undefined);
 });
+
+function fakeClaudeSdkClient(sessions: ClaudeSdkSessionInfo[]): ClaudeSdkClient {
+  return {
+    query: () => { throw new Error("query not implemented"); },
+    listSessions: async (options: unknown) => {
+      assert.deepEqual(options, { limit: 100 });
+      return sessions;
+    },
+  } as unknown as ClaudeSdkClient;
+}
+
+function sdkSession(sessionId: string, options: Partial<ClaudeSdkSessionInfo> = {}): ClaudeSdkSessionInfo {
+  return {
+    sessionId,
+    cwd: options.cwd ?? process.cwd(),
+    customTitle: options.customTitle,
+    summary: options.summary,
+    firstPrompt: options.firstPrompt,
+    lastModified: options.lastModified ?? Date.UTC(2026, 4, 29),
+  } as ClaudeSdkSessionInfo;
+}

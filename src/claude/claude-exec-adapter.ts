@@ -10,6 +10,7 @@ import type {
   CodexCompactResult,
   CodexProgressKind,
   CodexPromptInput,
+  CodexResumeSessionOptions,
   CodexRunOptions,
   CodexRunApprovalContext,
   CodexRunApprovalContextRegistration,
@@ -22,6 +23,7 @@ import type {
 import type { ClaudeApprovalContext } from "./approval-service.js";
 import type { CodexRunPolicy, ClaudePermissionMode } from "../codex/codex-cli.js";
 import { codexInputPlainText } from "../codex/input.js";
+import { createClaudeSdkClient, type ClaudeSdkClient, type ClaudeSdkSessionInfo } from "./claude-sdk-client.js";
 import { resolveClaudeCommand, spawnClaude, type ClaudeCommandResolution } from "./claude-process.js";
 
 export interface ClaudeExecAdapterOptions {
@@ -31,6 +33,7 @@ export interface ClaudeExecAdapterOptions {
   permissionPromptTool?: string;
   mcpConfigPath?: string;
   strictMcpConfig?: boolean;
+  sdkClient?: ClaudeSdkClient;
 }
 
 interface ClaudeSessionRecord {
@@ -63,6 +66,7 @@ export class ClaudeExecAdapter implements CodexAdapter {
   private readonly permissionPromptTool?: string;
   private readonly mcpConfigPath?: string;
   private readonly strictMcpConfig: boolean;
+  private readonly sdkClient: ClaudeSdkClient;
   private readonly sessionRunPolicies = new Map<string, CodexRunPolicy>();
   private readonly sessionModelPolicies = new Map<string, CodexModelPolicy>();
   private readonly sessionCollaborationModes = new Map<string, CodexCollaborationMode>();
@@ -81,6 +85,7 @@ export class ClaudeExecAdapter implements CodexAdapter {
     this.permissionPromptTool = normalizePermissionPromptTool(options.permissionPromptTool ?? process.env.CHAT_CLAUDE_PERMISSION_PROMPT_TOOL);
     this.mcpConfigPath = normalizeOptionalString(options.mcpConfigPath ?? process.env.CHAT_CLAUDE_MCP_CONFIG);
     this.strictMcpConfig = options.strictMcpConfig ?? process.env.CHAT_CLAUDE_STRICT_MCP_CONFIG === "1";
+    this.sdkClient = options.sdkClient ?? createClaudeSdkClient();
   }
 
   registerRunApprovalContext(context: CodexRunApprovalContext): CodexRunApprovalContextRegistration {
@@ -127,22 +132,23 @@ export class ClaudeExecAdapter implements CodexAdapter {
     return session;
   }
 
-  async resumeSession(sessionId: string): Promise<CodexSession> {
+  async resumeSession(sessionId: string, options: CodexResumeSessionOptions = {}): Promise<CodexSession> {
     const stored = this.sessions.get(sessionId);
     if (stored) return stored.session;
     const now = new Date().toISOString();
+    const actualSessionId = options.backendSessionId ?? sessionId;
     const session: CodexSession = {
       id: sessionId,
-      cwd: process.cwd(),
-      title: `claude:${sessionId}`,
+      cwd: options.cwd ?? process.cwd(),
+      title: options.title ?? `claude:${actualSessionId}`,
       backend: "claude",
-      backendSessionId: sessionId,
-      createdAt: now,
+      backendSessionId: actualSessionId,
+      createdAt: options.createdAt ?? now,
     };
     this.sessions.set(session.id, {
       session,
       status: { type: "idle" },
-      actualSessionId: sessionId,
+      actualSessionId,
       updatedAt: now,
     });
     this.sessionRunPolicies.set(session.id, cloneRunPolicy(this.defaultRunPolicy));
@@ -252,7 +258,7 @@ export class ClaudeExecAdapter implements CodexAdapter {
   }
 
   async listSessions(routeKey?: string): Promise<CodexSessionSummary[]> {
-    return [...this.sessions.values()]
+    const localSessions = [...this.sessions.values()]
       .filter((record) => routeKey ? record.routeKey === routeKey : true)
       .map((record) => ({
         id: record.session.id,
@@ -261,9 +267,16 @@ export class ClaudeExecAdapter implements CodexAdapter {
         cwd: record.session.cwd,
         status: record.status,
         updatedAt: record.updatedAt,
-        backend: "claude",
+        backend: "claude" as const,
         backendSessionId: record.actualSessionId ?? record.session.backendSessionId,
       }));
+    if (routeKey || !this.sdkClient.listSessions) return localSessions;
+    try {
+      const discovered = await this.sdkClient.listSessions({ limit: 100 });
+      return mergeDiscoveredClaudeSessionSummaries(localSessions, discovered);
+    } catch {
+      return localSessions;
+    }
   }
 
   getRunPolicy(sessionId?: string): CodexRunPolicy {
@@ -492,6 +505,23 @@ export class ClaudeExecAdapter implements CodexAdapter {
       for (const skill of parsed.promptSkills) this.promptSkills.add(skill);
     }
   }
+}
+
+function mergeDiscoveredClaudeSessionSummaries(localSessions: CodexSessionSummary[], discovered: ClaudeSdkSessionInfo[]): CodexSessionSummary[] {
+  const knownBackendIds = new Set(localSessions.flatMap((session) => session.backendSessionId ? [session.backendSessionId] : []));
+  const knownIds = new Set(localSessions.map((session) => session.id));
+  const discoveredSummaries = discovered
+    .filter((session) => session.sessionId && !knownIds.has(session.sessionId) && !knownBackendIds.has(session.sessionId))
+    .map((session) => ({
+      id: session.sessionId,
+      title: session.customTitle ?? session.summary ?? session.firstPrompt,
+      cwd: session.cwd,
+      status: { type: "idle" } as const,
+      updatedAt: new Date(session.lastModified).toISOString(),
+      backend: "claude" as const,
+      backendSessionId: session.sessionId,
+    }));
+  return [...localSessions, ...discoveredSummaries];
 }
 
 function cloneRunPolicy(policy: CodexRunPolicy): CodexRunPolicy {
