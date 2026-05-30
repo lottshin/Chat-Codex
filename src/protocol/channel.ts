@@ -164,6 +164,7 @@ export function buildRouteKey(input: {
 export function replyTargetFromMessage(message: ChannelMessage): ChannelTarget {
   const raw = message.raw && typeof message.raw === "object" ? message.raw as Record<string, unknown> : undefined;
   const contextToken = typeof raw?.context_token === "string" ? raw.context_token : undefined;
+  const sourceMessageId = typeof raw?.sourceMessageId === "string" ? raw.sourceMessageId : message.id;
   return {
     channelId: message.channelId,
     routeKey: message.routeKey,
@@ -171,7 +172,7 @@ export function replyTargetFromMessage(message: ChannelMessage): ChannelTarget {
     conversation: message.conversation,
     recipient: message.sender,
     context: {
-      sourceMessageId: message.id,
+      sourceMessageId,
       ...(contextToken ? { contextToken } : {}),
     },
   };

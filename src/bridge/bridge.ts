@@ -593,7 +593,7 @@ export class Bridge {
       delivery: this.delivery,
     }, message, target, args, decision, optionId);
     if (result.handled && result.approvalKey) {
-      const messageId = this.approvalActionMessageIds.get(result.approvalKey);
+      const messageId = this.approvalActionMessageIds.get(result.approvalKey) ?? actionMessageSourceId(message);
       this.approvalActionMessageIds.delete(result.approvalKey);
       if (messageId) {
         await this.delivery.updateActionMessage(target, messageId, `审批已处理：${approvalActionStatusText(result.decision ?? decision, message.sender.displayName ?? message.sender.id)}`);
@@ -809,6 +809,11 @@ function withoutSenderDisplayName(message: ChannelMessage): ChannelMessage {
   if (!message.sender.displayName) return message;
   const { displayName: _displayName, ...sender } = message.sender;
   return { ...message, sender };
+}
+
+function actionMessageSourceId(message: ChannelMessage): string | undefined {
+  const raw = message.raw && typeof message.raw === "object" ? message.raw as Record<string, unknown> : undefined;
+  return typeof raw?.sourceMessageId === "string" ? raw.sourceMessageId : undefined;
 }
 
 function normalizeBackendPromptSlashCommand(commandName: string): string | undefined {

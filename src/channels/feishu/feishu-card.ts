@@ -3,6 +3,7 @@ import type { ChannelActionMessage, ChannelButton, ChannelButtonStyle, ChannelTa
 export interface FeishuActionCard {
   config: {
     wide_screen_mode: boolean;
+    update_multi: boolean;
   };
   elements: Array<FeishuCardMarkdownElement | FeishuCardActionElement>;
 }
@@ -37,7 +38,7 @@ interface FeishuCardButtonElement {
 
 export function buildFeishuActionCard(message: ChannelActionMessage, target?: ChannelTarget): FeishuActionCard {
   return {
-    config: { wide_screen_mode: true },
+    config: { wide_screen_mode: true, update_multi: true },
     elements: [
       { tag: "markdown", content: message.text },
       ...message.buttonGroups
@@ -51,7 +52,9 @@ export function buildFeishuActionCard(message: ChannelActionMessage, target?: Ch
 }
 
 export function feishuCardActionToInboundText(rawAction: unknown): FeishuCardInboundAction | undefined {
-  const value = objectField(rawAction, "value") ?? objectField(rawAction, "action") ?? (isObject(rawAction) ? rawAction : undefined);
+  const source = objectField(rawAction, "event") ?? (isObject(rawAction) ? rawAction : undefined);
+  const rawValue = objectField(source, "value") ?? objectField(source, "action") ?? objectField(rawAction, "value") ?? objectField(rawAction, "action") ?? source;
+  const value = objectField(rawValue, "value") ?? (isObject(rawValue) ? rawValue : undefined);
   const action = stringField(value, "action");
   if (action?.startsWith("cmd:/")) {
     return {

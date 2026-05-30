@@ -210,6 +210,37 @@ test("FeishuAdapter updates text messages through Feishu message update API", as
   });
 });
 
+test("FeishuAdapter patches action messages as interactive status cards", async () => {
+  const factory = new FakeFeishuTransportFactory();
+  const adapter = new FeishuAdapter({ ...credentials, transportFactory: factory, connectOnStart: false });
+  await adapter.start();
+  const target = {
+    channelId: "feishu",
+    routeKey: "feishu:work:direct:oc_user",
+    accountId: "work",
+    conversation: { id: "oc_user", kind: "direct" as const },
+    recipient: { id: "ou_user" },
+    context: { sourceMessageId: "om_source" },
+  };
+
+  const sent = await adapter.sendActionMessage(target, {
+    text: "需要审批",
+    buttonGroups: [[{ text: "允许", action: "cmd:/1 a001", style: "primary" }]],
+  });
+  await adapter.updateText(target, sent.messageId, "审批已处理：已批准");
+
+  assert.equal(factory.client.cardIdConvertPayloads.length, 1);
+  assert.deepEqual(factory.client.cardIdConvertPayloads[0], { data: { message_id: "om_reply" } });
+  assert.equal(factory.client.cardUpdatePayloads.length, 1);
+  const data = factory.client.cardUpdatePayloads[0].data.card.data;
+  const card = JSON.parse(data) as {
+    config?: { update_multi?: boolean };
+    elements?: Array<{ tag?: string; content?: string; actions?: unknown[] }>;
+  };
+  assert.equal(card.config?.update_multi, true);
+  assert.equal(card.elements?.[0]?.content, "审批已处理：已批准");
+  assert.equal(card.elements?.some((element) => element.tag === "action"), false);
+});
 test("FeishuAdapter reports update failures", async () => {
   const factory = new FakeFeishuTransportFactory();
   factory.client.updateResponse = { code: 999, msg: "update denied" };
@@ -225,6 +256,33 @@ test("FeishuAdapter reports update failures", async () => {
   }, "om_progress", "任务进度"), /update denied/);
   assert.equal((await adapter.getStatus()).details?.phase, "update-failed");
 });
+
+test("FeishuAdapter updates action status cards when metadata marks action kind", async () => {
+  const factory = new FakeFeishuTransportFactory();
+  const adapter = new FeishuAdapter({ ...credentials, transportFactory: factory, connectOnStart: false });
+  await adapter.start();
+
+  await adapter.updateText({
+    channelId: "feishu",
+    routeKey: "feishu:work:direct:oc_user",
+    accountId: "work",
+    conversation: { id: "oc_user", kind: "direct" },
+    recipient: { id: "ou_user" },
+  }, "om_card", "已处理", { metadata: { messageKind: "action" } });
+
+  assert.equal(factory.client.cardIdConvertPayloads.length, 1);
+  assert.deepEqual(factory.client.cardIdConvertPayloads[0], { data: { message_id: "om_card" } });
+  assert.equal(factory.client.cardUpdatePayloads.length, 1);
+  const data = factory.client.cardUpdatePayloads[0].data.card.data;
+  const card = JSON.parse(data) as {
+    config?: { update_multi?: boolean };
+    elements?: Array<{ tag?: string; content?: string; actions?: unknown[] }>;
+  };
+  assert.equal(card.config?.update_multi, true);
+  assert.equal(card.elements?.[0]?.content, "已处理");
+  assert.equal(card.elements?.some((element) => element.tag === "action"), false);
+});
+
 test("FeishuAdapter sends action messages as interactive cards", async () => {
   const factory = new FakeFeishuTransportFactory();
   const adapter = new FeishuAdapter({ ...credentials, transportFactory: factory, connectOnStart: false });
@@ -249,10 +307,11 @@ test("FeishuAdapter sends action messages as interactive cards", async () => {
   assert.equal(factory.client.replyPayloads.length, 1);
   assert.equal(factory.client.replyPayloads[0].data.msg_type, "interactive");
   const card = JSON.parse(factory.client.replyPayloads[0].data.content) as {
-    config?: { wide_screen_mode?: boolean };
+    config?: { wide_screen_mode?: boolean; update_multi?: boolean };
     elements?: Array<{ tag?: string; content?: string; actions?: Array<{ text?: { content?: string }; type?: string; value?: { action?: string; routeKey?: string } }> }>;
   };
   assert.equal(card.config?.wide_screen_mode, true);
+  assert.equal(card.config?.update_multi, true);
   assert.equal(card.elements?.[0]?.content, "需要审批");
   assert.deepEqual(card.elements?.[1]?.actions?.map((action) => action.text?.content), ["允许", "拒绝"]);
   assert.deepEqual(card.elements?.[1]?.actions?.map((action) => action.type), ["primary", "danger"]);
@@ -317,6 +376,97 @@ test("FeishuAdapter converts card actions to command ChannelMessage", async () =
   assert.equal(senderId, "ou_user");
   assert.equal((await adapter.getStatus()).details?.phase, "card-action-received");
 });
+test("FeishuAdapter converts nested card action callbacks to command ChannelMessage", async () => {
+  const factory = new FakeFeishuTransportFactory();
+  const adapter = new FeishuAdapter({ ...credentials, transportFactory: factory, now: () => 1_700_000_000_000 });
+  let receivedText = "";
+  let routeKey = "";
+  let senderId = "";
+  adapter.onMessage(async (message) => {
+    receivedText = message.text ?? "";
+    routeKey = message.routeKey;
+    senderId = message.sender.id;
+  });
+
+  await adapter.start();
+  await factory.dispatcher.emitCardAction({
+    app_id: credentials.appId,
+    event: {
+      event_id: "ev_nested_card_1",
+      operator: { open_id: "ou_nested" },
+      context: { open_chat_id: "oc_direct", open_message_id: "om_card_nested" },
+      action: { value: { action: "cmd:/1 approval-key", routeKey: "feishu:work:direct:oc_bound" } },
+    },
+  });
+
+  assert.equal(receivedText, "/1 approval-key");
+  assert.equal(routeKey, "feishu:work:direct:oc_bound");
+  assert.equal(senderId, "ou_nested");
+  assert.equal((await adapter.getStatus()).details?.phase, "card-action-received");
+});
+test("FeishuAdapter exposes original card message id for action status updates", async () => {
+  const factory = new FakeFeishuTransportFactory();
+  const adapter = new FeishuAdapter({ ...credentials, transportFactory: factory });
+  let sourceMessageId = "";
+  let messageId = "";
+  adapter.onMessage(async (message) => {
+    messageId = message.id;
+    const raw = message.raw as { sourceMessageId?: string } | undefined;
+    sourceMessageId = raw?.sourceMessageId ?? "";
+  });
+
+  await adapter.start();
+  await factory.dispatcher.emitCardAction({
+    event_id: "ev_card_action_1",
+    app_id: credentials.appId,
+    open_id: "ou_user",
+    chat_id: "oc_direct",
+    open_message_id: "om_card_original",
+    action: { value: { action: "reply:1", routeKey: "feishu:work:direct:oc_direct" } },
+  });
+
+  assert.equal(messageId, "ev_card_action_1");
+  assert.equal(sourceMessageId, "om_card_original");
+});
+
+test("FeishuAdapter returns an empty card action response and uses callback token to update the card", async () => {
+  const factory = new FakeFeishuTransportFactory();
+  const adapter = new FeishuAdapter({ ...credentials, transportFactory: factory });
+  let releaseHandler: (() => void) | undefined;
+  adapter.onMessage(async () => {
+    await new Promise<void>((resolve) => {
+      releaseHandler = resolve;
+    });
+  });
+
+  await adapter.start();
+  const responsePromise = factory.dispatcher.emitCardAction({
+    app_id: credentials.appId,
+    event: {
+      event_id: "ev_card_action_fast_response",
+      token: "callback-token",
+      operator: { open_id: "ou_user" },
+      context: { open_chat_id: "oc_direct", open_message_id: "om_card_original" },
+      action: { value: { action: "cmd:/1 approval-key", routeKey: "feishu:work:direct:oc_direct" } },
+    },
+  });
+  const response = await Promise.race([
+    responsePromise,
+    new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), 20)),
+  ]);
+  releaseHandler?.();
+
+  assert.notEqual(response, "timeout");
+  assert.deepEqual(response, {});
+  const updatePayload = factory.client.requestPayloads.find((payload) => payload.method === "POST" && payload.url === "/open-apis/interactive/v1/card/update");
+  assert.ok(updatePayload);
+  assert.equal((updatePayload.data as { token?: string }).token, "callback-token");
+  const card = (updatePayload.data as { card?: { elements?: Array<{ tag?: string; content?: string; actions?: unknown[] }> } }).card;
+  assert.ok(card);
+  assert.match(card.elements?.[0]?.content ?? "", /审批已处理/);
+  assert.equal(card.elements?.some((element) => element.tag === "action"), false);
+});
+
 test("FeishuAdapter converts reply card actions to plain ChannelMessage text", async () => {
   const factory = new FakeFeishuTransportFactory();
   const adapter = new FeishuAdapter({ ...credentials, transportFactory: factory, now: () => 1_700_000_000_000 });

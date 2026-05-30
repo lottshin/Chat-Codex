@@ -675,7 +675,7 @@ test("Bridge sends approval action buttons when channel supports buttons", async
   assert.equal(channel.sentActionMessages.length, 1);
   const approvalActions = channel.sentActionMessages[0]?.message;
   assert.ok(approvalActions?.text.includes("Codex 请求审批"));
-  assert.deepEqual(approvalActions?.buttonGroups.map((group) => group.map((button) => button.action)), [["cmd:/1 a001", "cmd:/2 a001"], ["cmd:/3 a001"]]);
+  assert.deepEqual(approvalActions?.buttonGroups.map((group) => group.map((button) => button.action)), [["cmd:/OK a001", "cmd:/P a001"], ["cmd:/NO a001"]]);
   assert.equal(channel.sentMessages.some((message) => message.text.includes("Codex 请求审批")), false);
 
   await channel.emitText("/OK");
@@ -688,6 +688,41 @@ test("Bridge sends approval action buttons when channel supports buttons", async
   assert.equal(channel.updatedMessages[0]?.messageId, "mock-action-1");
   assert.match(channel.updatedMessages[0]?.text ?? "", /审批已处理/);
   assert.match(channel.updatedMessages[0]?.text ?? "", /已由 Mock User 批准/);
+});
+
+test("Bridge updates approval action message from card callback source id when action id mapping is missing", async () => {
+  const channel = new MockChannelAdapter({ buttons: true, messageUpdate: true });
+  const codex = new MockCodexAdapter();
+  const approvals = new ApprovalManager();
+  const routeKey = "mock:mock-account:direct:mock-user";
+  approvals.create(routeKey, "mock-user", {
+    kind: "command",
+    sessionId: "s1",
+    turnId: "t1",
+    itemId: "i1",
+    command: "echo approved",
+  });
+  const bridge = new Bridge({ channel, codex, approvals, cwd: process.cwd() });
+
+  await bridge.start();
+  await bridge.handleMessage({
+    id: "card-action-event-1",
+    routeKey,
+    channelId: "mock",
+    accountId: "mock-account",
+    sender: { id: "mock-user", displayName: "Mock User" },
+    conversation: { id: "mock-user", kind: "direct", displayName: "Mock Direct" },
+    text: "/OK",
+    timestamp: new Date().toISOString(),
+    raw: { sourceMessageId: "mock-action-original" },
+  });
+  await bridge.stop();
+
+  assert.equal(codex.resolvedApprovals.length, 1);
+  assert.equal(channel.updatedMessages.length, 1);
+  assert.equal(channel.updatedMessages[0]?.messageId, "mock-action-original");
+  assert.equal(channel.updatedMessages[0]?.options?.metadata?.messageKind, "action");
+  assert.match(channel.updatedMessages[0]?.text ?? "", /审批已处理/);
 });
 
 test("Bridge creates Codex App chat sessions with optional first prompt", async () => {

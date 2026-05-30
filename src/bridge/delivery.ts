@@ -96,7 +96,7 @@ export class BridgeDelivery {
 
   async updateActionMessage(target: ChannelTarget, messageId: string, text: string): Promise<boolean> {
     try {
-      await this.channels.updateText(target, messageId, text);
+      await this.channels.updateText(target, messageId, text, { metadata: { messageKind: "action" } });
       this.transcript?.outbound(target, text);
       return true;
     } catch (error) {
@@ -239,7 +239,7 @@ export class BridgeDelivery {
 export function approvalActionMessage(text: string, pending: PendingApproval): ChannelActionMessage {
   const buttons = approvalChoices(pending).map((choice) => ({
     text: choice.buttonText,
-    action: `cmd:${choice.numeric} ${pending.approvalKey}`,
+    action: `cmd:${choice.command ?? choice.numeric} ${pending.approvalKey}`,
     style: choice.buttonStyle,
   }));
   return {
