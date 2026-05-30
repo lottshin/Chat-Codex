@@ -231,19 +231,19 @@ export class BridgeSessionFlow {
     if (!selection) return;
     if (isCancelSessionSelectionText(text)) {
       this.selections.delete(message.routeKey);
-      await this.delivery.sendText(target, "已退出切换会话。");
+      await this.updateSelectionActionMessageOrSendText(target, selection, "已退出切换会话。");
       return;
     }
     if (sessionListStateExpired(selection.createdAt)) {
       this.selections.delete(message.routeKey);
-      await this.delivery.sendText(target, "会话选择已过期。\n下一步：请重新发送 `/resume` 或 `/use`。");
+      await this.updateSelectionActionMessageOrSendText(target, selection, "会话选择已过期。\n下一步：请重新发送 `/resume` 或 `/use`。");
       return;
     }
     const action = sessionPageAction(text);
     if (action) {
       selection.page += action === "next" ? 1 : -1;
       selection.createdAt = Date.now();
-      await this.sendSessionSelection(target, selection);
+      await this.sendSessionSelection(target, selection, undefined, { updateExisting: true });
       return;
     }
     const choiceIndex = pageNumberFromText(text);
@@ -255,17 +255,17 @@ export class BridgeSessionFlow {
       return;
     }
     if (await this.isRouteExecutionBusy(message.routeKey)) {
-      await this.delivery.sendText(target, ROUTE_BUSY_MUTATION_REJECT_TEXT);
+      await this.updateSelectionActionMessageOrSendText(target, selection, ROUTE_BUSY_MUTATION_REJECT_TEXT);
       return;
     }
     const page = paginateSessionList(selection.items, "selectable", selection.page, selection.pageSize);
     const choice = page.items[choiceIndex - 1];
     if (!choice) {
-      await this.sendSessionSelection(target, selection, `没有第 ${choiceIndex} 项，请重新选择。`);
+      await this.sendSessionSelection(target, selection, `没有第 ${choiceIndex} 项，请重新选择。`, { updateExisting: true });
       return;
     }
     const result = await this.bindSessionById(message, target, choice.id, choice);
-    if (!result.ok) await this.delivery.sendText(target, result.message);
+    await this.updateSelectionActionMessageOrSendText(target, selection, this.bindSessionResultText(result));
   }
 
   shouldAskBeforeBindingSession(message: ChannelMessage): boolean {
@@ -317,14 +317,17 @@ export class BridgeSessionFlow {
         return;
       }
       const result = await this.bindSessionById(message, target, choice.id, choice);
-      if (!result.ok) await this.delivery.sendText(target, result.message);
+      await this.sendBindSessionResultText(target, result);
       return;
     }
 
     const result = await this.bindSessionById(message, target, sessionRef);
-    if (result.ok) return;
+    if (result.ok) {
+      await this.sendBindSessionResultText(target, result);
+      return;
+    }
     if (result.reason === "owner_conflict") {
-      await this.delivery.sendText(target, result.message);
+      await this.sendBindSessionResultText(target, result);
       return;
     }
     await this.beginSessionSelection(message, target, `没有找到 session \`${sessionRef}\`，请从下面选择。`);
@@ -349,7 +352,7 @@ export class BridgeSessionFlow {
         return;
       }
       const result = await this.bindSessionById(message, target, choice.id, choice);
-      if (!result.ok) await this.delivery.sendText(target, result.message);
+      await this.sendBindSessionResultText(target, result);
       return;
     }
     if (query.trim().toLowerCase() === "last") {
@@ -359,20 +362,20 @@ export class BridgeSessionFlow {
         return;
       }
       const result = await this.bindSessionById(message, target, choice.id, choice);
-      if (!result.ok) await this.delivery.sendText(target, result.message);
+      await this.sendBindSessionResultText(target, result);
       return;
     }
     const exactItem = allItems.find((item) => item.id === query || item.backendSessionId === query);
     if (exactItem) {
       const result = await this.bindSessionById(message, target, exactItem.id, exactItem);
-      if (!result.ok) await this.delivery.sendText(target, result.message);
+      await this.sendBindSessionResultText(target, result);
       return;
     }
 
     const matches = matchSessionListItems(items, query);
     if (matches.length === 1) {
       const result = await this.bindSessionById(message, target, matches[0].id, matches[0]);
-      if (!result.ok) await this.delivery.sendText(target, result.message);
+      await this.sendBindSessionResultText(target, result);
       return;
     }
     if (matches.length > 1) {
@@ -381,7 +384,7 @@ export class BridgeSessionFlow {
     }
     if (this.backend === "claude" && isLikelyClaudeSessionId(query)) {
       const result = await this.bindSessionById(message, target, query);
-      if (!result.ok) await this.delivery.sendText(target, result.message);
+      await this.sendBindSessionResultText(target, result);
       return;
     }
     await this.beginResumeSelection(message, target, items, `没有找到匹配 \`${query}\` 的可恢复会话，请从下面选择。`);
@@ -389,7 +392,7 @@ export class BridgeSessionFlow {
 
   private async bindSessionById(
     message: ChannelMessage,
-    target: ChannelTarget,
+    _target: ChannelTarget,
     sessionId: string,
     hint?: Pick<SessionListItem, "backendSessionId" | "cwd" | "title" | "updatedAt">,
   ): Promise<BindSessionResult> {
@@ -414,13 +417,7 @@ export class BridgeSessionFlow {
       await this.recordSnapshot(session.id, "bind");
       this.selections.delete(message.routeKey);
       this.clearPendingInitialRouteBindingIfApplies(message);
-      await this.delivery.sendText(target, [
-        "已绑定 Codex 会话",
-        `- 当前会话: \`${session.id}\``,
-        `- 工作目录: \`${session.cwd}\``,
-        `- 协作模式: ${formatCollaborationModeForStatus(mode)}`,
-      ].join("\n"));
-      return { ok: true };
+      return { ok: true, session, mode };
     } catch (error) {
       if (claim.newlyClaimed) this.state.rollbackSessionOwnerClaim(message.routeKey, adapterSessionId, { backend: this.backend });
       return { ok: false, reason: "resume_failed", message: error instanceof Error ? error.message : String(error) };
@@ -666,9 +663,49 @@ export class BridgeSessionFlow {
     });
   }
 
-  private async sendSessionSelection(target: ChannelTarget, selection: SessionSelectionState, intro?: string): Promise<void> {
+  private async sendSessionSelection(
+    target: ChannelTarget,
+    selection: SessionSelectionState,
+    intro?: string,
+    options: { updateExisting?: boolean } = {},
+  ): Promise<void> {
     const text = this.sessionSelectionText(selection, intro);
-    await this.delivery.deliverActionMessage(target, this.sessionSelectionActionMessage(selection, text), text);
+    if (options.updateExisting) {
+      await this.updateSelectionActionMessageOrSendText(target, selection, text);
+      return;
+    }
+    const result = await this.delivery.deliverActionMessage(target, this.sessionSelectionActionMessage(selection, text), text);
+    selection.actionMessageId = result.messageId;
+  }
+
+  private async updateSelectionActionMessageOrSendText(
+    target: ChannelTarget,
+    selection: SessionSelectionState,
+    text: string,
+  ): Promise<void> {
+    if (selection.actionMessageId) {
+      const updated = await this.delivery.updateActionMessage(target, selection.actionMessageId, text);
+      if (updated) return;
+    }
+    await this.delivery.sendText(target, text);
+  }
+
+  private async sendBindSessionResultText(target: ChannelTarget, result: BindSessionResult): Promise<void> {
+    await this.delivery.sendText(target, this.bindSessionResultText(result));
+  }
+
+  private bindSessionResultText(result: BindSessionResult): string {
+    if (!result.ok) return result.message;
+    return this.boundSessionStatusText(result.session, result.mode);
+  }
+
+  private boundSessionStatusText(session: CodexSession, mode: CodexCollaborationMode): string {
+    return [
+      "已绑定 Codex 会话",
+      `- 当前会话: \`${session.id}\``,
+      `- 工作目录: \`${session.cwd}\``,
+      `- 协作模式: ${formatCollaborationModeForStatus(mode)}`,
+    ].join("\n");
   }
 
   private sessionSelectionActionMessage(selection: SessionSelectionState, text: string): ChannelActionMessage {

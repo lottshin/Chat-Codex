@@ -954,6 +954,40 @@ test("Bridge sends session selection action cards on button-capable channels", a
   assert.ok(channel.sentMessages.at(-1)?.text.includes("当前会话: `mock-codex-1`"));
 });
 
+test("Bridge updates session selection action cards in place", async () => {
+  const channel = new MockChannelAdapter({ buttons: true, messageUpdate: true });
+  const codex = new MockCodexAdapter();
+  for (let index = 0; index < 12; index += 1) {
+    await codex.startSession({
+      routeKey: `seed-${index}`,
+      cwd: process.cwd(),
+      title: `seed session ${index + 1}`,
+    });
+  }
+  const bridge = new Bridge({ channel, codex, cwd: process.cwd() });
+
+  await bridge.start();
+  await channel.emitText("/use");
+  const actionMessageId = channel.sentActionMessages.at(-1)?.result.messageId;
+  await channel.emitText("n");
+  const page2 = channel.updatedMessages.at(-1)?.text ?? "";
+  const selectedId = page2.match(/2\. Session: `([^`]+)`/)?.[1];
+  assert.ok(actionMessageId);
+  assert.ok(selectedId);
+
+  await channel.emitText("2");
+  await bridge.stop();
+
+  assert.equal(channel.sentActionMessages.length, 1);
+  assert.equal(channel.updatedMessages.length, 2);
+  assert.deepEqual(channel.updatedMessages.map((message) => message.messageId), [actionMessageId, actionMessageId]);
+  assert.ok(channel.updatedMessages[0]?.text.includes("页码: `2 / 2`"));
+  assert.ok(channel.updatedMessages[1]?.text.includes("已绑定 Codex 会话"));
+  assert.ok(channel.updatedMessages[1]?.text.includes(`当前会话: \`${selectedId}\``));
+  assert.equal(channel.sentMessages.some((message) => message.text.includes("页码: `2 / 2`")), false);
+  assert.equal(channel.sentMessages.some((message) => message.text.includes("已绑定 Codex 会话")), false);
+});
+
 test("Bridge turns an unknown session id into a recoverable selection prompt", async () => {
   const channel = new MockChannelAdapter();
   const codex = new MockCodexAdapter();
