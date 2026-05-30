@@ -93,6 +93,7 @@ export class FeishuAdapter implements ChannelAdapter {
   private botName?: string;
   private readonly seenMessages = new Map<string, number>();
   private readonly typingReactions = new Map<string, string>();
+  private readonly actionMessageIds = new Set<string>();
 
   constructor(options: FeishuAdapterOptions = {}) {
     this.id = options.id ?? FEISHU_CHANNEL_ID;
@@ -169,6 +170,7 @@ export class FeishuAdapter implements ChannelAdapter {
     this.wsClient = undefined;
     this.dispatcher = undefined;
     this.typingReactions.clear();
+    this.actionMessageIds.clear();
     this.status = {
       ...this.status,
       state: "stopped",
@@ -246,11 +248,17 @@ export class FeishuAdapter implements ChannelAdapter {
   }
 
   async sendActionMessage(target: ChannelTarget, message: ChannelActionMessage, options?: SendOptions): Promise<SendResult> {
-    return this.sendFeishuMessage(target, "interactive", JSON.stringify(buildFeishuActionCard(message, target)), options);
+    const result = await this.sendFeishuMessage(target, "interactive", JSON.stringify(buildFeishuActionCard(message, target)), options);
+    this.actionMessageIds.add(result.messageId);
+    return result;
   }
 
-  async updateText(_target: ChannelTarget, messageId: string, text: string, _options?: SendOptions): Promise<SendResult> {
+  async updateText(_target: ChannelTarget, messageId: string, text: string, options?: SendOptions): Promise<SendResult> {
     const client = this.ensureClient();
+    const isActionMessage = options?.metadata?.messageKind === "action" || this.actionMessageIds.has(messageId);
+    if (isActionMessage) {
+      return this.updateActionCard(client, _target, messageId, text);
+    }
     if (!client.request) throw new Error("Feishu SDK client does not support raw requests");
     const response = await client.request<FeishuApiResponse<FeishuSentMessageData>>({
       method: "PATCH",
@@ -265,7 +273,59 @@ export class FeishuAdapter implements ChannelAdapter {
       this.recordSendError(new Error(errorText), "update-failed");
       throw new Error(errorText);
     }
+    this.actionMessageIds.delete(messageId);
     return this.recordSendResult(response, messageId);
+  }
+
+  private async updateActionCard(client: FeishuSdkClient, target: ChannelTarget, messageId: string, text: string): Promise<SendResult> {
+    const card = buildFeishuActionCard({ text, buttonGroups: [] }, target);
+    const cardApi = client.cardkit?.v1?.card;
+    let cardkitError: Error | undefined;
+    if (cardApi) {
+      try {
+        const converted = await cardApi.idConvert({ data: { message_id: messageId } });
+        if (converted.code !== undefined && converted.code !== 0) {
+          throw new Error(formatFeishuApiError(converted, "飞书卡片 ID 转换失败"));
+        }
+        const cardId = converted.data?.card_id;
+        if (!cardId) throw new Error("飞书卡片 ID 转换响应缺少 card_id");
+        const response = await cardApi.update({
+          path: { card_id: cardId },
+          data: {
+            card: { type: "card_json", data: JSON.stringify(card) },
+            sequence: this.now(),
+            uuid: buildFeishuMessageUuid(),
+          },
+        });
+        if (response.code !== undefined && response.code !== 0) {
+          throw new Error(formatFeishuApiError(response, "飞书卡片更新失败"));
+        }
+        this.actionMessageIds.delete(messageId);
+        return this.recordSendResult({ code: 0, data: { message_id: messageId } }, messageId);
+      } catch (error) {
+        cardkitError = error instanceof Error ? error : new Error(String(error));
+      }
+    }
+    if (client.request) {
+      const response = await client.request<FeishuApiResponse<FeishuSentMessageData>>({
+        method: "PATCH",
+        url: `/open-apis/im/v1/messages/${encodeURIComponent(messageId)}`,
+        data: { content: JSON.stringify(card) },
+      });
+      if (response.code !== undefined && response.code !== 0) {
+        const errorText = formatFeishuApiError(response, "飞书卡片更新失败");
+        const error = cardkitError ? new Error(`${errorText}; cardkit fallback reason: ${cardkitError.message}`) : new Error(errorText);
+        this.recordSendError(error, "card-update-failed");
+        throw error;
+      }
+      this.actionMessageIds.delete(messageId);
+      return this.recordSendResult(response, messageId);
+    }
+    if (cardkitError) {
+      this.recordSendError(cardkitError, "card-update-failed");
+      throw cardkitError;
+    }
+    throw new Error("Feishu SDK client does not support card update requests");
   }
 
   async sendMedia(target: ChannelTarget, media: ChannelMedia, options?: SendOptions): Promise<SendResult> {
@@ -366,8 +426,9 @@ export class FeishuAdapter implements ChannelAdapter {
     };
   }
 
-  private async handleCardActionEvent(event: FeishuCardActionEvent): Promise<void> {
-    const inbound = feishuCardActionToInboundText(event.action ?? event.value);
+  private async handleCardActionEvent(event: FeishuCardActionEvent): Promise<Record<string, unknown> | void> {
+    const payload = feishuCardActionPayload(event);
+    const inbound = feishuCardActionToInboundText(payload);
     if (!inbound) {
       this.status = {
         ...this.status,
@@ -378,8 +439,8 @@ export class FeishuAdapter implements ChannelAdapter {
       };
       return;
     }
-    const senderId = event.sender?.sender_id?.open_id ?? event.open_id ?? event.user_id ?? event.union_id;
-    const chatId = event.chat_id ?? event.open_chat_id;
+    const senderId = cardActionSenderId(payload);
+    const chatId = cardActionChatId(payload);
     if (!senderId || !chatId) {
       this.status = {
         ...this.status,
@@ -390,7 +451,8 @@ export class FeishuAdapter implements ChannelAdapter {
       };
       return;
     }
-    const messageId = event.event_id ?? event.open_message_id ?? event.message_id ?? `card-action-${this.now()}`;
+    const messageId = cardActionEventId(payload) ?? `card-action-${this.now()}`;
+    const sourceMessageId = cardActionMessageId(payload);
     const routeKey = inbound.routeKey ?? `${this.id}:${this.credentials.accountId ?? DEFAULT_FEISHU_ACCOUNT_ID}:direct:${chatId}`;
     const timestamp = new Date(this.now()).toISOString();
     const message: ChannelMessage = {
@@ -402,15 +464,61 @@ export class FeishuAdapter implements ChannelAdapter {
       conversation: { id: chatId, kind: routeKey.includes(":group:") ? "group" : "direct", displayName: routeKey.includes(":group:") ? "飞书群聊" : "飞书私聊" },
       text: inbound.text,
       timestamp,
-      raw: event,
+      raw: sourceMessageId ? { event, sourceMessageId } : event,
     };
-    if (!this.recordMessageId(message.id)) return;
+    const response = feishuCardActionResponse();
+    if (!this.recordMessageId(message.id)) return response;
     this.status = {
       ...this.status,
       lastInboundAt: message.timestamp,
       details: this.statusDetails("card-action-received"),
     };
-    await this.handler?.(message);
+    this.updateCardActionByCallbackToken(payload, inbound);
+    this.runCardActionHandler(message);
+    return response;
+  }
+
+  private updateCardActionByCallbackToken(event: FeishuCardActionEvent, inbound: { text: string }): void {
+    const token = cardActionUpdateToken(event);
+    const client = this.client;
+    if (!token || !client?.request) return;
+    const request = client.request.bind(client);
+
+    const card = buildFeishuActionCard({ text: cardActionResponseText(inbound.text), buttonGroups: [] });
+    void (async () => {
+      try {
+        const response = await request<FeishuApiResponse>({
+          method: "POST",
+          url: "/open-apis/interactive/v1/card/update",
+          data: { token, card },
+        });
+        if (response.code !== undefined && response.code !== 0) {
+          throw new Error(formatFeishuApiError(response, "飞书卡片回调延时更新失败"));
+        }
+      } catch (error) {
+        this.status = {
+          ...this.status,
+          state: "degraded",
+          lastError: error instanceof Error ? error.message : String(error),
+          details: this.statusDetails("card-callback-update-failed"),
+        };
+      }
+    })();
+  }
+
+  private runCardActionHandler(message: ChannelMessage): void {
+    void (async () => {
+      try {
+        await this.handler?.(message);
+      } catch (error) {
+        this.status = {
+          ...this.status,
+          state: "degraded",
+          lastError: error instanceof Error ? error.message : String(error),
+          details: this.statusDetails("handler-failed"),
+        };
+      }
+    })();
   }
 
   private async handleIncomingEvent(event: FeishuMessageReceiveEvent): Promise<void> {
@@ -693,6 +801,74 @@ export class FeishuAdapter implements ChannelAdapter {
       dedupSize: this.seenMessages.size,
     });
   }
+}
+
+function feishuCardActionPayload(event: FeishuCardActionEvent): FeishuCardActionEvent {
+  const nested = objectDetail(event, "event");
+  return nested ? { ...event, ...nested } : event;
+}
+
+function cardActionSenderId(event: FeishuCardActionEvent): string | undefined {
+  const operator = objectDetail(event, "operator");
+  const user = objectDetail(event, "user");
+  return event.sender?.sender_id?.open_id
+    ?? event.open_id
+    ?? event.user_id
+    ?? event.union_id
+    ?? stringDetail(operator, "open_id")
+    ?? stringDetail(operator, "user_id")
+    ?? stringDetail(operator, "union_id")
+    ?? stringDetail(user, "open_id")
+    ?? stringDetail(user, "user_id")
+    ?? stringDetail(user, "union_id");
+}
+
+function cardActionChatId(event: FeishuCardActionEvent): string | undefined {
+  const context = objectDetail(event, "context");
+  return event.chat_id
+    ?? event.open_chat_id
+    ?? stringDetail(context, "chat_id")
+    ?? stringDetail(context, "open_chat_id");
+}
+
+function cardActionEventId(event: FeishuCardActionEvent): string | undefined {
+  return event.event_id;
+}
+
+function cardActionMessageId(event: FeishuCardActionEvent): string | undefined {
+  const context = objectDetail(event, "context");
+  return event.open_message_id
+    ?? event.message_id
+    ?? stringDetail(context, "open_message_id")
+    ?? stringDetail(context, "message_id");
+}
+
+function cardActionUpdateToken(event: FeishuCardActionEvent): string | undefined {
+  return event.token && event.token.length > 0 ? event.token : undefined;
+}
+
+function feishuCardActionResponse(): Record<string, unknown> {
+  return {};
+}
+
+function cardActionResponseText(text: string): string {
+  const normalized = text.trim().toLowerCase();
+  if (/^\/(?:ok|yes|approve|1)(?:\s|$)/.test(normalized)) {
+    return "审批已处理：已通过，当前操作将继续执行。\n下一步：等待当前任务继续输出；如需补充信息，直接发送普通消息。";
+  }
+  if (/^\/(?:p|yes-session|ok-session|approve-session)(?:\s|$)/.test(normalized)) {
+    return "审批已处理：已按本会话通过，当前操作将继续执行。\n下一步：等待当前任务继续输出；如需补充信息，直接发送普通消息。";
+  }
+  if (/^\/(?:no|deny|reject|2)(?:\s|$)/.test(normalized)) {
+    return "审批已处理：已拒绝。\n下一步：等待当前任务确认拒绝结果；如需继续，直接发送普通消息。";
+  }
+  return "操作已提交，正在处理。\n下一步：等待当前操作完成；如需查看状态，发送 `/status`。";
+}
+
+function objectDetail(value: unknown, key: string): Record<string, unknown> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const field = (value as Record<string, unknown>)[key];
+  return field && typeof field === "object" && !Array.isArray(field) ? field as Record<string, unknown> : undefined;
 }
 
 class DefaultFeishuTransportFactory implements FeishuTransportFactory {

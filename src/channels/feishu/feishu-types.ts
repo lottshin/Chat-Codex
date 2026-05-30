@@ -66,6 +66,30 @@ export interface FeishuResourceDownload {
 }
 
 export interface FeishuSdkClient {
+  cardkit?: {
+    v1?: {
+      card?: {
+        idConvert(payload: {
+          data: {
+            message_id: string;
+          };
+        }): Promise<FeishuApiResponse<{ card_id?: string }>>;
+        update(payload: {
+          data: {
+            card: {
+              type: "card_json";
+              data: string;
+            };
+            uuid?: string;
+            sequence: number;
+          };
+          path: {
+            card_id: string;
+          };
+        }): Promise<FeishuApiResponse>;
+      };
+    };
+  };
   im: {
     message: {
       reply(payload: {
@@ -243,6 +267,7 @@ export interface FeishuCardActionEvent {
   open_chat_id?: string;
   action?: unknown;
   value?: unknown;
+  event?: unknown;
 }
 
 export type FeishuMessageMappingResult =

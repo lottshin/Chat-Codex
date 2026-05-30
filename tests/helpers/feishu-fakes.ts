@@ -23,6 +23,8 @@ export class FakeFeishuClient implements FeishuSdkClient {
   readonly messageResourceGetPayloads: Array<Parameters<FeishuSdkClient["im"]["messageResource"]["get"]>[0]> = [];
   readonly reactionCreatePayloads: Array<Parameters<FeishuSdkClient["im"]["messageReaction"]["create"]>[0]> = [];
   readonly reactionDeletePayloads: Array<Parameters<FeishuSdkClient["im"]["messageReaction"]["delete"]>[0]> = [];
+  readonly cardIdConvertPayloads: Array<{ data: { message_id: string } }> = [];
+  readonly cardUpdatePayloads: Array<{ data: { card: { type: "card_json"; data: string }; uuid?: string; sequence: number }; path: { card_id: string } }> = [];
   readonly userGetPayloads: unknown[] = [];
   readonly requestPayloads: Array<{ method: string; url: string; data?: unknown }> = [];
   probeResponse: FeishuApiResponse<{ pingBotInfo?: { botID?: string; botName?: string } }> = {
@@ -46,6 +48,13 @@ export class FakeFeishuClient implements FeishuSdkClient {
     code: 0,
     data: { message_id: "om_update", chat_id: "oc_direct" },
   };
+  cardIdConvertResponse: FeishuApiResponse<{ card_id?: string }> = {
+    code: 0,
+    data: { card_id: "card_converted" },
+  };
+  cardUpdateResponse: FeishuApiResponse = {
+    code: 0,
+  };
   reactionCreateResponse: FeishuApiResponse<FeishuReactionData> = {
     code: 0,
     data: { reaction_id: "react_typing_1" },
@@ -67,6 +76,21 @@ export class FakeFeishuClient implements FeishuSdkClient {
   messageResourceError?: Error;
   reactionCreateError?: Error;
   reactionDeleteError?: Error;
+
+  cardkit = {
+    v1: {
+      card: {
+        idConvert: async (payload: { data: { message_id: string } }): Promise<FeishuApiResponse<{ card_id?: string }>> => {
+          this.cardIdConvertPayloads.push(payload);
+          return this.cardIdConvertResponse;
+        },
+        update: async (payload: { data: { card: { type: "card_json"; data: string }; uuid?: string; sequence: number }; path: { card_id: string } }): Promise<FeishuApiResponse> => {
+          this.cardUpdatePayloads.push(payload);
+          return this.cardUpdateResponse;
+        },
+      },
+    },
+  };
 
   im = {
     message: {
@@ -146,8 +170,8 @@ export class FakeFeishuDispatcher implements FeishuEventDispatcher {
     await this.handlers["im.message.receive_v1"]?.(event);
   }
 
-  async emitCardAction(event: FeishuCardActionEvent): Promise<void> {
-    await this.handlers["card.action.trigger"]?.(event);
+  async emitCardAction(event: FeishuCardActionEvent): Promise<unknown> {
+    return this.handlers["card.action.trigger"]?.(event);
   }
 }
 
