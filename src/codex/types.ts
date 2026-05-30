@@ -143,6 +143,13 @@ export interface StartSessionInput {
   title?: string;
 }
 
+export interface CodexResumeSessionOptions {
+  backendSessionId?: string;
+  cwd?: string;
+  title?: string;
+  createdAt?: string;
+}
+
 export interface CodexSessionSummary {
   id: string;
   routeKey?: string;
@@ -189,7 +196,7 @@ export interface CodexAdapter {
   startSession(input: StartSessionInput): Promise<CodexSession>;
   setSessionTitle?(sessionId: string, title: string): Promise<void>;
   setSessionPreview?(sessionId: string, preview: string): Promise<void>;
-  resumeSession(sessionId: string): Promise<CodexSession>;
+  resumeSession(sessionId: string, options?: CodexResumeSessionOptions): Promise<CodexSession>;
   reloadSession?(sessionId: string): Promise<CodexSessionReloadResult>;
   run(sessionId: string, prompt: CodexPromptInput, options?: CodexRunOptions): AsyncIterable<CodexEvent>;
   steer?(sessionId: string, prompt: CodexPromptInput): Promise<void>;

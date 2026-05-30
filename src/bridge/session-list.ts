@@ -39,33 +39,41 @@ interface MutableSessionListItem extends SessionListItem {
   status: CodexSessionStatus;
   backend?: CodexSessionSummary["backend"];
   backendSessionId?: string;
+  localSessionId?: string;
 }
 
 export async function buildSessionList(options: BuildSessionListOptions): Promise<SessionListItem[]> {
   const routeScoped = options.scope === "route";
   const currentBinding = options.state.getBinding(options.routeKey);
   const currentSessionId = currentBinding?.sessionId;
+  const currentBackendSessionId = currentBinding?.backendSessionId;
   const currentBackend = currentBinding?.backend ?? "codex";
   const items = new Map<string, MutableSessionListItem>();
 
   const addItem = (
-    input: Omit<SessionListItem, "current" | "selectable" | "ownerRouteKey" | "unavailableReason" | "source"> & { backend?: CodexSessionSummary["backend"]; backendSessionId?: string },
+    input: Omit<SessionListItem, "current" | "selectable" | "ownerRouteKey" | "unavailableReason" | "source"> & { backend?: CodexSessionSummary["backend"]; backendSessionId?: string; localSessionId?: string },
     source: "state" | "codex",
   ): void => {
-    const owner = options.state.getSessionOwner(input.id, input.backend);
+    const backend = input.backend ?? "codex";
+    const backendSessionId = input.backendSessionId ?? (backend === "claude" ? options.state.getSessionBackendSessionId(input.id) : undefined);
+    const canonicalId = canonicalSessionListId(input.id, backend, backendSessionId);
+    const localSessionId = input.localSessionId ?? (canonicalId === input.id ? undefined : input.id);
+    const owner = options.state.getSessionOwner(canonicalId, backend) ?? (localSessionId ? options.state.getSessionOwner(localSessionId, backend) : undefined);
     const selectable = !owner || owner.ownerRouteKey === options.routeKey;
-    const existing = items.get(sessionListKey(input.id, input.backend));
+    const key = sessionListKey(canonicalId, backend);
+    const existing = items.get(key);
     const sourceValue = existing && existing.source !== source ? "merged" : source;
     const updatedAt = newerTimestamp(input.updatedAt, existing?.updatedAt);
-    items.set(sessionListKey(input.id, input.backend), {
-      id: input.id,
-      backend: input.backend,
-      backendSessionId: input.backendSessionId ?? existing?.backendSessionId,
+    items.set(key, {
+      id: canonicalId,
+      backend,
+      backendSessionId: backendSessionId ?? (backend === "claude" ? canonicalId : undefined) ?? existing?.backendSessionId,
+      localSessionId: existing?.localSessionId ?? localSessionId,
       title: existing?.title ?? input.title,
       cwd: existing?.cwd ?? input.cwd,
       status: existing?.status ?? input.status ?? { type: "unknown" },
       updatedAt,
-      current: input.id === currentSessionId && (input.backend ?? "codex") === currentBackend,
+      current: ((canonicalId === currentSessionId || canonicalId === currentBackendSessionId || localSessionId === currentSessionId) && backend === currentBackend),
       selectable,
       ...(owner ? { ownerRouteKey: owner.ownerRouteKey } : {}),
       ...(selectable ? {} : { unavailableReason: "已绑定到其它聊天上下文" }),
@@ -186,7 +194,7 @@ function formatSessionListItem(item: SessionListItem, index: number): string[] {
   return [
     `${index}. Session: \`${item.id}\`${suffix}`,
     (item as MutableSessionListItem).backend ? `   - 后端: \`${(item as MutableSessionListItem).backend}\`` : undefined,
-    (item as MutableSessionListItem).backend === "claude" && (item as MutableSessionListItem).backendSessionId ? `   - Claude session: \`${(item as MutableSessionListItem).backendSessionId}\`` : undefined,
+    (item as MutableSessionListItem).backend === "claude" && (item as MutableSessionListItem).localSessionId ? `   - Bridge session: \`${(item as MutableSessionListItem).localSessionId}\`` : undefined,
     `   - 最近活跃: \`${formatSessionUpdatedAt(item.updatedAt)}\``,
     `   - 标题: ${formatSessionTitle(item.title)}`,
     `   - 状态: ${formatCodexStatus(item.status)}`,
@@ -209,13 +217,15 @@ function normalizeSessionQuery(value: string): string {
 
 function exactSessionIdentityMatch(item: SessionListItem, query: string): boolean {
   return normalizeSessionQuery(item.id) === query
-    || normalizeSessionQuery(item.backendSessionId ?? "") === query;
+    || normalizeSessionQuery(item.backendSessionId ?? "") === query
+    || normalizeSessionQuery(item.localSessionId ?? "") === query;
 }
 
 function sessionMatchScore(item: SessionListItem, query: string): number {
   const fields = [
     { value: item.id, exactScore: 100, prefixScore: 80, substringScore: 60 },
     { value: item.backendSessionId, exactScore: 100, prefixScore: 80, substringScore: 60 },
+    { value: item.localSessionId, exactScore: 100, prefixScore: 80, substringScore: 60 },
     { value: item.title, exactScore: 70, prefixScore: 50, substringScore: 35 },
     { value: item.cwd, exactScore: 65, prefixScore: 45, substringScore: 30 },
   ];
@@ -231,11 +241,13 @@ function sessionMatchScore(item: SessionListItem, query: string): number {
   return best;
 }
 
-function storedSessionListInput(stored: StoredSession): Omit<SessionListItem, "current" | "selectable" | "ownerRouteKey" | "unavailableReason" | "source"> & { backend?: CodexSessionSummary["backend"]; backendSessionId?: string } {
+function storedSessionListInput(stored: StoredSession): Omit<SessionListItem, "current" | "selectable" | "ownerRouteKey" | "unavailableReason" | "source"> & { backend?: CodexSessionSummary["backend"]; backendSessionId?: string; localSessionId?: string } {
+  const backend = stored.backend ?? stored.session.backend;
   return {
     id: stored.session.id,
-    backend: stored.backend ?? stored.session.backend,
+    backend,
     backendSessionId: stored.backendSessionId ?? stored.session.backendSessionId,
+    localSessionId: backend === "claude" && stored.backendSessionId && stored.session.id !== stored.backendSessionId ? stored.session.id : undefined,
     title: stored.session.title,
     cwd: stored.session.cwd,
     status: stored.status,
@@ -243,7 +255,7 @@ function storedSessionListInput(stored: StoredSession): Omit<SessionListItem, "c
   };
 }
 
-function codexSessionListInput(session: CodexSessionSummary): Omit<SessionListItem, "current" | "selectable" | "ownerRouteKey" | "unavailableReason" | "source"> & { backend?: CodexSessionSummary["backend"]; backendSessionId?: string } {
+function codexSessionListInput(session: CodexSessionSummary): Omit<SessionListItem, "current" | "selectable" | "ownerRouteKey" | "unavailableReason" | "source"> & { backend?: CodexSessionSummary["backend"]; backendSessionId?: string; localSessionId?: string } {
   return {
     id: session.id,
     backend: session.backend,
@@ -257,6 +269,11 @@ function codexSessionListInput(session: CodexSessionSummary): Omit<SessionListIt
 
 function sessionListKey(id: string, backend: CodexSessionSummary["backend"] | undefined): string {
   return `${backend ?? "codex"}:${id}`;
+}
+
+function canonicalSessionListId(id: string, backend: CodexSessionSummary["backend"] | undefined, backendSessionId: string | undefined): string {
+  if (backend === "claude" && backendSessionId) return backendSessionId;
+  return id;
 }
 
 function newerTimestamp(left: string, right: string | undefined): string {

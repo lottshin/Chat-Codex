@@ -191,6 +191,7 @@ interface SessionListPage {
 字段约束：
 
 - `Session` 永远第一行，且必须保留完整 session id，方便复制。
+- Claude Code 会话优先把 Claude 原生 session UUID 放在 `Session` 行；如果有旧的 bridge-local id，则只在辅助字段显示 `Bridge session`，用于兼容旧绑定和排查。
 - `最近活跃` 永远第二行，使用本机时区展示。
 - `标题` 永远第三行，没有标题时显示 `无标题`。
 - `状态`、`工作目录`、`不可选原因` 是辅助字段。

@@ -6,9 +6,33 @@ import { BridgeSessionFlow } from "../../src/bridge/session-flow.js";
 import { MockCodexAdapter } from "../../src/codex/mock-codex-adapter.js";
 import { SilentLogger } from "../../src/logging/logger.js";
 import type { ChannelRegistry } from "../../src/channels/registry.js";
-import type { CodexSession, CodexSessionSummary, StartSessionInput } from "../../src/codex/types.js";
+import type { CodexResumeSessionOptions, CodexSession, CodexSessionSummary, StartSessionInput } from "../../src/codex/types.js";
 import type { ChannelActionMessage, ChannelMessage, ChannelTarget } from "../../src/protocol/channel.js";
 import { MemoryStateStore } from "../../src/state/memory-state-store.js";
+
+test("BridgeSessionFlow rehydrates adapter for persisted Claude bindings", async () => {
+  const codex = new HintCapturingClaudeSessionAdapter([]);
+  const fixture = sessionFlowFixture({ codex, backend: "claude" });
+  fixture.state.bindSession("route-a", {
+    id: "claude-local-1",
+    cwd: "/repo/claude",
+    title: "Persisted Claude task",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    backend: "claude",
+    backendSessionId: "a673fcc0-b33f-42f3-bc0d-5130eba3e61e",
+  });
+
+  const session = await fixture.flow.ensureSession(message("route-a"));
+
+  assert.equal(session.id, "a673fcc0-b33f-42f3-bc0d-5130eba3e61e");
+  assert.equal(session.backendSessionId, "a673fcc0-b33f-42f3-bc0d-5130eba3e61e");
+  assert.deepEqual(codex.resumeCalls.at(-1), {
+    sessionId: "a673fcc0-b33f-42f3-bc0d-5130eba3e61e",
+    backendSessionId: undefined,
+    cwd: "/repo/claude",
+    title: "Persisted Claude task",
+  });
+});
 
 test("BridgeSessionFlow creates new sessions in the startup cwd", async () => {
   const fixture = sessionFlowFixture({ cwd: "/repo" });
@@ -239,9 +263,33 @@ test("BridgeSessionFlow resumes Claude sessions by backend session id", async ()
 
   await fixture.flow.resumeOrUseSession(message("route-a"), target("route-a"), "resume", "claude-actual-123");
 
-  assert.equal(fixture.state.getBinding("route-a")?.sessionId, "claude-local-1");
-  assert.equal(fixture.state.getSession("claude-local-1")?.backendSessionId, "claude-actual-123");
-  assert.match(fixture.sentTexts.at(-1) ?? "", /claude-local-1/);
+  assert.equal(fixture.state.getBinding("route-a")?.sessionId, "claude-actual-123");
+  assert.equal(fixture.state.getSession("claude-actual-123")?.backendSessionId, "claude-actual-123");
+  assert.match(fixture.sentTexts.at(-1) ?? "", /claude-actual-123/);
+});
+
+test("BridgeSessionFlow resumes Claude local sessions with backend session id hint", async () => {
+  const codex = new HintCapturingClaudeSessionAdapter([
+    {
+      ...sessionSummary("claude-local-1", "Claude task", "/repo/claude", "2026-01-01T00:00:00.000Z"),
+      backend: "claude",
+      backendSessionId: "a673fcc0-b33f-42f3-bc0d-5130eba3e61e",
+    },
+  ]);
+  const fixture = sessionFlowFixture({ codex, backend: "claude" });
+
+  await fixture.flow.resumeOrUseSession(message("route-a"), target("route-a"), "resume", undefined);
+  await fixture.flow.handleSessionSelectionReply(message("route-a"), target("route-a"), "1");
+
+  assert.deepEqual(codex.resumeCalls.at(-1), {
+    sessionId: "a673fcc0-b33f-42f3-bc0d-5130eba3e61e",
+    backendSessionId: undefined,
+    cwd: "/repo/claude",
+    title: "Claude task",
+  });
+  assert.equal(fixture.state.getBinding("route-a")?.sessionId, "a673fcc0-b33f-42f3-bc0d-5130eba3e61e");
+  assert.equal(fixture.state.getBinding("route-a")?.backendSessionId, "a673fcc0-b33f-42f3-bc0d-5130eba3e61e");
+  assert.match(fixture.sentTexts.at(-1) ?? "", /a673fcc0-b33f-42f3-bc0d-5130eba3e61e/);
 });
 
 test("BridgeSessionFlow resumes unknown Claude UUIDs directly", async () => {
@@ -368,20 +416,48 @@ class ListedCodexAdapter extends MockCodexAdapter {
   }
 
   override async resumeSession(sessionId: string): Promise<CodexSession> {
-    const summary = this.summaries.find((session) => session.id === sessionId);
+    const summary = this.summaries.find((session) => session.id === sessionId || session.backendSessionId === sessionId);
     if (!summary) return super.resumeSession(sessionId);
     return {
-      id: summary.id,
+      id: sessionId,
       cwd: summary.cwd ?? "/workspace",
       createdAt: summary.updatedAt,
       title: summary.title,
       backend: summary.backend,
-      backendSessionId: summary.backendSessionId,
+      backendSessionId: summary.backendSessionId ?? (summary.backend === "claude" ? sessionId : undefined),
     };
   }
 
   override async listSessions(routeKey?: string): Promise<CodexSessionSummary[]> {
     return this.summaries.filter((session) => routeKey ? session.routeKey === routeKey : true);
+  }
+}
+
+class HintCapturingClaudeSessionAdapter extends ListedCodexAdapter {
+  readonly resumeCalls: Array<{ sessionId: string; backendSessionId?: string; cwd?: string; title?: string }> = [];
+
+  override async resumeSession(sessionId: string, options: CodexResumeSessionOptions = {}): Promise<CodexSession> {
+    this.resumeCalls.push({ sessionId, backendSessionId: options.backendSessionId, cwd: options.cwd, title: options.title });
+    let session: CodexSession;
+    try {
+      session = await super.resumeSession(sessionId);
+    } catch {
+      session = {
+        id: sessionId,
+        cwd: options.cwd ?? "/workspace",
+        createdAt: new Date().toISOString(),
+        title: options.title ?? `claude:${options.backendSessionId ?? sessionId}`,
+        backend: "claude",
+        backendSessionId: options.backendSessionId ?? sessionId,
+      };
+    }
+    return {
+      ...session,
+      backend: "claude",
+      backendSessionId: options.backendSessionId ?? session.backendSessionId,
+      cwd: options.cwd ?? session.cwd,
+      title: options.title ?? session.title,
+    };
   }
 }
 

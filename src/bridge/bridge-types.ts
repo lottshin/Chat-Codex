@@ -97,6 +97,7 @@ export interface SessionListItem {
   id: string;
   backend?: AiBackend;
   backendSessionId?: string;
+  localSessionId?: string;
   title?: string;
   cwd?: string;
   status: CodexSessionStatus;

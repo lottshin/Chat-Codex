@@ -108,8 +108,8 @@ export class FileStateStore extends MemoryStateStore {
     return result;
   }
 
-  override activateOwnedSession(routeKey: string, session: CodexSession): ActivateSessionResult {
-    const result = super.activateOwnedSession(routeKey, session);
+  override activateOwnedSession(routeKey: string, session: CodexSession, options: { backend?: AiBackend; backendSessionId?: string } = {}): ActivateSessionResult {
+    const result = super.activateOwnedSession(routeKey, session, options);
     if (result.ok) {
       this.setRouteActiveSession(routeKey, session.id);
       this.persist();
