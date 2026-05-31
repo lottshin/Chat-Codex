@@ -491,8 +491,7 @@ test("FeishuAdapter downloads a recently listed relay folder jpg without invokin
   });
 
   const expectedPath = path.join(desktopDir, "mmexport1779460084949.jpg");
-  await waitFor(() => assert.equal(fs.existsSync(expectedPath), true));
-  assert.deepEqual(fs.readFileSync(expectedPath), Buffer.from("jpg bytes"));
+  await waitFor(() => assert.deepEqual(fs.readFileSync(expectedPath), Buffer.from("jpg bytes")));
   assert.deepEqual(factory.client.driveFileDownloadPayloads[0], { path: { file_token: "box_file_jpg" } });
 });
 
@@ -625,8 +624,7 @@ test("FeishuAdapter keeps clarified relay folder file for follow-up desktop down
   });
 
   const expectedPath = path.join(desktopDir, "mmexport1779460084949.jpg");
-  await waitFor(() => assert.equal(fs.existsSync(expectedPath), true));
-  assert.deepEqual(fs.readFileSync(expectedPath), Buffer.from("clarified jpg bytes"));
+  await waitFor(() => assert.deepEqual(fs.readFileSync(expectedPath), Buffer.from("clarified jpg bytes")));
   assert.deepEqual(factory.client.driveFileDownloadPayloads[0], { path: { file_token: "box_file_jpg" } });
 });
 
@@ -943,9 +941,8 @@ test("FeishuAdapter keeps existing files by adding a suffix to Drive downloads",
   });
 
   const expectedPath = path.join(downloadRoot, "deck (1).pptx");
-  await waitFor(() => assert.equal(fs.existsSync(expectedPath), true));
   assert.equal(fs.readFileSync(path.join(downloadRoot, "deck.pptx"), "utf-8"), "existing");
-  assert.deepEqual(fs.readFileSync(expectedPath), Buffer.from("new bytes"));
+  await waitFor(() => assert.deepEqual(fs.readFileSync(expectedPath), Buffer.from("new bytes")));
 });
 
 test("FeishuAdapter cancels Drive downloads from the confirmation card", async () => {
