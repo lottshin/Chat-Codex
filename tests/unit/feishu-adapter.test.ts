@@ -491,8 +491,7 @@ test("FeishuAdapter downloads a recently listed relay folder jpg without invokin
   });
 
   const expectedPath = path.join(desktopDir, "mmexport1779460084949.jpg");
-  await waitFor(() => assert.equal(fs.existsSync(expectedPath), true));
-  assert.deepEqual(fs.readFileSync(expectedPath), Buffer.from("jpg bytes"));
+  await waitFor(() => assert.deepEqual(fs.readFileSync(expectedPath), Buffer.from("jpg bytes")));
   assert.deepEqual(factory.client.driveFileDownloadPayloads[0], { path: { file_token: "box_file_jpg" } });
 });
 
@@ -542,6 +541,91 @@ test("FeishuAdapter clarifies recently listed relay folder file references witho
   assert.match(factory.client.sentTexts().at(-1) ?? "", /mmexport1779460084949\.jpg/);
   assert.match(factory.client.sentTexts().at(-1) ?? "", /保存到桌面/);
   assert.equal(factory.client.replyPayloads.some((payload) => payload.data.msg_type === "interactive"), false);
+});
+
+test("FeishuAdapter keeps clarified relay folder file for follow-up desktop downloads", async () => {
+  const factory = new FakeFeishuTransportFactory();
+  const desktopDir = tempDir("codex-feishu-drive-clarified-desktop-");
+  factory.client.driveDownloadBuffer = Buffer.from("clarified jpg bytes");
+  factory.client.driveFileListResponse = {
+    code: 0,
+    data: {
+      files: [
+        {
+          token: "box_file_jpg",
+          name: "mmexport1779460084949.jpg",
+          type: "file",
+          url: "https://tenant.feishu.cn/file/box_file_jpg",
+        },
+        {
+          token: "box_file_pdf",
+          name: "会议纪要.pdf",
+          type: "file",
+          url: "https://tenant.feishu.cn/file/box_file_pdf",
+        },
+      ],
+      has_more: false,
+    },
+  };
+  const adapter = new FeishuAdapter({
+    ...credentials,
+    driveFolderToken: "fld_relay",
+    desktopDir,
+    transportFactory: factory,
+  });
+  let received = 0;
+  adapter.onMessage(async () => {
+    received += 1;
+  });
+
+  await adapter.start();
+  await factory.dispatcher.emitReceive(sampleFeishuTextEvent({
+    app_id: credentials.appId,
+    message: {
+      message_id: "om_drive_folder_list_before_followup_download",
+      chat_id: "oc_user",
+      content: JSON.stringify({ text: "你帮我看看这个中转站里面有什么文件" }),
+    },
+  }));
+  await factory.dispatcher.emitReceive(sampleFeishuTextEvent({
+    app_id: credentials.appId,
+    message: {
+      message_id: "om_drive_folder_clarify_before_followup_download",
+      chat_id: "oc_user",
+      content: JSON.stringify({ text: "我说的是中转云盘里的那个jpg文件" }),
+    },
+  }));
+  await factory.dispatcher.emitReceive(sampleFeishuTextEvent({
+    app_id: credentials.appId,
+    message: {
+      message_id: "om_drive_folder_followup_download_desktop",
+      chat_id: "oc_user",
+      content: JSON.stringify({ text: "保存到桌面" }),
+    },
+  }));
+
+  assert.equal(received, 0);
+  const card = latestFeishuActionCard(factory);
+  assert.match(card.elements?.[0]?.content ?? "", /确认下载飞书云空间文件/);
+  assert.match(card.elements?.[0]?.content ?? "", /mmexport1779460084949\.jpg/);
+  assert.match(card.elements?.[0]?.content ?? "", new RegExp(escapeRegExp(desktopDir)));
+  const actions = feishuCardActionValues(card);
+  assert.match(actions[0] ?? "", /^local:feishu-drive-download:approve:/);
+  assert.equal(factory.client.driveFileDownloadPayloads.length, 0);
+
+  await factory.dispatcher.emitCardAction({
+    app_id: credentials.appId,
+    event_id: "ev_drive_folder_followup_download_desktop",
+    token: "callback-token",
+    open_id: "ou_user",
+    open_chat_id: "oc_user",
+    open_message_id: "om_reply",
+    action: { value: { action: actions[0] } },
+  });
+
+  const expectedPath = path.join(desktopDir, "mmexport1779460084949.jpg");
+  await waitFor(() => assert.deepEqual(fs.readFileSync(expectedPath), Buffer.from("clarified jpg bytes")));
+  assert.deepEqual(factory.client.driveFileDownloadPayloads[0], { path: { file_token: "box_file_jpg" } });
 });
 
 test("FeishuAdapter lists configured Drive relay folder contents from mentioned group messages", async () => {
@@ -857,9 +941,8 @@ test("FeishuAdapter keeps existing files by adding a suffix to Drive downloads",
   });
 
   const expectedPath = path.join(downloadRoot, "deck (1).pptx");
-  await waitFor(() => assert.equal(fs.existsSync(expectedPath), true));
   assert.equal(fs.readFileSync(path.join(downloadRoot, "deck.pptx"), "utf-8"), "existing");
-  assert.deepEqual(fs.readFileSync(expectedPath), Buffer.from("new bytes"));
+  await waitFor(() => assert.deepEqual(fs.readFileSync(expectedPath), Buffer.from("new bytes")));
 });
 
 test("FeishuAdapter cancels Drive downloads from the confirmation card", async () => {
