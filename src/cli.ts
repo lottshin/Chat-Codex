@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { stdin, stdout } from "node:process";
+import fs from "node:fs";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { createInterface, type Interface } from "node:readline/promises";
 import { backendDisplayName, type AiBackend, type CommandNamespaceProfile } from "./backend/metadata.js";
 import { Bridge, parseProgressDeliveryMode, type ProgressDeliveryMode } from "./bridge/bridge.js";
@@ -395,7 +396,7 @@ async function resolvePermissionMode(options: StartupOptions, rl?: Interface): P
   const backendName = backendDisplayName(options.backend);
   console.log("");
   console.log(`${backendName} 权限模式（作用于本次启动后的后续任务）`);
-  console.log("1. 审批模式 - 使用 workspace-write 沙箱；支持情况取决于当前后端");
+  console.log(`1. 审批模式 - 使用 workspace-write 沙箱；${backendName} 支持时会在聊天里发起审批`);
   console.log("2. 完全权限 - 跳过审批或权限检查，非常危险");
   const answer = (await rl.question("请选择权限模式 [1]: ")).trim();
   if (answer === "2" || answer.toLowerCase() === "full") {
@@ -588,8 +589,8 @@ function printHelp(): void {
     chatCodexTitle(),
     "",
     "Commands:",
-    "  chat-codex                         启动 Codex/Chat-Codex 命令空间",
-    "  chat-claude                        启动 Claude Code 后端，已知 Chat-Codex 根命令本地处理",
+    "  chat-codex                         启动 Codex 入口",
+    "  chat-claude                        启动 Claude Code 入口，已知 Chat-Codex 命令本地处理",
     "  chat-codex version                 查看 Chat-Codex 和 Node.js 版本",
     "  chat-codex test                    运行本地 mock Codex/Channel 流程",
     "  chat-codex terminal mock           启动本地终端通道 + MockCodex",
@@ -598,11 +599,11 @@ function printHelp(): void {
     "",
     "Options:",
     "    -v, --version                   输出版本号",
-    "    --backend codex|claude           选择 AI 后端；默认取决于 chat-codex/chat-claude",
+    "    --backend codex|claude           选择 Codex 或 Claude Code；默认取决于 chat-codex/chat-claude",
     "    --session new|last|<id>          设置启动时首个微信私聊预设；不会绑定整个微信账号",
     "    --cwd <dir>, --workdir <dir>     设置新会话工作目录；目录不存在会自动创建",
     "    --permission approval|full       设置安全沙箱或完全权限",
-    "    --command-profile codex|claude   选择命令空间；claude 下已知 Chat-Codex 根命令优先本地处理",
+    "    --command-profile codex|claude   选择聊天命令入口；claude 下已知 Chat-Codex 命令优先本地处理",
     "    --codex-adapter app-server|exec  设置 Codex 接入方式；默认 app-server，支持微信审批",
     "    --claude-adapter exec|sdk       设置 Claude Code 接入方式；默认 exec，sdk 为实验模式",
     "    --yes-dangerously-full           非交互确认完全权限",
@@ -623,7 +624,23 @@ export async function runCli(argv: string[], runtimeOptions: CliRuntimeOptions =
   await main(argv, runtimeOptions);
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+function isMainEntry(metaUrl: string, argvPath: string | undefined): boolean {
+  if (!argvPath) return false;
+  try {
+    const modulePath = normalizeEntryPath(fs.realpathSync.native(fileURLToPath(metaUrl)));
+    const invokedPath = normalizeEntryPath(fs.realpathSync.native(argvPath));
+    return modulePath === invokedPath;
+  } catch {
+    return metaUrl === pathToFileURL(argvPath).href;
+  }
+}
+
+function normalizeEntryPath(value: string): string {
+  const normalized = path.normalize(value);
+  return process.platform === "win32" ? normalized.toLowerCase() : normalized;
+}
+
+if (isMainEntry(import.meta.url, process.argv[1])) {
   main(process.argv.slice(2)).catch((error) => {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;

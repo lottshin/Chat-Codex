@@ -153,6 +153,7 @@ export class ChannelActions {
         domain: normalized.domain,
         verificationToken: normalized.verificationToken,
         encryptKey: normalized.encryptKey,
+        driveFolderToken: normalized.driveFolderToken,
       });
     }
     return record;
@@ -291,6 +292,7 @@ export function loadFeishuCredentialsForAccount(accountId: string | undefined, e
     accountId: normalizedAccount,
     verificationToken: firstNonEmpty(env[`FEISHU_${scoped}_VERIFICATION_TOKEN`], env.FEISHU_VERIFICATION_TOKEN, env.LARK_VERIFICATION_TOKEN),
     encryptKey: firstNonEmpty(env[`FEISHU_${scoped}_ENCRYPT_KEY`], env.FEISHU_ENCRYPT_KEY, env.LARK_ENCRYPT_KEY),
+    driveFolderToken: firstNonEmpty(env[`FEISHU_${scoped}_DRIVE_FOLDER_TOKEN`], env[`LARK_${scoped}_DRIVE_FOLDER_TOKEN`], env.FEISHU_DRIVE_FOLDER_TOKEN, env.LARK_DRIVE_FOLDER_TOKEN),
   });
 }
 
@@ -308,6 +310,7 @@ function loadFeishuCredentialsFromLocalState(
     accountId,
     verificationToken: credentials.verificationToken,
     encryptKey: credentials.encryptKey,
+    driveFolderToken: credentials.driveFolderToken,
   });
 }
 

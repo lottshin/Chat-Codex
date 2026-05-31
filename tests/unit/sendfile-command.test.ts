@@ -24,11 +24,19 @@ test("handleSendFileCommand shows command-specific usage for empty prompts", asy
 
   assert.equal(fixture.enqueued.length, 0);
   assert.match(fixture.sent.at(-1) ?? "", /缺少任务内容/);
-  assert.match(fixture.sent.at(-1) ?? "", /`\/bridge-sendfile <你要当前后端做什么，并在最终结果里发文件>`/);
+  assert.match(fixture.sent.at(-1) ?? "", /`\/bridge-sendfile <你要 Codex 做什么，并在最终结果里发文件>`/);
   assert.match(fixture.sent.at(-1) ?? "", /普通消息里的本地路径不会自动作为附件发送/);
 });
 
-function sendFileFixture() {
+test("handleSendFileCommand uses Claude Code wording for Claude profile", async () => {
+  const fixture = sendFileFixture({ assistantName: "Claude Code" });
+
+  await handleSendFileCommand(fixture.options, message(), target(), "/sendfile", "sendfile");
+
+  assert.match(fixture.sent.at(-1) ?? "", /`\/sendfile <你要 Claude Code 做什么，并在最终结果里发文件>`/);
+});
+
+function sendFileFixture(options: { assistantName?: string } = {}) {
   const sent: string[] = [];
   const enqueued: Array<{ prompt: string; sendFile: boolean | undefined }> = [];
   return {
@@ -45,6 +53,7 @@ function sendFileFixture() {
           enqueued.push({ prompt, sendFile: options?.sendFile });
         },
       } as BridgeRouteQueue,
+      assistantName: options.assistantName,
     },
   };
 }

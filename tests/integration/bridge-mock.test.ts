@@ -277,6 +277,24 @@ class SendFileCodexAdapter extends MockCodexAdapter {
   }
 }
 
+class FormattedSendFileCodexAdapter extends MockCodexAdapter {
+  constructor(private readonly filePath: string) {
+    super();
+  }
+
+  override async *run(sessionId: string, _prompt: string): AsyncIterable<CodexEvent> {
+    const turnId = `formatted-send-file-turn-${Date.now()}`;
+    yield { type: "turn.started", sessionId, turnId };
+    yield {
+      type: "assistant.completed",
+      sessionId,
+      turnId,
+      text: `已确认文件存在，发送给你：\n${this.filePath}\n\u001b[32mBRIDGE_SEND_FILE: ${this.filePath}\u001b[0m`,
+    };
+    yield { type: "turn.completed", sessionId, turnId };
+  }
+}
+
 class ManyProgressCodexAdapter extends MockCodexAdapter {
   override async *run(sessionId: string, _prompt: string): AsyncIterable<CodexEvent> {
     const turnId = `many-progress-turn-${Date.now()}`;
@@ -806,7 +824,7 @@ test("Bridge handles compact confirmation and success over mock channel", async 
   assert.ok(help.includes("  - `/context-refresh inherit`: 清除当前聊天覆盖，跟随全局默认。"));
   assert.ok(help.includes("- `/compact`: 压缩当前会话的历史上下文。"));
   assert.ok(help.includes("  - `/compact confirm`: 确认并开始压缩。"));
-  assert.ok(confirmation.includes("即将压缩当前绑定的后端会话历史上下文"));
+  assert.ok(confirmation.includes("即将压缩当前绑定的会话历史上下文"));
   assert.ok(confirmation.includes("不会修改项目文件、git 状态或工作目录"));
   assert.ok(confirmation.includes("压缩前上下文: `164,171 / 258,400 token`"));
   assert.ok(confirmation.includes("下一步：确认要压缩请发送 /compact confirm；不想压缩请发送 /cancel。"));
@@ -867,7 +885,7 @@ test("Bridge explains compact confirm without pending and unsupported backend", 
   await unsupportedChannel.emitText("/compact");
   await unsupportedBridge.stop();
 
-  assert.ok(unsupportedChannel.sentMessages.some((message) => message.text.includes("当前后端不支持 /compact") && message.text.includes("不影响继续发送普通消息") && message.text.includes("/status")));
+  assert.ok(unsupportedChannel.sentMessages.some((message) => message.text.includes("Codex 暂不支持 /compact") && message.text.includes("不影响继续发送普通消息") && message.text.includes("/status")));
 });
 
 test("Bridge blocks current route operations while compact runs but allows other routes", async () => {
@@ -1199,7 +1217,7 @@ test("Bridge model command switches model and effort for the current session", a
   assert.deepEqual(codex.getModelPolicy("mock-codex-1"), { model: "gpt-next", reasoningEffort: "high" });
   assert.ok(channel.sentMessages.some((message) => message.text.includes("已设置模型") && message.text.includes("后续任务将使用该模型设置") && message.text.includes("下一步")));
   assert.ok(channel.sentMessages.some((message) => message.text.includes("已设置思考程度。") && message.text.includes("该设置只影响后续任务")));
-  assert.ok(channel.sentMessages.some((message) => message.text.includes("已清除模型覆盖。") && message.text.includes("后续任务将使用当前后端默认模型")));
+  assert.ok(channel.sentMessages.some((message) => message.text.includes("已清除模型覆盖。") && message.text.includes("后续任务将使用 Codex 默认模型")));
   const status = channel.sentMessages.find((message) => message.text.includes("**Codex 状态**"))?.text ?? "";
   assert.ok(status.includes("模型覆盖: 模型 `gpt-next`，思考程度 `xhigh`"));
 });
@@ -1905,6 +1923,18 @@ test("Bridge stores image-only messages as pending media without running Codex",
   assert.match(status, /待处理附件: `1`/);
 });
 
+test("Bridge labels pending media prompts with Claude Code for Claude profile", async () => {
+  const channel = new MockChannelAdapter();
+  const codex = new SteerableBlockingCodexAdapter();
+  const bridge = new Bridge({ channel, codex, cwd: process.cwd(), backend: "claude", commandProfile: "claude" });
+
+  await bridge.start();
+  await channel.emitAttachment([mockImageAttachment("/tmp/chat-claude-image-only.png")]);
+  await bridge.stop();
+
+  assert.ok(channel.sentMessages.some((message) => message.text.includes("你想让 Claude Code 如何处理这个附件")));
+});
+
 test("Bridge combines pending image-only media with the next ordinary text", async () => {
   const channel = new MockChannelAdapter();
   const codex = new SteerableBlockingCodexAdapter();
@@ -2481,7 +2511,7 @@ test("Bridge sends final declared files for /sendfile and strips bridge protocol
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "bridge-sendfile-test-"));
   const imagePath = path.join(root, "result.png");
   fs.writeFileSync(imagePath, "png");
-  const channel = new MockChannelAdapter({ media: true });
+  const channel = new MockChannelAdapter({ media: true, buttons: true, messageUpdate: true });
   const codex = new SendFileCodexAdapter(imagePath);
   const transcript = new CapturingTranscriptSink();
   const bridge = new Bridge({ channel, codex, cwd: root, transcript });
@@ -2489,18 +2519,143 @@ test("Bridge sends final declared files for /sendfile and strips bridge protocol
   await bridge.start();
   await channel.emitText("/sendfile 生成结果图并发给我");
   await bridge.waitForIdle();
-  await bridge.stop();
 
   assert.equal(codex.prompts.length, 1);
   assert.ok(codex.prompts[0].includes("生成结果图并发给我"));
   assert.ok(codex.prompts[0].includes("BRIDGE_SEND_FILE: /absolute/path/to/file"));
+  assert.equal(channel.sentMedia.length, 0);
+  assert.equal(channel.sentActionMessages.length, 1);
+  const actionMessage = channel.sentActionMessages[0]?.message;
+  assert.ok(actionMessage?.text.includes("确认发送文件"));
+  assert.deepEqual(actionMessage?.buttonGroups.map((group) => group.map((button) => button.action)), [["cmd:/sendfile-approve f001"], ["cmd:/sendfile-deny f001"]]);
+  assert.equal(channel.sentMessages.some((message) => message.text.includes("正在处理这条消息")), false);
+  assert.equal(channel.sentMessages.some((message) => message.text === "文件已准备好。"), false);
+  assert.equal(channel.sentMessages.some((message) => message.text.includes("BRIDGE_SEND_FILE")), false);
+  assert.equal(channel.sentMessages.some((message) => message.text.includes("本轮已启用 /sendfile")), false);
+
+  await channel.emitText("/sendfile-approve f001");
+  await bridge.waitForIdle();
+  await bridge.stop();
+
   assert.equal(channel.sentMedia.length, 1);
   assert.equal(channel.sentMedia[0].media.path, imagePath);
   assert.equal(channel.sentMedia[0].media.mimeType, "image/png");
   assert.equal(transcript.outboundMediaEvents.length, 1);
   assert.equal(transcript.outboundMediaEvents[0].media.path, imagePath);
-  assert.ok(channel.sentMessages.some((message) => message.text === "文件已准备好。"));
+  assert.equal(channel.updatedMessages.length, 1);
+  assert.match(channel.updatedMessages[0]?.text ?? "", /正在发送文件/);
+});
+
+test("Bridge hides untrusted sendfile protocol when file delivery was not enabled", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "bridge-untrusted-sendfile-"));
+  const filePath = path.join(root, "result.pptx");
+  fs.writeFileSync(filePath, "pptx");
+  const channel = new MockChannelAdapter({ media: true });
+  const codex = new SendFileCodexAdapter(filePath);
+  const bridge = new Bridge({ channel, codex, cwd: root });
+
+  await bridge.start();
+  await channel.emitText("只告诉我这个文件路径");
+  await bridge.waitForIdle();
+  await bridge.stop();
+
+  assert.equal(channel.sentMedia.length, 0);
   assert.equal(channel.sentMessages.some((message) => message.text.includes("BRIDGE_SEND_FILE")), false);
+  assert.equal(channel.sentMessages.some((message) => message.text.includes("本轮未启用文件发送")), false);
+});
+
+test("Bridge confirms formatted sendfile protocol lines without leaking them", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "bridge-formatted-sendfile-"));
+  const filePath = path.join(root, "result.pptx");
+  fs.writeFileSync(filePath, "pptx");
+  const channel = new MockChannelAdapter({ media: true, buttons: true, messageUpdate: true });
+  const codex = new FormattedSendFileCodexAdapter(filePath);
+  const bridge = new Bridge({ channel, codex, cwd: root, backend: "claude", commandProfile: "claude" });
+
+  await bridge.start();
+  await channel.emitText(`把 ${filePath} 发给我`);
+  await bridge.waitForIdle();
+
+  assert.equal(channel.sentMedia.length, 0);
+  assert.equal(channel.sentMessages.some((message) => message.text.includes("正在处理这条消息")), false);
+  assert.equal(channel.sentMessages.some((message) => message.text.includes("BRIDGE_SEND_FILE")), false);
+  assert.equal(channel.sentMessages.some((message) => message.text.includes("已确认文件存在，发送给你")), false);
+  assert.equal(channel.sentActionMessages.length, 1);
+  assert.ok(channel.sentActionMessages[0]?.message.text.includes("确认发送文件"));
+
+  await channel.emitText("/sendfile-approve f001");
+  await bridge.waitForIdle();
+  await bridge.stop();
+
+  assert.equal(channel.sentMedia.length, 1);
+  assert.equal(channel.sentMedia[0].media.path, filePath);
+  assert.match(channel.updatedMessages[0]?.text ?? "", /正在发送文件/);
+});
+
+test("Bridge enables sendfile for clear natural language file delivery", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "bridge-natural-sendfile-"));
+  const filePath = path.join(root, "report.pdf");
+  fs.writeFileSync(filePath, "report");
+  const channel = new MockChannelAdapter({ media: true });
+  const codex = new SendFileCodexAdapter(filePath);
+  const bridge = new Bridge({ channel, codex, cwd: root });
+
+  await bridge.start();
+  await channel.emitText(`把 ${filePath} 发给我`);
+  await bridge.waitForIdle();
+
+  assert.equal(codex.prompts.length, 1);
+  assert.ok(codex.prompts[0].includes(filePath));
+  assert.ok(codex.prompts[0].includes("BRIDGE_SEND_FILE: /absolute/path/to/file"));
+  assert.equal(channel.sentMedia.length, 0);
+  assert.ok(channel.sentMessages.some((message) => message.text.includes("确认发送文件")));
+  assert.ok(channel.sentMessages.some((message) => message.text.includes("/sendfile-approve f001")));
+
+  await channel.emitText("/sendfile-approve f001");
+  await bridge.waitForIdle();
+  await bridge.stop();
+
+  assert.equal(channel.sentMedia.length, 1);
+  assert.equal(channel.sentMedia[0].media.path, filePath);
+  assert.equal(channel.sentMessages.some((message) => message.text.includes("已确认发送文件")), false);
+  assert.equal(channel.sentMessages.some((message) => message.text.includes("BRIDGE_SEND_FILE")), false);
+});
+
+test("Bridge cancels pending sendfile delivery from confirmation action", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "bridge-sendfile-deny-test-"));
+  const filePath = path.join(root, "report.pdf");
+  fs.writeFileSync(filePath, "report");
+  const channel = new MockChannelAdapter({ media: true, buttons: true, messageUpdate: true });
+  const codex = new SendFileCodexAdapter(filePath);
+  const bridge = new Bridge({ channel, codex, cwd: root });
+
+  await bridge.start();
+  await channel.emitText(`把 ${filePath} 发给我`);
+  await bridge.waitForIdle();
+  await channel.emitText("/sendfile-deny f001");
+  await bridge.waitForIdle();
+  await bridge.stop();
+
+  assert.equal(channel.sentMedia.length, 0);
+  assert.equal(channel.updatedMessages.length, 1);
+  assert.match(channel.updatedMessages[0]?.text ?? "", /已取消文件发送/);
+});
+
+test("Bridge does not enable sendfile for path analysis or third-party delivery", async () => {
+  for (const text of ["分析 D:\\tmp\\report.pdf 的内容", "把 D:\\tmp\\report.pdf 发给张三"]) {
+    const channel = new MockChannelAdapter({ media: true });
+    const codex = new SendFileCodexAdapter("D:\\tmp\\report.pdf");
+    const bridge = new Bridge({ channel, codex });
+
+    await bridge.start();
+    await channel.emitText(text);
+    await bridge.waitForIdle();
+    await bridge.stop();
+
+    assert.equal(codex.prompts.length, 1);
+    assert.equal(codex.prompts[0].includes("BRIDGE_SEND_FILE: /absolute/path/to/file"), false);
+    assert.equal(channel.sentMedia.length, 0);
+  }
 });
 
 test("Bridge sends final declared files for Claude profile root /sendfile and /bridge-sendfile alias", async () => {
@@ -2516,15 +2671,19 @@ test("Bridge sends final declared files for Claude profile root /sendfile and /b
     await bridge.start();
     await channel.emitText(`${command} 生成结果图并发给我`);
     await bridge.waitForIdle();
-    await bridge.stop();
 
     assert.equal(codex.prompts.length, 1);
     assert.ok(codex.prompts[0].includes("生成结果图并发给我"));
     assert.equal(codex.prompts[0].includes(`${command} 生成结果图并发给我`), false);
     assert.ok(codex.prompts[0].includes("BRIDGE_SEND_FILE: /absolute/path/to/file"));
+    assert.equal(channel.sentMedia.length, 0);
+    await channel.emitText("/sendfile-approve f001");
+    await bridge.waitForIdle();
+    await bridge.stop();
+
     assert.equal(channel.sentMedia.length, 1);
     assert.equal(channel.sentMedia[0].media.path, imagePath);
-    assert.ok(channel.sentMessages.some((message) => message.text === "文件已准备好。"));
+    assert.equal(channel.sentMessages.some((message) => message.text === "文件已准备好。"), false);
     assert.equal(channel.sentMessages.some((message) => message.text.includes("BRIDGE_SEND_FILE")), false);
   }
 });
@@ -2540,12 +2699,18 @@ test("Bridge aggregates /sendfile media failures without per-file fallback spam"
   await bridge.start();
   await channel.emitText("/sendfile 生成结果图并发给我");
   await bridge.waitForIdle();
+  await channel.emitText("/sendfile-approve f001");
+  await bridge.waitForIdle();
   await bridge.stop();
 
   assert.equal(channel.mediaAttempts, 1);
   const resultMessages = channel.sentMessages.filter((message) => message.text.startsWith("文件发送结果"));
   assert.equal(resultMessages.length, 1);
-  assert.ok(resultMessages[0].text.includes("有 1 个文件发送失败"));
+  assert.match(resultMessages[0].text, /result\.png/);
+  assert.match(resultMessages[0].text, /渠道 mock/);
+  assert.match(resultMessages[0].text, /阶段 send/);
+  assert.match(resultMessages[0].text, /原因码 media_send_failed/);
+  assert.match(resultMessages[0].text, /cdn upload 500/);
   assert.equal(channel.sentMessages.some((message) => message.text.includes("Codex 生成了媒体文件")), false);
 });
 

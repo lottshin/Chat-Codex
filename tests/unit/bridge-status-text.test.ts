@@ -46,7 +46,7 @@ test("BridgeStatusText shows Claude backend session id in status", async () => {
   }).statusText(message());
 
   assert.match(text, /当前会话: `claude-local-1`/);
-  assert.match(text, /后端: `claude`/);
+  assert.match(text, /入口: Claude Code/);
   assert.match(text, /Claude session: `claude-actual-123`/);
 });
 
@@ -158,6 +158,7 @@ test("BridgeStatusText shows common next steps in Codex profile help", () => {
   assert.match(text, /\/skills/);
   assert.match(text, /普通消息里的本地路径、Markdown 链接或 file:\/\/ 引用不会自动作为附件发送/);
   assert.match(text, /最终回复必须声明 `BRIDGE_SEND_FILE: \/absolute\/path\/to\/file`/);
+  assert.match(text, /\/sendfile-approve <编号>/);
   assert.match(text, /渠道必须支持图片\/文件发送/);
   assert.doesNotMatch(text, /\/bridge-sendfile/);
 });
@@ -204,7 +205,7 @@ test("BridgeStatusText shows backend labels in sessions list", async () => {
   }).sessionsText(message(), [], "sessions");
 
   assert.match(text, /Session: `claude-actual-123`/);
-  assert.match(text, /后端: `claude`/);
+  assert.match(text, /入口: Claude Code/);
   assert.match(text, /Bridge session: `claude-local-1`/);
   assert.match(text, /下一步：发送 `\/use` 进入编号选择/);
   assert.match(text, /`\/use <session>`/);
@@ -584,7 +585,7 @@ test("BridgeStatusText shows focused usage for active sessions", async () => {
 
   assert.match(text, /\*\*Claude Code 使用量\*\*/);
   assert.match(text, /当前会话: `mock-codex-usage`/);
-  assert.match(text, /后端: `claude`/);
+  assert.match(text, /入口: Claude Code/);
   assert.match(text, /Claude session: `claude-usage-123`/);
   assert.match(text, /运行状态: 运行中/);
   assert.match(text, /当前模型: `sonnet`/);

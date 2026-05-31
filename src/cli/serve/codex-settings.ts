@@ -74,7 +74,7 @@ export async function configureAdapterMode(rl: Interface, startup: PreparedServe
 export async function configurePermissionMode(rl: Interface, startup: PreparedServeStartup): Promise<void> {
   console.log("");
   console.log([
-    "后端权限模式",
+    "权限模式",
     `当前: ${formatPolicyForCli(startup.policy)}`,
     "",
     "1. 审批模式（workspace-write 沙箱，推荐）",

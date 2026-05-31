@@ -165,6 +165,7 @@ export function replyTargetFromMessage(message: ChannelMessage): ChannelTarget {
   const raw = message.raw && typeof message.raw === "object" ? message.raw as Record<string, unknown> : undefined;
   const contextToken = typeof raw?.context_token === "string" ? raw.context_token : undefined;
   const sourceMessageId = typeof raw?.sourceMessageId === "string" ? raw.sourceMessageId : message.id;
+  const feishuSenderOpenId = extractFeishuSenderOpenId(raw);
   return {
     channelId: message.channelId,
     routeKey: message.routeKey,
@@ -174,6 +175,27 @@ export function replyTargetFromMessage(message: ChannelMessage): ChannelTarget {
     context: {
       sourceMessageId,
       ...(contextToken ? { contextToken } : {}),
+      ...(feishuSenderOpenId ? { feishuSenderOpenId } : {}),
     },
   };
+}
+
+function extractFeishuSenderOpenId(raw: Record<string, unknown> | undefined): string | undefined {
+  const event = objectField(raw, "event") ?? raw;
+  const sender = objectField(event, "sender");
+  const senderId = objectField(sender, "sender_id");
+  const openId = stringField(senderId, "open_id") ?? stringField(event, "open_id");
+  return openId?.startsWith("ou_") ? openId : openId;
+}
+
+function objectField(value: unknown, key: string): Record<string, unknown> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const field = (value as Record<string, unknown>)[key];
+  return field && typeof field === "object" && !Array.isArray(field) ? field as Record<string, unknown> : undefined;
+}
+
+function stringField(value: unknown, key: string): string | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const field = (value as Record<string, unknown>)[key];
+  return typeof field === "string" && field.trim() ? field.trim() : undefined;
 }

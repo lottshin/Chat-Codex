@@ -9,6 +9,7 @@ export interface CancelCommandOptions {
   pendingMedia: PendingMediaManager;
   delivery: BridgeDelivery;
   cancelCompactConfirmation?(routeKey: string): boolean;
+  cancelSendFileConfirmation?(routeKey: string): number;
 }
 
 export async function handleCancelCommand(
@@ -22,6 +23,11 @@ export async function handleCancelCommand(
   }
   if (options.sessionFlow.cancelSessionSelection(message.routeKey)) {
     await options.delivery.sendText(target, "已退出切换会话。");
+    return;
+  }
+  const cancelledSendFiles = options.cancelSendFileConfirmation?.(message.routeKey) ?? 0;
+  if (cancelledSendFiles > 0) {
+    await options.delivery.sendText(target, `已取消 ${cancelledSendFiles} 个待确认文件发送请求。`);
     return;
   }
   const cancelledMedia = options.pendingMedia.cancel(message.routeKey);

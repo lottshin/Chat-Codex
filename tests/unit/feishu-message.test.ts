@@ -350,10 +350,12 @@ test("Feishu credentials come from env without exposing secret values", () => {
   const credentials = loadFeishuCredentialsFromEnv({
     FEISHU_APP_ID: "cli_1234567890abcdef",
     FEISHU_APP_SECRET: "secret-value",
+    FEISHU_DRIVE_FOLDER_TOKEN: "fld_relay",
   } as NodeJS.ProcessEnv);
 
   assert.equal(credentials.appId, "cli_1234567890abcdef");
   assert.equal(credentials.appSecret, "secret-value");
+  assert.equal(credentials.driveFolderToken, "fld_relay");
   assert.deepEqual(missingFeishuCredentials(credentials), []);
   assert.equal(maskFeishuSecret(credentials.appSecret), "已配置");
 });

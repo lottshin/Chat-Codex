@@ -1,3 +1,4 @@
+import { backendDisplayName, type AiBackend } from "../../backend/metadata.js";
 import { CLAUDE_EFFORT_LEVELS, type CodexAdapter, type CodexModelOption, type CodexModelPolicy, type ClaudeEffortLevel } from "../../codex/types.js";
 import type { ChannelMessage, ChannelTarget } from "../../protocol/channel.js";
 import type { MemoryStateStore } from "../../state/memory-state-store.js";
@@ -18,6 +19,7 @@ import {
 } from "../formatters.js";
 
 export interface ModelCommandOptions {
+  backend?: AiBackend;
   codex: CodexAdapter;
   state: MemoryStateStore;
   delivery: BridgeDelivery;
@@ -31,20 +33,21 @@ export async function handleModelCommand(
   target: ChannelTarget,
   args: string[],
 ): Promise<void> {
+  const binding = options.state.getBinding(message.routeKey);
+  const assistantName = backendDisplayName(binding?.backend ?? options.backend);
   const listModels = options.codex.listModels?.bind(options.codex);
   const getModelPolicy = options.codex.getModelPolicy?.bind(options.codex);
   const setModelPolicy = options.codex.setModelPolicy?.bind(options.codex);
   if (!listModels || !getModelPolicy || !setModelPolicy) {
     await options.delivery.sendText(target, [
-      "当前后端不支持模型列表或运行时模型切换。",
-      "下一步：发送 /status 查看当前后端，或继续按当前模型发送普通消息。",
+      `${assistantName} 暂不支持模型列表或运行时模型切换。`,
+      `下一步：发送 /status 查看 ${assistantName} 状态，或继续按当前模型发送普通消息。`,
     ].join("\n"));
     return;
   }
 
   const includeHidden = args.some(isModelAllToken);
   const commandArgs = args.filter((arg) => !isModelAllToken(arg) && !isModelListToken(arg));
-  const binding = options.state.getBinding(message.routeKey);
   const sessionId = binding?.sessionId;
   const parsed = parseModelCommandArgs(commandArgs);
   if (parsed.type === "error") {
@@ -56,7 +59,7 @@ export async function handleModelCommand(
     await options.delivery.sendText(target, [
       "已清除模型覆盖。",
       `作用范围: ${formatModelScope(sessionId)}`,
-      "后续任务将使用当前后端默认模型。",
+      `后续任务将使用 ${assistantName} 默认模型。`,
       options.routeQueue.hasWorker(message.routeKey) ? "当前正在运行的任务不会被改写；需要立即生效请先 /stop。" : undefined,
       "下一步：可以继续发送普通消息；如需确认状态，请发送 /status。",
     ].filter(Boolean).join("\n"));

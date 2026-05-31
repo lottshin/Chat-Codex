@@ -12,6 +12,7 @@ import type {
   SendResult,
 } from "../../protocol/channel.js";
 import type { ChannelDeliveryPolicy } from "../../protocol/delivery-policy.js";
+import { ChannelMediaDeliveryError, isChannelMediaDeliveryError, type ChannelMediaErrorStage } from "../../protocol/media-delivery-error.js";
 import { saveInboundMedia } from "../../bridge/inbound-media-store.js";
 import { buildRouteKey } from "../../protocol/channel.js";
 import { FileWeixinAccountStore, normalizeWeixinAccountId, type StoredWeixinAccount, type WeixinAccountStore } from "./weixin-account-store.js";
@@ -315,25 +316,43 @@ export class WeixinAdapter implements ChannelAdapter {
 
   async sendMedia(target: ChannelTarget, media: ChannelMedia, _options?: SendOptions): Promise<SendResult> {
     if (media.type !== "image" && media.type !== "file") {
-      throw new Error(`WeixinAdapter 当前只支持图片和文件媒体发送: ${media.type}`);
+      throw new ChannelMediaDeliveryError(`WeixinAdapter 当前只支持图片和文件媒体发送: ${media.type}`, {
+        stage: "validate",
+        reasonCode: "weixin_media_type_unsupported",
+      });
     }
     const account = this.resolveAccount(target.accountId);
     if (!account) {
       throw new Error("WeixinAdapter 未登录：请先运行 weixin login");
     }
-    const filePath = await materializeChannelMedia({ media, api: this.api, timeoutMs: this.mediaRequestTimeoutMs });
+    let filePath: string;
+    try {
+      filePath = await materializeChannelMedia({ media, api: this.api, timeoutMs: this.mediaRequestTimeoutMs });
+    } catch (error) {
+      throw weixinMediaDeliveryError(error, "resolve", "weixin_media_resolve_failed");
+    }
     const uploadMediaType = media.type === "file" ? "FILE" : mediaTypeForPath(filePath);
-    if (uploadMediaType === "VIDEO") throw new Error(`WeixinAdapter 当前不支持视频媒体发送: ${filePath}`);
+    if (uploadMediaType === "VIDEO") {
+      throw new ChannelMediaDeliveryError(`WeixinAdapter 当前不支持视频媒体发送: ${filePath}`, {
+        stage: "validate",
+        reasonCode: "weixin_video_media_unsupported",
+      });
+    }
     const toUserId = target.recipient.id || target.conversation.id;
-    const uploaded = await uploadLocalMediaToWeixin({
-      api: this.api,
-      token: account.token,
-      filePath,
-      toUserId,
-      cdnBaseUrl: account.cdnBaseUrl ?? this.cdnBaseUrl,
-      mediaType: uploadMediaType,
-      timeoutMs: this.mediaRequestTimeoutMs,
-    });
+    let uploaded;
+    try {
+      uploaded = await uploadLocalMediaToWeixin({
+        api: this.api,
+        token: account.token,
+        filePath,
+        toUserId,
+        cdnBaseUrl: account.cdnBaseUrl ?? this.cdnBaseUrl,
+        mediaType: uploadMediaType,
+        timeoutMs: this.mediaRequestTimeoutMs,
+      });
+    } catch (error) {
+      throw weixinMediaDeliveryError(error, "upload", "weixin_media_upload_failed");
+    }
     const items: WeixinMessageItem[] = [];
     const caption = media.caption?.trim();
     if (caption) items.push({ type: WeixinMessageItemType.TEXT, text_item: { text: caption } });
@@ -341,7 +360,12 @@ export class WeixinAdapter implements ChannelAdapter {
       ? buildWeixinImageItem(uploaded)
       : buildWeixinFileItem(uploaded, media.name ?? pathBasename(filePath)));
 
-    const result = await this.sendItems(target, account, items);
+    let result: SendResult;
+    try {
+      result = await this.sendItems(target, account, items);
+    } catch (error) {
+      throw weixinMediaDeliveryError(error, "send", "weixin_media_send_failed");
+    }
     return {
       ...result,
       raw: { media, uploaded: { filekey: uploaded.filekey, fileSize: uploaded.fileSize } },
@@ -768,6 +792,15 @@ function retryDelayMs(baseDelayMs: number, attempt: number): number {
 
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError";
+}
+
+function weixinMediaDeliveryError(error: unknown, stage: ChannelMediaErrorStage, reasonCode: string): ChannelMediaDeliveryError {
+  if (isChannelMediaDeliveryError(error)) return error;
+  return new ChannelMediaDeliveryError(error instanceof Error ? error.message : String(error), {
+    stage,
+    reasonCode,
+    cause: error,
+  });
 }
 
 export function weixinMessageToChannelMessage(channelId: string, accountId: string, raw: WeixinMessage): ChannelMessage {

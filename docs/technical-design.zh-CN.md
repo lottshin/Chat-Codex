@@ -1152,10 +1152,12 @@ app-server adapter 可用事件：
 - `/progress` 在微信中不可用；`/status` 显示 Progress 为 `disabled`。
 - `/fff` 在微信中静默处理，作为用户主动入站触发，不产生回复。
 - 非微信渠道仍可按 `brief`、`detailed`、`silent` 投递 progress。
-- 普通消息、阶段性输出和最终回复里的路径默认只当文本，不自动发送媒体。用户发送 `/sendfile <任务内容>` 时，Bridge 会给该 turn 追加内部协议提示，只在最终回复中解析 `BRIDGE_SEND_FILE: /absolute/path/to/file`，每轮最多发送 3 个文件，并从用户可见最终文本中移除协议行。若媒体上传失败，只发送一条聚合失败摘要，不逐个文件刷 fallback 文本。
-- Codex 运行期间启用微信 typing：`getconfig` 获取 ticket，`sendtyping` 周期续发；turn 完成、失败或 `/stop` 后停止 typing。
+- 普通消息、阶段性输出和最终回复里的路径默认只当文本，不自动发送媒体。用户发送 `/sendfile <任务内容>`，或用明确自然语言要求“把本地文件/刚生成的文件发给我”时，Bridge 会给该 turn 追加内部协议提示，只在最终回复中解析 `BRIDGE_SEND_FILE: /absolute/path/to/file`，每轮最多发送 3 个文件，并从用户可见最终文本中移除协议行。解析到可发送文件后先生成“确认发送文件”卡片或确认命令文本，只有点击发送或执行 `/sendfile-approve <编号>` 后才会真正发送；取消或未确认都不会发送。自然语言触发只针对当前会话请求者；“分析文件”“查看路径”以及“发给张三/发到群/发邮箱”等第三方外发请求不会启用 sendfile。
+- 文件发送失败会汇总为一条“文件发送结果”，包含文件名、大小、渠道、阶段和原因码。阶段包括 `resolve`、`validate`、`upload`、`send`、`permission`、`link`，用于区分路径/预检、上传、消息发送、授权和链接查询失败。
+- Codex/Claude Code 任务运行期间启用微信 typing：`getconfig` 获取 ticket，`sendtyping` 周期续发；turn 完成、失败或 `/stop` 后停止 typing。
 - `WeixinAdapter` 出站发送采用单队列串行和最小发送间隔，降低连续消息在微信侧丢显或乱序的概率。
 - `sendmessage`、`getuploadurl` 的 HTTP 200 不直接视为成功；若 JSON 里 `ret/errcode` 非 0，会抛错并更新通道 `lastError`，避免终端 transcript 把失败请求打印成成功 OUT。
+- 微信图片和文件没有项目内 5 MB 人工限制；CDN 上传对临时网络异常、HTTP 408/429/5xx 和缺失 `x-encrypted-param` 做有限重试，普通 4xx 不重试。上传失败会抛出 `weixin_media_upload_failed` 等结构化错误，由 Bridge 汇总给用户。
 - 终端 transcript 默认使用一行方向摘要加缩进消息体，例如 `微信 <= Alice | direct:...` 和 `微信 => direct:... | 进度`；TTY 下用颜色区分用户入站、Codex 回复、进度、审批、错误和媒体，完整 route/sender 只在 verbose 模式下展示。
 - WeixinAdapter 对 `sendmessage` 串行排队，默认最小发送间隔为 1200ms；遇到 45009 等限流错误、429/5xx 或临时网络错误时按退避重试，最终失败才更新通道 `state=degraded` 和 `lastError`。
 - 文本、图片和文件发送采用直接投递模型，默认不携带 `context_token`；如果未来某条兼容路径带 token 且因 `ret=-2` 失败，保留去掉 token 再试一次的 fallback。

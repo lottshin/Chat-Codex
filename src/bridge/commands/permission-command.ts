@@ -1,3 +1,4 @@
+import { backendDisplayName, type AiBackend } from "../../backend/metadata.js";
 import type { ClaudePermissionMode, CodexRunPolicy } from "../../codex/codex-cli.js";
 import type { CodexAdapter } from "../../codex/types.js";
 import type { ChannelMessage, ChannelTarget } from "../../protocol/channel.js";
@@ -8,6 +9,7 @@ import type { BridgeStatusText } from "../status-text.js";
 import { isConfirmed } from "../formatters.js";
 
 export interface PermissionCommandOptions {
+  backend?: AiBackend;
   codex: CodexAdapter;
   state: MemoryStateStore;
   delivery: BridgeDelivery;
@@ -22,14 +24,15 @@ export async function handlePermissionCommand(
   target: ChannelTarget,
   args: string[],
 ): Promise<void> {
+  const binding = options.state.getBinding(message.routeKey);
+  const assistantName = backendDisplayName(binding?.backend ?? options.backend);
   if (!options.codex.getRunPolicy || !options.codex.setRunPolicy) {
     await options.delivery.sendText(target, [
-      "当前后端不支持运行时切换权限模式。",
-      "下一步：发送 /status 查看当前后端和权限状态，或继续按当前权限模式发送普通消息。",
+      `${assistantName} 暂不支持运行时切换权限模式。`,
+      `下一步：发送 /status 查看 ${assistantName} 权限状态，或继续按当前权限模式发送普通消息。`,
     ].join("\n"));
     return;
   }
-  const binding = options.state.getBinding(message.routeKey);
   const sessionId = binding?.sessionId;
   const rawMode = args[0]?.toLowerCase();
   if (!rawMode) {
@@ -46,8 +49,8 @@ export async function handlePermissionCommand(
       sessionId ? `作用范围: 当前会话 \`${sessionId}\`` : "作用范围: 默认策略（后续新会话）",
       "后续任务将使用 workspace-write sandbox。",
       policyStatus && !policyStatus.interactiveApprovals
-        ? "注意：当前后端不支持交互审批；真实生效的 approval_policy 仍是 never。"
-        : "后续如需审批，会继续通过当前后端处理。",
+        ? `注意：${assistantName} 暂不支持交互审批；真实生效的 approval_policy 仍是 never。`
+        : `后续如需审批，会继续通过 ${assistantName} 处理。`,
       policyStatus?.note ? `说明: ${policyStatus.note}` : undefined,
       options.routeQueue.hasWorker(message.routeKey) ? "当前正在运行的任务不会被改写；需要立即生效请先 /stop。" : undefined,
       "下一步：可以继续发送普通消息；如需确认状态，请发送 /permission 或 /status。",
@@ -57,7 +60,7 @@ export async function handlePermissionCommand(
   if (rawMode === "full" || rawMode === "danger" || rawMode === "完全权限") {
     if (!isConfirmed(args.slice(1))) {
       await options.delivery.sendText(target, [
-        "完全权限会跳过审批或权限检查，当前后端可以直接执行命令并修改文件，风险很高。",
+        `完全权限会跳过审批或权限检查，${assistantName} 可以直接执行命令并修改文件，风险很高。`,
         "确认切换请直接发送:",
         "/permission full confirm",
         "不想切换请发送 /permission approval 保持或切回审批模式，或直接继续当前任务。",
@@ -70,7 +73,7 @@ export async function handlePermissionCommand(
     await options.delivery.sendText(target, [
       "已切换到完全权限。",
       sessionId ? `作用范围: 当前会话 \`${sessionId}\`` : "作用范围: 默认策略（后续新会话）",
-      "后续任务将跳过审批或权限检查，当前后端可以直接执行命令并修改文件。",
+      `后续任务将跳过审批或权限检查，${assistantName} 可以直接执行命令并修改文件。`,
       "完成高权限任务后建议发送 /permission approval 切回安全模式。",
       options.routeQueue.hasWorker(message.routeKey) ? "当前正在运行的任务不会被改写；需要立即生效请先 /stop。" : undefined,
       "下一步：可以继续发送任务；如需确认状态，请先发送 /status。",

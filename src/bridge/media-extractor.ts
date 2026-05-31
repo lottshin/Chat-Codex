@@ -112,12 +112,15 @@ export function extractBridgeSendFileRefs(text: string, cwd: string, maxFiles: n
 }
 
 export function stripBridgeSendFileRefs(text: string): string {
-  const pattern = new RegExp(`^${BRIDGE_SEND_FILE_PREFIX.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*`, "i");
   return text
     .split(/\r?\n/)
-    .filter((line) => !pattern.test(line.trimStart()))
+    .filter((line) => !lineContainsBridgeSendFileRef(line))
     .join("\n")
     .trim();
+}
+
+export function hasBridgeSendFileRefs(text: string): boolean {
+  return text.split(/\r?\n/).some((line) => bridgeSendFileRefFromLine(line) !== undefined);
 }
 
 function markdownMediaRefs(text: string): MediaCandidate[] {
@@ -139,13 +142,27 @@ function markdownMediaRefs(text: string): MediaCandidate[] {
 
 function bridgeSendFileRefs(text: string): string[] {
   const refs: string[] = [];
-  const pattern = /^\s*BRIDGE_SEND_FILE:\s*(.+?)\s*$/gim;
-  let match: RegExpExecArray | null;
-  while ((match = pattern.exec(text)) !== null) {
-    const cleaned = cleanRef(match[1]);
+  for (const line of text.split(/\r?\n/)) {
+    const cleaned = bridgeSendFileRefFromLine(line);
     if (cleaned) refs.push(cleaned);
   }
   return refs;
+}
+
+function lineContainsBridgeSendFileRef(line: string): boolean {
+  return /BRIDGE_SEND_FILE\s*[:：]/i.test(normalizeBridgeProtocolLine(line));
+}
+
+function bridgeSendFileRefFromLine(line: string): string | undefined {
+  const normalized = normalizeBridgeProtocolLine(line);
+  const match = normalized.match(/BRIDGE_SEND_FILE\s*[:：]\s*(.+?)\s*$/i);
+  return match ? cleanRef(match[1]) : undefined;
+}
+
+function normalizeBridgeProtocolLine(line: string): string {
+  return line
+    .replace(/\u001B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, "")
+    .replace(/[\u200B-\u200D\uFEFF]/g, "");
 }
 
 function mediaDirectiveRefs(text: string): MediaCandidate[] {

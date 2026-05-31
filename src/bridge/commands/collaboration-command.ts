@@ -1,3 +1,4 @@
+import { backendDisplayName, type AiBackend } from "../../backend/metadata.js";
 import type { CodexAdapter, CodexCollaborationMode } from "../../codex/types.js";
 import type { ChannelMessage, ChannelTarget } from "../../protocol/channel.js";
 import type { BridgeDelivery } from "../delivery.js";
@@ -5,6 +6,7 @@ import type { BridgeRouteQueue } from "../route-queue.js";
 import { commandBody } from "../formatters.js";
 
 export interface CollaborationCommandOptions {
+  backend?: AiBackend;
   codex: CodexAdapter;
   delivery: BridgeDelivery;
   routeQueue: BridgeRouteQueue;
@@ -19,8 +21,9 @@ export async function handleCollaborationModeCommand(
   rawText: string,
   commandName: string,
 ): Promise<void> {
+  const assistantName = backendDisplayName(options.backend);
   if (!options.codex.setCollaborationMode || !options.codex.getCollaborationMode) {
-    await options.delivery.sendText(target, "当前后端不支持 Plan mode 切换。");
+    await options.delivery.sendText(target, `${assistantName} 暂不支持 Plan mode 切换。`);
     return;
   }
   const prompt = commandBody(rawText, commandName);
@@ -31,7 +34,7 @@ export async function handleCollaborationModeCommand(
         "发送 /code 切回默认执行模式。",
       ]
     : [
-        "已切回默认执行模式。后续消息可按当前后端默认行为执行。",
+        `已切回默认执行模式。后续消息可按 ${assistantName} 默认行为执行。`,
         "发送 /plan 切回计划模式。",
       ];
   await options.delivery.sendText(target, [

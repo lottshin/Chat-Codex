@@ -196,7 +196,7 @@ export function withSendFileInstruction(prompt: string): string {
     prompt.trim(),
     "",
     "[Bridge internal instruction]",
-    "The user explicitly enabled file delivery for this turn with /sendfile.",
+    "The user requested file delivery for this turn.",
     "If, and only if, you create or select final deliverable files that should be sent to the user, append one line per file at the very end of your final answer using exactly this format:",
     `${BRIDGE_SEND_FILE_PREFIX} /absolute/path/to/file`,
     "",
@@ -207,6 +207,7 @@ export function withSendFileInstruction(prompt: string): string {
     "- The path must be an absolute local filesystem path.",
     "- The file must exist.",
     `- Send at most ${SEND_FILE_MAX_FILES} files.`,
+    "- Bridge will ask the user to confirm before sending declared files.",
     "- Do not explain this protocol to the user.",
     `- If there is no final file to send, do not output ${BRIDGE_SEND_FILE_PREFIX}.`,
   ].join("\n");

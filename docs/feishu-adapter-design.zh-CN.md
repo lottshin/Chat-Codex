@@ -106,6 +106,7 @@ FEISHU_ENCRYPT_KEY=xxx          # 可选
 FEISHU_VERIFICATION_TOKEN=xxx   # 可选
 FEISHU_DOMAIN=feishu            # feishu | lark，默认 feishu
 FEISHU_ACCOUNT_ID=default       # 默认 default
+FEISHU_DRIVE_FOLDER_TOKEN=WImjfx4RnlAV6tdHS4lcDTkKnRc # 可选，超过 30 MB 文件走云空间中转时需要
 ```
 
 真实本地测试密钥可以放在忽略目录：
@@ -140,6 +141,8 @@ secrets/feishu.local.md
 - `appSecret` 不写入测试报告、日志、`config.json`、`instance.json` 或 `account.json`。
 - `.env`、secrets 和 state 目录不提交。
 - CLI 状态页只显示 appId 尾部或账号别名，不打印 secret。
+- `FEISHU_DRIVE_FOLDER_TOKEN` 可以在状态详情中脱敏显示，不能打印完整 token。
+- `FEISHU_DRIVE_FOLDER_TOKEN` 来自中转文件夹 URL 的 `/drive/folder/` 后缀 token，不是用户 open_id，也不是用户云盘授权。
 
 ## FeishuAdapter
 
@@ -392,10 +395,28 @@ event.message.create_time
 
 飞书 adapter 已实现 `sendMedia()`：
 
-- 图片：读取本地文件或 URL 为 `Buffer`，调用 `client.im.image.create({ image_type: "message" })` 上传，拿到 `image_key` 后发送 `msg_type: "image"`。
-- 文件：读取本地文件或 URL 为 `Buffer`，按扩展名映射 `pdf` / `doc` / `xls` / `ppt` / `mp4` / `opus`，其它类型使用 `stream`，调用 `client.im.file.create` 上传，拿到 `file_key` 后发送 `msg_type: "file"`。
+- 图片不超过 10 MB：读取本地文件或 URL 为 `Buffer`，调用 `client.im.image.create({ image_type: "message" })` 上传，拿到 `image_key` 后发送 `msg_type: "image"`。
+- 图片超过 10 MB 且不超过 30 MB：降级为普通文件发送。
+- 文件不超过 30 MB：读取本地文件或 URL 为 `Buffer`，按扩展名映射 `pdf` / `doc` / `xls` / `ppt` / `mp4` / `opus`，其它类型使用 `stream`，调用 `client.im.file.create` 上传，拿到 `file_key` 后发送 `msg_type: "file"`。
+- 任意媒体超过 30 MB：走飞书云空间中转。适配器用应用身份上传到 `FEISHU_DRIVE_FOLDER_TOKEN` 指向的中转文件夹，给当前消息事件里的 `sender.sender_id.open_id` 授予 `view` 权限，再把云空间链接发回当前 `chat_id`。
 - 如果 `ChannelMedia.caption` 存在，先发送一条 `post` 文本说明，再发送媒体消息。
 - 发送仍优先 `reply` 原消息，失败后回退 `message.create` 到当前 `chat_id`。
+
+云空间中转配置步骤：
+
+1. 在飞书建一个文件中转群。
+2. 把机器人拉进该群。
+3. 在云空间建一个中转文件夹。
+4. 把文件夹共享给该群，并给可编辑权限。
+5. 从文件夹 URL 的 `/drive/folder/` 后复制文件夹 token 到 `FEISHU_DRIVE_FOLDER_TOKEN`；也可以在飞书私聊机器人时只发送该文件夹链接，由机器人自动写入当前账号的本地凭证并立即生效。群聊里的链接不会改本机配置。
+
+安全边界：
+
+- 飞书机器人使用 AppID/AppSecret 的应用身份，不能直接访问用户个人云盘。
+- `open_id` 只能来自当前入站事件的 `sender.sender_id.open_id`，不能让用户手工配置，也不能用 `user_id` 或 `union_id` 代替。
+- 缺少 `FEISHU_DRIVE_FOLDER_TOKEN` 时，超过 30 MB 文件直接返回 `feishu_drive_folder_token_missing`。
+- 缺少当前消息 `open_id` 时，不上传、不授权、不发送链接，返回 `feishu_sender_open_id_missing`。
+- 群聊文件发送仍不在第一阶段范围内；中转群只用于飞书云空间权限配置。
 
 ## 输入状态 / 处理中表情
 
@@ -548,7 +569,7 @@ Codex Chat Bridge
    - `/new`
    - `/resume` 编号选择
    - 图片-only 的中间件提醒
-   - 图片/文件加说明后进入 Codex
+   - 图片/文件加说明后进入 Codex/Claude Code
 
 ## 风险
 

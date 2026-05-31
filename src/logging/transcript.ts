@@ -182,11 +182,9 @@ function isFeishuChannelId(channelId: string): boolean {
 }
 
 function classifyOutbound(text: string): string {
-  if (text.startsWith("AI 后端正在处理")) return "开始";
   if (text.startsWith("Codex 正在处理") || text.startsWith("Claude Code 正在处理")) return "开始";
   if (text.startsWith("任务进度:")) return "进度";
   if (text.startsWith("Codex 进度:")) return "进度";
-  if (text.startsWith("AI 后端请求审批")) return "审批";
   if (text.startsWith("Codex 请求审批") || text.startsWith("Claude Code 请求审批")) return "审批";
   if (text.startsWith("审批已处理")) return "审批";
   if (text.startsWith("已加入队列")) return "队列";
@@ -196,7 +194,6 @@ function classifyOutbound(text: string): string {
     text.startsWith("当前")
     || text.startsWith("可用命令:")
     || text.startsWith("Bridge:")
-    || text.startsWith("**后端状态**")
     || text.startsWith("**Codex 状态**")
     || text.startsWith("**Claude Code 状态**")
     || text.startsWith("**可用命令**")

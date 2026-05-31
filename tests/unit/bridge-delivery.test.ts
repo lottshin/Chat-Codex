@@ -9,6 +9,7 @@ import { BRIDGE_SEND_FILE_PREFIX } from "../../src/bridge/media-extractor.js";
 import { SilentLogger } from "../../src/logging/logger.js";
 import type { ChannelRegistry } from "../../src/channels/registry.js";
 import type { ChannelActionMessage, ChannelMedia, ChannelTarget } from "../../src/protocol/channel.js";
+import { ChannelMediaDeliveryError } from "../../src/protocol/media-delivery-error.js";
 
 test("BridgeDelivery swallows normal text send failures", async () => {
   const fixture = deliveryFixture({ failText: true });
@@ -98,6 +99,27 @@ test("BridgeDelivery sends requested files through channel media", async () => {
   assert.equal(fixture.sentMedia[0]?.path, filePath);
 });
 
+test("BridgeDelivery reports file name size stage and reason for media failures", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "bridge-delivery-fail-"));
+  const filePath = path.join(root, "report.zip");
+  fs.writeFileSync(filePath, Buffer.alloc(1024 * 1024 + 1));
+  const fixture = deliveryFixture({
+    media: true,
+    mediaError: new ChannelMediaDeliveryError("飞书聊天附件最大 30 MB", {
+      stage: "upload",
+      reasonCode: "feishu_file_too_large",
+    }),
+  });
+
+  await fixture.delivery.sendRequestedFiles(target(), `${BRIDGE_SEND_FILE_PREFIX} ${filePath}`, root);
+
+  const resultText = fixture.sentTexts.at(-1) ?? "";
+  assert.match(resultText, /report\.zip/);
+  assert.match(resultText, /1(\.0)? MB/);
+  assert.match(resultText, /upload/);
+  assert.match(resultText, /飞书聊天附件最大 30 MB/);
+});
+
 test("BridgeDelivery toggles typing around an operation", async () => {
   const fixture = deliveryFixture({ typing: true });
   await fixture.delivery.withTyping(target(), async () => {
@@ -107,7 +129,7 @@ test("BridgeDelivery toggles typing around an operation", async () => {
   assert.deepEqual(fixture.events, ["operation"]);
 });
 
-function deliveryFixture(options: { failText?: boolean; media?: boolean; typing?: boolean; buttons?: boolean; actionMessages?: boolean; messageUpdate?: boolean; failUpdate?: boolean } = {}) {
+function deliveryFixture(options: { failText?: boolean; media?: boolean; typing?: boolean; buttons?: boolean; actionMessages?: boolean; messageUpdate?: boolean; failUpdate?: boolean; mediaError?: Error } = {}) {
   const sentTexts: string[] = [];
   const sentActionMessages: ChannelActionMessage[] = [];
   const updatedTexts: string[] = [];
@@ -129,6 +151,7 @@ function deliveryFixture(options: { failText?: boolean; media?: boolean; typing?
       },
     }),
     sendMedia: async (_target: ChannelTarget, media: ChannelMedia) => {
+      if (options.mediaError) throw options.mediaError;
       sentMedia.push(media);
       return { channelId: "mock", messageId: `media-${sentMedia.length}`, deliveredAt: new Date().toISOString() };
     },

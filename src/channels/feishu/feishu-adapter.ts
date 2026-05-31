@@ -6,6 +6,7 @@ import {
   LoggerLevel,
   WSClient,
 } from "@larksuiteoapi/node-sdk";
+import path from "node:path";
 import type {
   ChannelActionMessage,
   ChannelAdapter,
@@ -19,9 +20,15 @@ import type {
   SendOptions,
   SendResult,
 } from "../../protocol/channel.js";
+import { replyTargetFromMessage } from "../../protocol/channel.js";
 import type { ChannelDeliveryPolicy } from "../../protocol/delivery-policy.js";
 import { DEFAULT_CHANNEL_DELIVERY_POLICY } from "../../protocol/delivery-policy.js";
+import { ChannelMediaDeliveryError } from "../../protocol/media-delivery-error.js";
+import { LOCAL_STATE_SCHEMA_VERSION, type ChannelAccountCredentialsDocument } from "../../state/persistent-state-types.js";
+import { readJsonFile, writeJsonFileAtomic } from "../../state/state-files.js";
 import { buildFeishuActionCard, feishuCardActionToInboundText } from "./feishu-card.js";
+import { grantFeishuDriveFileView, uploadFeishuDriveFile } from "./feishu-drive.js";
+import { decideFeishuMediaDelivery } from "./feishu-media-limits.js";
 import {
   DEFAULT_FEISHU_ACCOUNT_ID,
   DEFAULT_FEISHU_DOMAIN,
@@ -84,6 +91,7 @@ export class FeishuAdapter implements ChannelAdapter {
   private readonly transportFactory: FeishuTransportFactory;
   private readonly now: () => number;
   private readonly inboundMediaRootDir?: string;
+  private readonly stateDir?: string;
   private handler?: ChannelMessageHandler;
   private status: ChannelStatus;
   private client?: FeishuSdkClient;
@@ -107,6 +115,7 @@ export class FeishuAdapter implements ChannelAdapter {
     this.transportFactory = options.transportFactory ?? new DefaultFeishuTransportFactory();
     this.now = options.now ?? Date.now;
     this.inboundMediaRootDir = options.inboundMediaRootDir;
+    this.stateDir = options.stateDir;
     this.status = {
       channelId: this.id,
       state: missingFeishuCredentials(this.credentials).length > 0 ? "login_required" : "stopped",
@@ -338,7 +347,8 @@ export class FeishuAdapter implements ChannelAdapter {
       if (media.caption?.trim()) {
         await this.sendText(target, media.caption.trim(), options);
       }
-      if (media.type === "image") {
+      const decision = decideFeishuMediaDelivery(media, materialized.buffer.length);
+      if (decision.kind === "image") {
         const upload = await client.im.image.create({
           data: {
             image_type: "message",
@@ -348,6 +358,9 @@ export class FeishuAdapter implements ChannelAdapter {
         const imageKey = feishuUploadKey(upload, "image_key");
         if (!imageKey) throw new Error("飞书图片上传响应缺少 image_key");
         return this.sendFeishuMessage(target, "image", JSON.stringify({ image_key: imageKey }), options);
+      }
+      if (decision.kind === "drive") {
+        return await this.sendDriveFileLink(client, target, materialized, options);
       }
       const upload = await client.im.file.create({
         data: {
@@ -363,6 +376,40 @@ export class FeishuAdapter implements ChannelAdapter {
       this.recordSendError(error, "media-send-failed");
       throw error;
     }
+  }
+
+  private async sendDriveFileLink(
+    client: FeishuSdkClient,
+    target: ChannelTarget,
+    materialized: { buffer: Buffer; fileName: string; mimeType?: string },
+    options?: SendOptions,
+  ): Promise<SendResult> {
+    const driveFolderToken = this.credentials.driveFolderToken?.trim();
+    if (!driveFolderToken) {
+      throw new ChannelMediaDeliveryError("飞书聊天附件最大 30 MB；发送更大文件需要配置 FEISHU_DRIVE_FOLDER_TOKEN。", {
+        stage: "validate",
+        reasonCode: "feishu_drive_folder_token_missing",
+      });
+    }
+    const openId = stringDetail(target.context, "feishuSenderOpenId");
+    if (!openId) {
+      throw new ChannelMediaDeliveryError("飞书 Drive 大文件发送需要当前消息事件里的 open_id，不能使用 user_id/union_id 代替。", {
+        stage: "permission",
+        reasonCode: "feishu_sender_open_id_missing",
+      });
+    }
+    const uploaded = await uploadFeishuDriveFile({
+      client,
+      folderToken: driveFolderToken,
+      fileName: materialized.fileName,
+      buffer: materialized.buffer,
+    });
+    await grantFeishuDriveFileView({
+      client,
+      fileToken: uploaded.fileToken,
+      openId,
+    });
+    return this.sendText(target, `文件超过飞书聊天附件 30 MB 限制，已作为云空间链接发送：\n${materialized.fileName}\n${uploaded.url}`, options);
   }
 
   private async sendFeishuMessage(
@@ -571,6 +618,7 @@ export class FeishuAdapter implements ChannelAdapter {
       };
       return;
     }
+    if (await this.tryHandleDriveFolderConfigMessage(message)) return;
     await downloadFeishuInboundAttachments({
       client: this.ensureClient(),
       message,
@@ -634,6 +682,50 @@ export class FeishuAdapter implements ChannelAdapter {
         error: error instanceof Error ? error.message : String(error),
       };
     }
+  }
+
+  private async tryHandleDriveFolderConfigMessage(message: ChannelMessage): Promise<boolean> {
+    if (message.conversation.kind !== "direct") return false;
+    const token = driveFolderTokenFromConfigText(message.text);
+    if (!token) return false;
+    this.credentials.driveFolderToken = token;
+    const saved = this.saveDriveFolderToken(token);
+    this.status = {
+      ...this.status,
+      lastInboundAt: message.timestamp,
+      details: this.statusDetails(saved ? "drive-folder-configured" : "drive-folder-configured-runtime-only"),
+    };
+    const suffix = saved ? "已保存到本机配置，当前运行也已生效。" : "当前运行已生效；但没有本地状态目录，重启后需要重新配置。";
+    await this.sendText(replyTargetFromMessage(message), [
+      "已配置飞书云空间中转文件夹。",
+      suffix,
+      "超过 30 MB 的文件会作为云空间链接发送。",
+    ].join("\n"));
+    return true;
+  }
+
+  private saveDriveFolderToken(token: string): boolean {
+    if (!this.stateDir) return false;
+    const accountId = this.credentials.accountId ?? DEFAULT_FEISHU_ACCOUNT_ID;
+    const filePath = path.join(this.stateDir, "accounts", accountId, "credentials.local.json");
+    const existing = readJsonFile<ChannelAccountCredentialsDocument | undefined>(filePath, undefined);
+    writeJsonFileAtomic(filePath, {
+      schemaVersion: LOCAL_STATE_SCHEMA_VERSION,
+      channelId: this.id,
+      channelType: "feishu",
+      accountId,
+      credentials: cleanCredentialRecord({
+        ...existing?.credentials,
+        appId: this.credentials.appId,
+        appSecret: this.credentials.appSecret,
+        domain: this.credentials.domain,
+        verificationToken: this.credentials.verificationToken,
+        encryptKey: this.credentials.encryptKey,
+        driveFolderToken: token,
+      }),
+      updatedAt: new Date(this.now()).toISOString(),
+    } satisfies ChannelAccountCredentialsDocument);
+    return true;
   }
 
   private wsCallbacks(): FeishuWsCallbacks {
@@ -938,4 +1030,27 @@ function isFeishuGroupMessageWithoutBotMention(message: ChannelMessage): boolean
     };
   } | undefined;
   return raw?.chatCodex?.feishu?.group?.mentionedBot !== true;
+}
+
+function driveFolderTokenFromConfigText(text: string | undefined): string | undefined {
+  const trimmed = text?.trim();
+  if (!trimmed) return undefined;
+  const match = /(https?:\/\/[^\s<>"']*\/drive\/folder\/([A-Za-z0-9_-]+)[^\s<>"']*)/i.exec(trimmed)
+    ?? /(^|\s)(\/drive\/folder\/([A-Za-z0-9_-]+)(?:[/?#][^\s<>"']*)?)/i.exec(trimmed);
+  if (!match) return undefined;
+  const fullMatch = match[1] || match[2];
+  const token = match[2]?.startsWith("/")
+    ? match[3]
+    : match[2];
+  if (!token) return undefined;
+  const remaining = trimmed.replace(fullMatch, "").replace(/[\s，,。.!！；;：:（）()[\]{}<>《》"'“”‘’]/g, "");
+  return remaining.length === 0 ? token : undefined;
+}
+
+function cleanCredentialRecord(credentials: Record<string, string | undefined>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(credentials)
+      .filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].trim().length > 0)
+      .map(([key, value]) => [key, value.trim()]),
+  );
 }

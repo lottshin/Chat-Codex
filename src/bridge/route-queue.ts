@@ -6,8 +6,8 @@ import type { TranscriptSink } from "../logging/transcript.js";
 import type { ChannelMessage, ChannelTarget } from "../protocol/channel.js";
 import type { ChannelDeliveryPolicy } from "../protocol/delivery-policy.js";
 import type { MemoryStateStore } from "../state/memory-state-store.js";
-import type { QueuedPrompt, QueuedSteer } from "./bridge-types.js";
-import { stripBridgeSendFileRefs } from "./media-extractor.js";
+import { SEND_FILE_MAX_FILES, type QueuedPrompt, type QueuedSteer } from "./bridge-types.js";
+import { extractBridgeSendFileRefs, hasBridgeSendFileRefs, stripBridgeSendFileRefs } from "./media-extractor.js";
 import type { TurnScheduler } from "./turn-scheduler.js";
 import { TurnSchedulerAbortError } from "./turn-scheduler.js";
 import type { BridgeDelivery } from "./delivery.js";
@@ -21,6 +21,7 @@ import {
 } from "./formatters.js";
 import { formatPlanWorkflowActionMessage, formatPlanWorkflowChoices } from "./plan-workflow.js";
 import type { PendingPlanWorkflow } from "./plan-workflow.js";
+import type { SendFileConfirmationRequest } from "./sendfile-confirmation.js";
 
 export interface BridgeRouteQueueOptions {
   codex: CodexAdapter;
@@ -42,6 +43,7 @@ export interface BridgeRouteQueueOptions {
   contextRefresh?: SessionContextRefreshManager;
   onPlanWorkflowReady?(workflow: PendingPlanWorkflow): void;
   onApprovalActionMessageSent?(approvalKey: string, messageId: string): void;
+  onSendFileConfirmationRequested?(request: SendFileConfirmationRequest): Promise<void>;
   backend?: AiBackend;
   commandProfile?: CommandNamespaceProfile;
 }
@@ -60,6 +62,7 @@ export class BridgeRouteQueue {
   private readonly contextRefresh?: SessionContextRefreshManager;
   private readonly onPlanWorkflowReady?: BridgeRouteQueueOptions["onPlanWorkflowReady"];
   private readonly onApprovalActionMessageSent?: BridgeRouteQueueOptions["onApprovalActionMessageSent"];
+  private readonly onSendFileConfirmationRequested?: BridgeRouteQueueOptions["onSendFileConfirmationRequested"];
   private readonly backendName: string;
   private readonly commandProfile: CommandNamespaceProfile;
   private readonly progressDelivery: BridgeProgressDelivery;
@@ -81,6 +84,7 @@ export class BridgeRouteQueue {
     this.contextRefresh = options.contextRefresh;
     this.onPlanWorkflowReady = options.onPlanWorkflowReady;
     this.onApprovalActionMessageSent = options.onApprovalActionMessageSent;
+    this.onSendFileConfirmationRequested = options.onSendFileConfirmationRequested;
     this.backendName = backendDisplayName(options.backend);
     this.commandProfile = options.commandProfile ?? "codex";
     this.progressDelivery = options.progressDelivery ?? new BridgeProgressDelivery({
@@ -219,11 +223,10 @@ export class BridgeRouteQueue {
         enqueuedAt: new Date().toISOString(),
       }, async () => {
         const deliveryPolicy = this.deliveryPolicyFor(message);
-        if (deliveryPolicy.taskStart === "send") {
+        if (deliveryPolicy.taskStart === "send" && !sendFile) {
           await this.delivery.sendText(target, [
             `${this.backendName} 正在处理这条消息。`,
             "可发送 /status 查看状态，/stop 终止。",
-            sendFile ? "本轮已启用 /sendfile，只会发送最终回复中明确声明的文件。" : undefined,
             remainingQueued > 0 ? `Queue: 后面还有 ${remainingQueued} 条` : undefined,
           ].filter(Boolean).join("\n"));
         }
@@ -296,10 +299,15 @@ export class BridgeRouteQueue {
           const composedFinalText = composeFinalAnswer(finalPlanText, finalText);
           if (composedFinalText) {
             const isPlanTurn = collaborationMode === "plan";
-            const visibleText = sendFile ? stripBridgeSendFileRefs(composedFinalText) : composedFinalText;
-            const deliveryText = isPlanTurn && visibleText
+            const containsSendFileProtocol = hasBridgeSendFileRefs(composedFinalText);
+            const shouldRequestSendFileConfirmation = sendFile && containsSendFileProtocol;
+            const visibleText = containsSendFileProtocol ? stripBridgeSendFileRefs(composedFinalText) : composedFinalText;
+            const deliveryTextBody = isPlanTurn && visibleText
               ? `${visibleText}\n\n${formatPlanWorkflowChoices(this.commandProfile)}`
               : visibleText;
+            const deliveryText = shouldRequestSendFileConfirmation
+              ? ""
+              : [deliveryTextBody].filter(Boolean).join("\n\n");
             if (deliveryText) {
               if (isPlanTurn && visibleText) {
                 const actionResult = await this.delivery.deliverActionMessage(target, {
@@ -321,8 +329,13 @@ export class BridgeRouteQueue {
                 if (!updated) await this.delivery.sendText(target, deliveryText);
               }
             }
-            if (sendFile) {
-              await this.delivery.sendRequestedFiles(target, composedFinalText, session.cwd);
+            if (shouldRequestSendFileConfirmation) {
+              const extraction = extractBridgeSendFileRefs(composedFinalText, session.cwd, SEND_FILE_MAX_FILES);
+              if (this.onSendFileConfirmationRequested) {
+                await this.onSendFileConfirmationRequested({ message, target, extraction });
+              } else if (extraction.media.length === 0) {
+                await this.delivery.sendRequestedFileExtraction(target, extraction);
+              }
             }
           }
         });

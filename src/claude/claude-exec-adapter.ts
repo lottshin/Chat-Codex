@@ -636,7 +636,9 @@ export function parseClaudeJsonLine(line: string, sessionId: string, turnId: str
     if (parsed.type === "system" && parsed.subtype) {
       return {
         actualSessionId,
-        event: { type: "assistant.progress", sessionId, turnId, text: `Claude Code: ${parsed.subtype}`, kind: "other" },
+        event: parsed.subtype === "init"
+          ? undefined
+          : { type: "assistant.progress", sessionId, turnId, text: `Claude Code: ${parsed.subtype}`, kind: "other" },
         promptSlashCommands: parsed.subtype === "init" ? promptSlashCommandsFromInit(parsed.slash_commands) : undefined,
         promptSkills: parsed.subtype === "init" ? promptSkillsFromInit(parsed.skills) : undefined,
       };

@@ -21,6 +21,7 @@ export function loadFeishuCredentialsFromEnv(env: NodeJS.ProcessEnv = process.en
     accountId: firstNonEmpty(env.FEISHU_ACCOUNT_ID, env.LARK_ACCOUNT_ID) ?? DEFAULT_FEISHU_ACCOUNT_ID,
     verificationToken: firstNonEmpty(env.FEISHU_VERIFICATION_TOKEN, env.LARK_VERIFICATION_TOKEN),
     encryptKey: firstNonEmpty(env.FEISHU_ENCRYPT_KEY, env.LARK_ENCRYPT_KEY),
+    driveFolderToken: firstNonEmpty(env.FEISHU_DRIVE_FOLDER_TOKEN, env.LARK_DRIVE_FOLDER_TOKEN),
   };
 }
 
@@ -39,6 +40,7 @@ export function normalizeFeishuCredentials(credentials: FeishuCredentials): Feis
     accountId: normalizeOptional(credentials.accountId) ?? DEFAULT_FEISHU_ACCOUNT_ID,
     verificationToken: normalizeOptional(credentials.verificationToken),
     encryptKey: normalizeOptional(credentials.encryptKey),
+    driveFolderToken: normalizeOptional(credentials.driveFolderToken),
   };
 }
 
@@ -330,6 +332,7 @@ export function feishuStatusDetails(input: {
     accountId: input.credentials.accountId ?? DEFAULT_FEISHU_ACCOUNT_ID,
     appId: maskFeishuAppId(input.credentials.appId),
     appSecret: maskFeishuSecret(input.credentials.appSecret),
+    driveFolderToken: maskFeishuSecret(input.credentials.driveFolderToken),
     domain: input.credentials.domain ?? DEFAULT_FEISHU_DOMAIN,
     connectionMode: "websocket",
     botOpenId: input.botOpenId,

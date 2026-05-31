@@ -34,6 +34,8 @@ test("BridgeCommandRouter treats known root commands as local in Claude profile"
   assert.equal(fixture.router.isBridgeCommand(message(), "dir"), true);
   assert.equal(fixture.router.isBridgeCommand(message(), "show"), true);
   assert.equal(fixture.router.isBridgeCommand(message(), "sendfile"), true);
+  assert.equal(fixture.router.isBridgeCommand(message(), "sendfile-approve"), true);
+  assert.equal(fixture.router.isBridgeCommand(message(), "bridge-sendfile-deny"), true);
   assert.equal(fixture.router.isBridgeCommand(message(), "skills"), true);
   assert.equal(fixture.router.isBridgeCommand(message(), "skill"), true);
   assert.equal(fixture.router.isBridgeCommand(message(), "model"), true);
@@ -63,6 +65,7 @@ test("BridgeCommandRouter classifies bridge-owned command names", () => {
   assert.equal(isBridgeCommandName("permission"), true);
   assert.equal(isBridgeCommandName("skills"), true);
   assert.equal(isBridgeCommandName("skill"), true);
+  assert.equal(isBridgeCommandName("sendfile-approve"), true);
   assert.equal(isBridgeCommandName("simplify"), false);
   assert.equal(isBridgeCommandName("claude-api"), false);
 });
@@ -404,6 +407,15 @@ test("BridgeCommandRouter routes sendfile with the original command name", async
   assert.deepEqual(claudeAlias.sendFileCall, { rawText: "/bridge-sendfile 生成报告", commandName: "bridge-sendfile" });
 });
 
+test("BridgeCommandRouter routes sendfile confirmation commands", async () => {
+  const fixture = routerFixture({ backend: "claude", commandProfile: "claude" });
+
+  await fixture.router.handle(message(), target(), "sendfile-approve", ["f001"], "/sendfile-approve f001");
+  await fixture.router.handle(message(), target(), "bridge-sendfile-deny", ["f002"], "/bridge-sendfile-deny f002");
+
+  assert.equal(fixture.calls.sendFileConfirmation, 2);
+});
+
 test("BridgeCommandRouter allows supported Claude command handlers", async () => {
   const fixture = routerFixture({ backend: "claude" });
 
@@ -459,6 +471,7 @@ function routerFixture(options: {
     compact: 0,
     approval: 0,
     sendFile: 0,
+    sendFileConfirmation: 0,
     skills: 0,
     planWorkflow: 0,
   };
@@ -528,6 +541,9 @@ function routerFixture(options: {
     sendFile: async (_message, _target, rawText, commandName) => {
       calls.sendFile += 1;
       sendFileCall = { rawText, commandName };
+    },
+    sendFileConfirmation: async () => {
+      calls.sendFileConfirmation += 1;
     },
     skills: async () => {
       calls.skills += 1;
