@@ -120,7 +120,7 @@ function serviceFixture(options: { waitTimeoutMs?: number | null; deliveryError?
       sent.push(pending);
       resolveCreated?.();
       if (options.deliveryError) throw options.deliveryError;
-      return { channelId: "mock", messageId: "approval-message", deliveredAt: new Date().toISOString() };
+      return { channelId: "mock", messageId: "approval-message", deliveredAt: new Date().toISOString(), actionMessage: false };
     },
   };
   return {

@@ -44,6 +44,7 @@ export interface BridgeRouteQueueOptions {
   onPlanWorkflowReady?(workflow: PendingPlanWorkflow): void;
   onApprovalActionMessageSent?(approvalKey: string, messageId: string): void;
   onSendFileConfirmationRequested?(request: SendFileConfirmationRequest): Promise<void>;
+  onAssistantVisibleText?(message: ChannelMessage, target: ChannelTarget, text: string, cwd: string): void | Promise<void>;
   backend?: AiBackend;
   commandProfile?: CommandNamespaceProfile;
 }
@@ -63,6 +64,7 @@ export class BridgeRouteQueue {
   private readonly onPlanWorkflowReady?: BridgeRouteQueueOptions["onPlanWorkflowReady"];
   private readonly onApprovalActionMessageSent?: BridgeRouteQueueOptions["onApprovalActionMessageSent"];
   private readonly onSendFileConfirmationRequested?: BridgeRouteQueueOptions["onSendFileConfirmationRequested"];
+  private readonly onAssistantVisibleText?: BridgeRouteQueueOptions["onAssistantVisibleText"];
   private readonly backendName: string;
   private readonly commandProfile: CommandNamespaceProfile;
   private readonly progressDelivery: BridgeProgressDelivery;
@@ -85,6 +87,7 @@ export class BridgeRouteQueue {
     this.onPlanWorkflowReady = options.onPlanWorkflowReady;
     this.onApprovalActionMessageSent = options.onApprovalActionMessageSent;
     this.onSendFileConfirmationRequested = options.onSendFileConfirmationRequested;
+    this.onAssistantVisibleText = options.onAssistantVisibleText;
     this.backendName = backendDisplayName(options.backend);
     this.commandProfile = options.commandProfile ?? "codex";
     this.progressDelivery = options.progressDelivery ?? new BridgeProgressDelivery({
@@ -223,7 +226,7 @@ export class BridgeRouteQueue {
         enqueuedAt: new Date().toISOString(),
       }, async () => {
         const deliveryPolicy = this.deliveryPolicyFor(message);
-        if (deliveryPolicy.taskStart === "send" && !sendFile) {
+        if (deliveryPolicy.taskStart === "send") {
           await this.delivery.sendText(target, [
             `${this.backendName} 正在处理这条消息。`,
             "可发送 /status 查看状态，/stop 终止。",
@@ -281,7 +284,7 @@ export class BridgeRouteQueue {
                 });
                 const pending = this.approvals.create(message.routeKey, message.sender.id, event.approval);
                 const actionResult = await this.delivery.sendApprovalTextUntilDelivered(message.routeKey, target, pending);
-                if (actionResult?.messageId) this.onApprovalActionMessageSent?.(pending.approvalKey, actionResult.messageId);
+                if (actionResult?.actionMessage) this.onApprovalActionMessageSent?.(pending.approvalKey, actionResult.messageId);
               } else if (event.type === "turn.completed") {
                 this.state.setSessionStatus(session.id, { type: "idle" });
               } else if (event.type === "turn.failed") {
@@ -328,6 +331,7 @@ export class BridgeRouteQueue {
                 const updated = await this.progressDelivery.finishRoute(message.routeKey, target, deliveryPolicy, deliveryText);
                 if (!updated) await this.delivery.sendText(target, deliveryText);
               }
+              await this.onAssistantVisibleText?.(message, target, visibleText, session.cwd);
             }
             if (shouldRequestSendFileConfirmation) {
               const extraction = extractBridgeSendFileRefs(composedFinalText, session.cwd, SEND_FILE_MAX_FILES);

@@ -2,6 +2,7 @@ import type {
   FeishuApiResponse,
   FeishuCardActionEvent,
   FeishuCredentials,
+  FeishuDriveFileListData,
   FeishuDriveMeta,
   FeishuEventDispatcher,
   FeishuEventHandlers,
@@ -28,6 +29,8 @@ export class FakeFeishuClient implements FeishuSdkClient {
   readonly driveFileUploadPreparePayloads: Array<Parameters<NonNullable<NonNullable<NonNullable<FeishuSdkClient["drive"]>["v1"]>["file"]>["uploadPrepare"]>[0]> = [];
   readonly driveFileUploadPartPayloads: Array<Parameters<NonNullable<NonNullable<NonNullable<FeishuSdkClient["drive"]>["v1"]>["file"]>["uploadPart"]>[0]> = [];
   readonly driveFileUploadFinishPayloads: Array<Parameters<NonNullable<NonNullable<NonNullable<FeishuSdkClient["drive"]>["v1"]>["file"]>["uploadFinish"]>[0]> = [];
+  readonly driveFileDownloadPayloads: Array<{ path: { file_token?: string } }> = [];
+  readonly driveFileListPayloads: Array<Parameters<NonNullable<NonNullable<NonNullable<FeishuSdkClient["drive"]>["v1"]>["file"]>["list"]>[0]> = [];
   readonly cardIdConvertPayloads: Array<{ data: { message_id: string } }> = [];
   readonly cardUpdatePayloads: Array<{ data: { card: { type: "card_json"; data: string }; uuid?: string; sequence: number }; path: { card_id: string } }> = [];
   readonly userGetPayloads: unknown[] = [];
@@ -100,18 +103,28 @@ export class FakeFeishuClient implements FeishuSdkClient {
   drivePermissionResponse: FeishuApiResponse = {
     code: 0,
   };
+  driveFileListResponse: FeishuApiResponse<FeishuDriveFileListData> = {
+    code: 0,
+    data: {
+      files: [],
+      has_more: false,
+    },
+  };
   imageCreateResponse = {
     image_key: "img_upload",
   };
   fileCreateResponse = {
     file_key: "file_upload",
   };
+  driveDownloadBuffer = Buffer.from("feishu-drive-file");
+  driveDownloadHeaders: Record<string, string> = {};
   resourceBuffers = new Map<string, Buffer>();
   resourceHeaders = new Map<string, Record<string, string>>();
   replyError?: Error;
   imageCreateError?: Error;
   fileCreateError?: Error;
   messageResourceError?: Error;
+  driveDownloadError?: Error;
   reactionCreateError?: Error;
   reactionDeleteError?: Error;
 
@@ -141,6 +154,18 @@ export class FakeFeishuClient implements FeishuSdkClient {
         uploadFinish: async (payload: Parameters<NonNullable<NonNullable<NonNullable<FeishuSdkClient["drive"]>["v1"]>["file"]>["uploadFinish"]>[0]) => {
           this.driveFileUploadFinishPayloads.push(payload);
           return this.driveUploadFinishResponse;
+        },
+        download: async (payload: { path: { file_token?: string } }) => {
+          this.driveFileDownloadPayloads.push(payload);
+          if (this.driveDownloadError) throw this.driveDownloadError;
+          return {
+            getReadableStream: () => Readable.from(this.driveDownloadBuffer),
+            headers: this.driveDownloadHeaders,
+          };
+        },
+        list: async (payload: Parameters<NonNullable<NonNullable<NonNullable<FeishuSdkClient["drive"]>["v1"]>["file"]>["list"]>[0] = {}) => {
+          this.driveFileListPayloads.push(payload);
+          return this.driveFileListResponse;
         },
       },
     },
@@ -234,6 +259,7 @@ export class FakeFeishuClient implements FeishuSdkClient {
       }
       if (payload.url.includes("/drive/v1/files/upload_part")) return this.driveUploadPartResponse as T;
       if (payload.url.includes("/drive/v1/files/upload_finish")) return this.driveUploadFinishResponse as T;
+      if (payload.method === "GET" && payload.url.includes("/drive/v1/files")) return this.driveFileListResponse as T;
       if (payload.url.includes("/drive/v1/metas/batch_query")) return this.driveMetaResponse as T;
       if (payload.url.includes("/permissions/") && payload.url.includes("/members")) return this.drivePermissionResponse as T;
     }

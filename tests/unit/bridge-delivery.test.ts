@@ -55,6 +55,7 @@ test("BridgeDelivery sends action messages when buttons are supported", async ()
   const result = await fixture.delivery.deliverActionMessage(target(), staticActionMessage(), "fallback /OK /P /NO");
 
   assert.equal(result.messageId, "action-1");
+  assert.equal(result.actionMessage, true);
   assert.equal(fixture.sentActionMessages.length, 1);
   assert.deepEqual(fixture.sentActionMessages[0]?.buttonGroups[0]?.map((button) => button.action), ["cmd:/OK", "cmd:/P", "cmd:/NO"]);
   assert.deepEqual(fixture.sentTexts, []);
@@ -65,14 +66,16 @@ test("BridgeDelivery falls back to text when buttons are unsupported", async () 
   const result = await fixture.delivery.deliverActionMessage(target(), staticActionMessage(), "fallback /OK /P /NO");
 
   assert.equal(result.messageId, "text-1");
+  assert.equal(result.actionMessage, false);
   assert.deepEqual(fixture.sentActionMessages, []);
   assert.deepEqual(fixture.sentTexts, ["fallback /OK /P /NO"]);
 });
 
 test("BridgeDelivery falls back to text when adapter lacks action message support", async () => {
   const fixture = deliveryFixture({ buttons: true, actionMessages: false });
-  await fixture.delivery.deliverActionMessage(target(), staticActionMessage(), "fallback /OK /P /NO");
+  const result = await fixture.delivery.deliverActionMessage(target(), staticActionMessage(), "fallback /OK /P /NO");
 
+  assert.equal(result.actionMessage, false);
   assert.deepEqual(fixture.sentActionMessages, []);
   assert.deepEqual(fixture.sentTexts, ["fallback /OK /P /NO"]);
 });

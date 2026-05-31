@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { extractBridgeSendFileRefs, extractMediaRefs, hasBridgeSendFileRefs, stripBridgeSendFileRefs } from "../../src/bridge/media-extractor.js";
+import { extractBridgeSendFileRefs, extractLocalDeliverableRefs, extractMediaRefs, hasBridgeSendFileRefs, stripBridgeSendFileRefs } from "../../src/bridge/media-extractor.js";
 
 function tempDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "media-extractor-test-"));
@@ -97,6 +97,29 @@ test("extractMediaRefs extracts explicit file attachments without treating bare 
   assert.deepEqual(media.map((item) => ({ type: item.type, path: item.path, mimeType: item.mimeType, caption: item.caption })), [
     { type: "file", path: reportPath, mimeType: "application/pdf", caption: "最终报告" },
     { type: "file", path: dataPath, mimeType: "application/json", caption: undefined },
+  ]);
+});
+
+test("extractLocalDeliverableRefs extracts recently mentioned local files", () => {
+  const root = tempDir();
+  const imagePath = path.join(root, "feishu-login-qr.png");
+  const reportPath = path.join(root, "report.pdf");
+  const sourcePath = path.join(root, "src", "index.ts");
+  fs.mkdirSync(path.dirname(sourcePath), { recursive: true });
+  fs.writeFileSync(imagePath, "png");
+  fs.writeFileSync(reportPath, "pdf");
+  fs.writeFileSync(sourcePath, "console.log('not a deliverable');");
+
+  const media = extractLocalDeliverableRefs([
+    `二维码截图已保存：${imagePath}`,
+    `报告路径：${reportPath}`,
+    `源码路径：${sourcePath}`,
+    "远程文件：https://example.com/report.pdf",
+  ].join("\n"), root, 3);
+
+  assert.deepEqual(media.map((item) => ({ type: item.type, path: item.path, name: item.name })), [
+    { type: "image", path: imagePath, name: path.basename(imagePath) },
+    { type: "file", path: reportPath, name: path.basename(reportPath) },
   ]);
 });
 

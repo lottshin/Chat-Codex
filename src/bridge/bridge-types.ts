@@ -76,6 +76,7 @@ export interface RouteSteerState {
 
 export interface BackgroundTurnState {
   routeKey: string;
+  sessionId: string;
   message: ChannelMessage;
   target: ChannelTarget;
   finalText: string;

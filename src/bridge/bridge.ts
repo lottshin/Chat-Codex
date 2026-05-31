@@ -10,7 +10,7 @@ import { SilentLogger } from "../logging/logger.js";
 import type { TranscriptSink } from "../logging/transcript.js";
 import { ChannelRegistry, createSingleChannelRegistry } from "../channels/registry.js";
 import { FeishuGroupMemberRegistry } from "../channels/feishu/group/group-member-registry.js";
-import type { ChannelAdapter, ChannelMessage, ChannelTarget } from "../protocol/channel.js";
+import type { ChannelAdapter, ChannelMedia, ChannelMessage, ChannelTarget } from "../protocol/channel.js";
 import { replyTargetFromMessage } from "../protocol/channel.js";
 import type { ChannelDeliveryPolicy } from "../protocol/delivery-policy.js";
 import { DEFAULT_CHANNEL_DELIVERY_POLICY, normalizeChannelDeliveryPolicy } from "../protocol/delivery-policy.js";
@@ -33,7 +33,8 @@ import { BridgeBackgroundTurns } from "./background-turns.js";
 import { BridgeCommandRouter, canonicalBridgeCommandName, isBridgeAliasCommandName } from "./command-router.js";
 import { SessionContextRefreshManager } from "./context-refresh.js";
 import { BridgeDelivery } from "./delivery.js";
-import { detectFileDeliveryIntent } from "./file-delivery-intent.js";
+import { detectFileDeliveryIntent, detectRecentFileDeliveryIntent } from "./file-delivery-intent.js";
+import { extractLocalDeliverableRefs } from "./media-extractor.js";
 import { BridgeProgressDelivery } from "./progress-delivery.js";
 import { BridgeRouteQueue } from "./route-queue.js";
 import { BridgeRouteSteering } from "./route-steering.js";
@@ -82,6 +83,7 @@ import {
   APPROVAL_SEND_RETRY_DELAY_MS,
   COMPACT_RUNNING_MESSAGE_REJECT_TEXT,
   COMPACT_RUNNING_REJECT_TEXT,
+  SEND_FILE_MAX_FILES,
   STEER_BATCH_MAX_CHARS,
   STEER_BATCH_MAX_MESSAGES,
   STEER_DEBOUNCE_MS,
@@ -94,6 +96,13 @@ import {
 
 export type { BridgeOptions, InitialRouteBinding, ProgressDeliveryMode, UnboundRoutePolicy } from "./bridge-types.js";
 export { parseProgressDeliveryMode } from "./formatters.js";
+
+const RECENT_DELIVERABLE_TTL_MS = 10 * 60 * 1000;
+
+interface RecentDeliverables {
+  media: ChannelMedia[];
+  createdAt: number;
+}
 
 export class Bridge {
   private readonly channels: ChannelRegistry;
@@ -128,6 +137,7 @@ export class Bridge {
   private readonly routeTargets = new Map<string, ChannelTarget>();
   private readonly pendingMedia = new PendingMediaManager();
   private readonly pendingSendFiles = new PendingSendFileDeliveryStore();
+  private readonly recentDeliverables = new Map<string, RecentDeliverables>();
   private stopBackgroundEvents?: () => void;
 
   constructor(options: BridgeOptions) {
@@ -216,6 +226,7 @@ export class Bridge {
       onPlanWorkflowReady: (workflow) => this.planWorkflows.set(workflow),
       onApprovalActionMessageSent: (approvalKey, messageId) => this.approvalActionMessageIds.set(approvalKey, messageId),
       onSendFileConfirmationRequested: (request) => this.requestSendFileConfirmation(request),
+      onAssistantVisibleText: (message, _target, text, cwd) => this.recordRecentDeliverables(message.routeKey, text, cwd),
       backend: options.backend,
       commandProfile: this.commandProfile,
     });
@@ -233,6 +244,7 @@ export class Bridge {
       startRouteWorker: (routeKey) => this.routeQueue.startRouteWorker(routeKey),
       routeQueueLength: (routeKey) => this.routeQueue.queueLength(routeKey),
       hasRouteWorker: (routeKey) => this.routeQueue.hasWorker(routeKey),
+      onAssistantVisibleText: (message, _target, text, cwd) => this.recordRecentDeliverables(message.routeKey, text, cwd),
     });
     this.routeSteering = new BridgeRouteSteering({
       codex: this.codex,
@@ -433,6 +445,7 @@ export class Bridge {
     this.sideTasks.clearAll();
     this.pendingMedia.clearAll();
     this.pendingSendFiles.clearAll();
+    this.recentDeliverables.clear();
     this.progressDelivery.clearAll();
     this.stopBackgroundEvents?.();
     this.stopBackgroundEvents = undefined;
@@ -538,6 +551,17 @@ export class Bridge {
       await this.routeQueue.enqueuePrompt(message, target, input, { sendFile: true });
       return;
     }
+    const recentFileDeliveryIntent = message.conversation.kind === "group" || acceptedAttachments.length > 0
+      ? { enabled: false }
+      : detectRecentFileDeliveryIntent(text);
+    if (recentFileDeliveryIntent.enabled) {
+      const extraction = this.recentDeliverableExtraction(message.routeKey);
+      if (extraction) {
+        this.recentDeliverables.delete(message.routeKey);
+        await this.requestSendFileConfirmation({ message, target, extraction });
+        return;
+      }
+    }
     if (await this.routeSteering.tryEnqueue(message, target, input)) return;
     await this.routeQueue.enqueuePrompt(message, target, input);
   }
@@ -615,13 +639,16 @@ export class Bridge {
         return;
       }
     }
+    const sourceActionMessageId = actionMessageSourceId(message);
+    const mappedActionMessageId = this.approvalActionMessageIdFor(message.routeKey, args);
     const result = await handleApprovalCommand({
       approvals: this.approvals,
       codex: this.codex,
       delivery: this.delivery,
+      suppressHandledText: Boolean(sourceActionMessageId || mappedActionMessageId),
     }, message, target, args, decision, optionId);
     if (result.handled && result.approvalKey) {
-      const messageId = this.approvalActionMessageIds.get(result.approvalKey) ?? actionMessageSourceId(message);
+      const messageId = this.approvalActionMessageIds.get(result.approvalKey) ?? sourceActionMessageId;
       this.approvalActionMessageIds.delete(result.approvalKey);
       if (messageId) {
         await this.delivery.updateActionMessage(target, messageId, `审批已处理：${approvalActionStatusText(result.decision ?? decision, message.sender.displayName ?? message.sender.id)}`);
@@ -670,6 +697,42 @@ export class Bridge {
   private async updatePlanActionMessage(workflow: { target: ChannelTarget; actionMessageId?: string }, choice: PlanWorkflowChoice): Promise<void> {
     if (!workflow.actionMessageId) return;
     await this.delivery.updateActionMessage(workflow.target, workflow.actionMessageId, planActionStatusText(choice));
+  }
+
+  private approvalActionMessageIdFor(routeKey: string, args: string[]): string | undefined {
+    const explicitKey = args[0]?.trim();
+    const explicitApproval = explicitKey ? this.approvals.get(explicitKey) : undefined;
+    if (explicitApproval?.routeKey === routeKey) return this.approvalActionMessageIds.get(explicitApproval.approvalKey);
+    const latestKey = this.approvals.latest(routeKey)?.approvalKey;
+    return latestKey ? this.approvalActionMessageIds.get(latestKey) : undefined;
+  }
+
+  private recordRecentDeliverables(routeKey: string, text: string, cwd: string): void {
+    const media = extractLocalDeliverableRefs(text, cwd, SEND_FILE_MAX_FILES);
+    if (media.length === 0) {
+      this.recentDeliverables.delete(routeKey);
+      return;
+    }
+    this.recentDeliverables.set(routeKey, { media, createdAt: Date.now() });
+  }
+
+  private recentDeliverableExtraction(routeKey: string): SendFileConfirmationRequest["extraction"] | undefined {
+    const recent = this.recentDeliverables.get(routeKey);
+    if (!recent) return undefined;
+    if (Date.now() - recent.createdAt > RECENT_DELIVERABLE_TTL_MS) {
+      this.recentDeliverables.delete(routeKey);
+      return undefined;
+    }
+    if (recent.media.length === 0) {
+      this.recentDeliverables.delete(routeKey);
+      return undefined;
+    }
+    return {
+      requestedCount: recent.media.length,
+      media: recent.media,
+      invalidRefs: [],
+      overflowCount: 0,
+    };
   }
 
   private async requestSendFileConfirmation(request: SendFileConfirmationRequest): Promise<void> {

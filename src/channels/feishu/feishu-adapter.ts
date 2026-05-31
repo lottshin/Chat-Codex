@@ -27,7 +27,23 @@ import { ChannelMediaDeliveryError } from "../../protocol/media-delivery-error.j
 import { LOCAL_STATE_SCHEMA_VERSION, type ChannelAccountCredentialsDocument } from "../../state/persistent-state-types.js";
 import { readJsonFile, writeJsonFileAtomic } from "../../state/state-files.js";
 import { buildFeishuActionCard, feishuCardActionToInboundText } from "./feishu-card.js";
-import { grantFeishuDriveFileView, uploadFeishuDriveFile } from "./feishu-drive.js";
+import {
+  downloadFeishuDriveFileToPath,
+  grantFeishuDriveFileView,
+  listFeishuDriveFolderItems,
+  queryFeishuDriveFileMeta,
+  uploadFeishuDriveFile,
+  type FeishuDriveFolderItem,
+} from "./feishu-drive.js";
+import {
+  ensureFeishuDriveDownloadDirectory,
+  hasFeishuDriveDownloadIntent,
+  resolveFeishuDriveDownloadIntent,
+  resolveFeishuDriveDownloadDirectory,
+  sanitizeFeishuDriveDownloadFileName,
+  uniqueFeishuDriveDownloadPath,
+  type FeishuDriveDownloadDirectoryKind,
+} from "./feishu-drive-download.js";
 import { decideFeishuMediaDelivery } from "./feishu-media-limits.js";
 import {
   DEFAULT_FEISHU_ACCOUNT_ID,
@@ -69,6 +85,7 @@ import type {
 const DEFAULT_SOURCE_VERSION = "node-sdk";
 const DEFAULT_DEDUP_TTL_MS = 10 * 60 * 1000;
 const FEISHU_TYPING_EMOJI_TYPE = "Typing";
+const FEISHU_DRIVE_DOWNLOAD_ACTION_PREFIX = "local:feishu-drive-download:";
 const SILENT_FEISHU_SDK_LOGGER = {
   fatal: () => undefined,
   error: () => undefined,
@@ -77,6 +94,34 @@ const SILENT_FEISHU_SDK_LOGGER = {
   debug: () => undefined,
   trace: () => undefined,
 };
+
+interface PendingFeishuDriveDownload {
+  id: string;
+  target: ChannelTarget;
+  fileToken: string;
+  fileName: string;
+  sourceUrl: string;
+  directory: string;
+  directoryKind: FeishuDriveDownloadDirectoryKind;
+  requesterOpenId?: string;
+  actionMessageId?: string;
+  state: "pending" | "running";
+}
+
+interface FeishuDriveDownloadCardAction {
+  decision: "approve" | "cancel";
+  requestId: string;
+}
+
+interface PendingFeishuDriveFolderConfig {
+  token: string;
+  expiresAt: number;
+}
+
+interface RecentFeishuDriveFolderListing {
+  files: FeishuDriveFolderItem[];
+  expiresAt: number;
+}
 
 export class FeishuAdapter implements ChannelAdapter {
   readonly id: string;
@@ -91,6 +136,7 @@ export class FeishuAdapter implements ChannelAdapter {
   private readonly transportFactory: FeishuTransportFactory;
   private readonly now: () => number;
   private readonly inboundMediaRootDir?: string;
+  private readonly desktopDir?: string;
   private readonly stateDir?: string;
   private handler?: ChannelMessageHandler;
   private status: ChannelStatus;
@@ -102,6 +148,9 @@ export class FeishuAdapter implements ChannelAdapter {
   private readonly seenMessages = new Map<string, number>();
   private readonly typingReactions = new Map<string, string>();
   private readonly actionMessageIds = new Set<string>();
+  private readonly driveDownloadRequests = new Map<string, PendingFeishuDriveDownload>();
+  private readonly pendingDriveFolderConfigs = new Map<string, PendingFeishuDriveFolderConfig>();
+  private readonly recentDriveFolderListings = new Map<string, RecentFeishuDriveFolderListing>();
 
   constructor(options: FeishuAdapterOptions = {}) {
     this.id = options.id ?? FEISHU_CHANNEL_ID;
@@ -115,6 +164,7 @@ export class FeishuAdapter implements ChannelAdapter {
     this.transportFactory = options.transportFactory ?? new DefaultFeishuTransportFactory();
     this.now = options.now ?? Date.now;
     this.inboundMediaRootDir = options.inboundMediaRootDir;
+    this.desktopDir = options.desktopDir;
     this.stateDir = options.stateDir;
     this.status = {
       channelId: this.id,
@@ -180,6 +230,9 @@ export class FeishuAdapter implements ChannelAdapter {
     this.dispatcher = undefined;
     this.typingReactions.clear();
     this.actionMessageIds.clear();
+    this.driveDownloadRequests.clear();
+    this.pendingDriveFolderConfigs.clear();
+    this.recentDriveFolderListings.clear();
     this.status = {
       ...this.status,
       state: "stopped",
@@ -475,6 +528,10 @@ export class FeishuAdapter implements ChannelAdapter {
 
   private async handleCardActionEvent(event: FeishuCardActionEvent): Promise<Record<string, unknown> | void> {
     const payload = feishuCardActionPayload(event);
+    const driveDownloadAction = feishuDriveDownloadCardAction(payload);
+    if (driveDownloadAction) {
+      return this.handleDriveDownloadCardAction(payload, driveDownloadAction);
+    }
     const inbound = feishuCardActionToInboundText(payload);
     if (!inbound) {
       this.status = {
@@ -526,12 +583,16 @@ export class FeishuAdapter implements ChannelAdapter {
   }
 
   private updateCardActionByCallbackToken(event: FeishuCardActionEvent, inbound: { text: string }): void {
+    this.updateCardByCallbackToken(event, cardActionResponseText(inbound.text));
+  }
+
+  private updateCardByCallbackToken(event: FeishuCardActionEvent, text: string): void {
     const token = cardActionUpdateToken(event);
     const client = this.client;
     if (!token || !client?.request) return;
     const request = client.request.bind(client);
 
-    const card = buildFeishuActionCard({ text: cardActionResponseText(inbound.text), buttonGroups: [] });
+    const card = buildFeishuActionCard({ text, buttonGroups: [] });
     void (async () => {
       try {
         const response = await request<FeishuApiResponse>({
@@ -619,6 +680,9 @@ export class FeishuAdapter implements ChannelAdapter {
       return;
     }
     if (await this.tryHandleDriveFolderConfigMessage(message)) return;
+    if (await this.tryHandleDriveFolderListMessage(message)) return;
+    if (await this.tryHandleDriveFileDownloadMessage(message)) return;
+    if (await this.tryHandleRecentDriveFolderFileMessage(message)) return;
     await downloadFeishuInboundAttachments({
       client: this.ensureClient(),
       message,
@@ -687,7 +751,43 @@ export class FeishuAdapter implements ChannelAdapter {
   private async tryHandleDriveFolderConfigMessage(message: ChannelMessage): Promise<boolean> {
     if (message.conversation.kind !== "direct") return false;
     const token = driveFolderTokenFromConfigText(message.text);
-    if (!token) return false;
+    if (token) {
+      await this.configureDriveFolderToken(message, token);
+      return true;
+    }
+    const pending = this.activePendingDriveFolderConfig(message.routeKey);
+    if (pending && hasDriveFolderConfigIntent(message.text)) {
+      await this.configureDriveFolderToken(message, pending.token);
+      this.pendingDriveFolderConfigs.delete(message.routeKey);
+      return true;
+    }
+    const candidate = driveFolderTokenFromText(message.text);
+    if (!candidate) return false;
+    this.pendingDriveFolderConfigs.set(message.routeKey, {
+      token: candidate,
+      expiresAt: this.now() + this.dedupTtlMs,
+    });
+    this.status = {
+      ...this.status,
+      lastInboundAt: message.timestamp,
+      details: this.statusDetails("drive-folder-config-pending"),
+    };
+    await this.sendText(replyTargetFromMessage(message), [
+      "收到飞书云空间文件夹链接。",
+      "如果要把它设为大文件中转文件夹，请回复：帮我配置这个中转文件夹",
+    ].join("\n"));
+    return true;
+  }
+
+  private activePendingDriveFolderConfig(routeKey: string): PendingFeishuDriveFolderConfig | undefined {
+    const pending = this.pendingDriveFolderConfigs.get(routeKey);
+    if (!pending) return undefined;
+    if (pending.expiresAt > this.now()) return pending;
+    this.pendingDriveFolderConfigs.delete(routeKey);
+    return undefined;
+  }
+
+  private async configureDriveFolderToken(message: ChannelMessage, token: string): Promise<void> {
     this.credentials.driveFolderToken = token;
     const saved = this.saveDriveFolderToken(token);
     this.status = {
@@ -701,7 +801,299 @@ export class FeishuAdapter implements ChannelAdapter {
       suffix,
       "超过 30 MB 的文件会作为云空间链接发送。",
     ].join("\n"));
-    return true;
+  }
+
+  private async tryHandleDriveFolderListMessage(message: ChannelMessage): Promise<boolean> {
+    if (!hasDriveFolderListIntent(message.text)) return false;
+    const target = replyTargetFromMessage(message);
+    const folderToken = this.credentials.driveFolderToken?.trim();
+    if (!folderToken) {
+      await this.sendText(target, [
+        "还没有配置飞书云空间中转文件夹。",
+        "请先发送飞书文件夹链接，再回复：帮我配置这个中转文件夹",
+      ].join("\n"));
+      this.status = {
+        ...this.status,
+        lastInboundAt: message.timestamp,
+        details: this.statusDetails("drive-folder-list-missing-config"),
+      };
+      return true;
+    }
+    try {
+      const result = await listFeishuDriveFolderItems({
+        client: this.ensureClient(),
+        folderToken,
+        pageSize: 20,
+      });
+      this.recentDriveFolderListings.set(message.routeKey, {
+        files: result.files,
+        expiresAt: this.now() + this.dedupTtlMs,
+      });
+      await this.sendText(target, formatDriveFolderListText(result.files, result.hasMore));
+      this.status = {
+        ...this.status,
+        lastInboundAt: message.timestamp,
+        details: this.statusDetails("drive-folder-listed"),
+      };
+      return true;
+    } catch (error) {
+      await this.sendText(target, driveDownloadFailureText("飞书云空间中转文件夹列表读取失败。", error));
+      this.status = {
+        ...this.status,
+        lastInboundAt: message.timestamp,
+        details: this.statusDetails("drive-folder-list-failed"),
+      };
+      return true;
+    }
+  }
+
+  private activeRecentDriveFolderListing(routeKey: string): RecentFeishuDriveFolderListing | undefined {
+    const listing = this.recentDriveFolderListings.get(routeKey);
+    if (!listing) return undefined;
+    if (listing.expiresAt > this.now()) return listing;
+    this.recentDriveFolderListings.delete(routeKey);
+    return undefined;
+  }
+
+  private async tryHandleRecentDriveFolderFileMessage(message: ChannelMessage): Promise<boolean> {
+    const listing = this.activeRecentDriveFolderListing(message.routeKey);
+    if (!listing) return false;
+    const text = message.text?.trim();
+    if (!text) return false;
+    const wantsDownload = hasFeishuDriveDownloadIntent(text);
+    const reference = resolveRecentDriveFolderFileReference(text, listing.files, wantsDownload);
+    if (reference.kind === "none") return false;
+    const target = replyTargetFromMessage(message);
+    if (reference.kind === "ambiguous") {
+      await this.sendText(target, [
+        "中转站里匹配到多个文件，请直接说文件名或序号：",
+        ...reference.files.map((file, index) => `${index + 1}. ${file.name}`),
+      ].join("\n"));
+      this.status = {
+        ...this.status,
+        lastInboundAt: message.timestamp,
+        details: this.statusDetails("drive-folder-reference-ambiguous"),
+      };
+      return true;
+    }
+    if (reference.kind === "unsupported") {
+      await this.sendText(target, [
+        "这项不是云空间普通文件，暂不支持直接下载。",
+        `名称：${reference.file.name}`,
+        `类型：${reference.file.type}`,
+      ].join("\n"));
+      this.status = {
+        ...this.status,
+        lastInboundAt: message.timestamp,
+        details: this.statusDetails("drive-folder-reference-unsupported"),
+      };
+      return true;
+    }
+    if (!wantsDownload) {
+      await this.sendText(target, [
+        `中转站里的文件是：${reference.file.name}`,
+        "要保存到本机请回复：保存到桌面",
+      ].join("\n"));
+      this.status = {
+        ...this.status,
+        lastInboundAt: message.timestamp,
+        details: this.statusDetails("drive-folder-reference-clarified"),
+      };
+      return true;
+    }
+    try {
+      const destination = resolveFeishuDriveDownloadDirectory(text, {
+        defaultRootDir: this.inboundMediaRootDir,
+        desktopDir: this.desktopDir,
+      });
+      await this.requestDriveFileDownloadConfirmation(message, {
+        fileToken: reference.file.token,
+        fileName: reference.file.name,
+        sourceUrl: reference.file.url ?? `feishu-drive:file:${reference.file.token}`,
+        directory: destination.directory,
+        directoryKind: destination.directoryKind,
+      });
+      return true;
+    } catch (error) {
+      await this.sendText(target, driveDownloadFailureText("飞书云空间文件下载失败。", error, reference.file.name));
+      this.status = {
+        ...this.status,
+        lastInboundAt: message.timestamp,
+        details: this.statusDetails("drive-folder-reference-download-failed"),
+      };
+      return true;
+    }
+  }
+
+  private async tryHandleDriveFileDownloadMessage(message: ChannelMessage): Promise<boolean> {
+    const intent = resolveFeishuDriveDownloadIntent(message.text, {
+      defaultRootDir: this.inboundMediaRootDir,
+      desktopDir: this.desktopDir,
+    });
+    if (!intent) return false;
+    const target = replyTargetFromMessage(message);
+    try {
+      const meta = await queryFeishuDriveFileMeta(this.ensureClient(), intent.fileToken);
+      if (meta.docType !== "file") {
+        await this.sendText(target, [
+          "暂不支持下载飞书在线文档。",
+          `类型：${meta.docType}`,
+          "目前只支持云空间普通文件；文档、表格、多维表格需要导出功能。",
+        ].join("\n"));
+        return true;
+      }
+      await this.requestDriveFileDownloadConfirmation(message, {
+        fileToken: intent.fileToken,
+        fileName: sanitizeFeishuDriveDownloadFileName(meta.title, `${intent.fileToken}.bin`),
+        sourceUrl: intent.sourceUrl,
+        directory: intent.directory,
+        directoryKind: intent.directoryKind,
+      });
+      return true;
+    } catch (error) {
+      await this.sendText(target, driveDownloadFailureText("飞书云空间文件下载失败。", error));
+      this.status = {
+        ...this.status,
+        lastInboundAt: message.timestamp,
+        details: this.statusDetails("drive-download-request-failed"),
+      };
+      return true;
+    }
+  }
+
+  private async requestDriveFileDownloadConfirmation(
+    message: ChannelMessage,
+    request: {
+      fileToken: string;
+      fileName: string;
+      sourceUrl: string;
+      directory: string;
+      directoryKind: FeishuDriveDownloadDirectoryKind;
+    },
+  ): Promise<void> {
+    if (request.directoryKind !== "default") {
+      await ensureFeishuDriveDownloadDirectory(request.directory, request.directoryKind);
+    }
+    const target = replyTargetFromMessage(message);
+    const requestId = buildFeishuMessageUuid();
+    const pending: PendingFeishuDriveDownload = {
+      id: requestId,
+      target,
+      fileToken: request.fileToken,
+      fileName: sanitizeFeishuDriveDownloadFileName(request.fileName, `${request.fileToken}.bin`),
+      sourceUrl: request.sourceUrl,
+      directory: request.directory,
+      directoryKind: request.directoryKind,
+      requesterOpenId: stringDetail(target.context, "feishuSenderOpenId"),
+      state: "pending",
+    };
+    const result = await this.sendActionMessage(target, {
+      text: [
+        "确认下载飞书云空间文件",
+        `文件：${pending.fileName}`,
+        `保存到：${pending.directory}`,
+        `来源：${pending.sourceUrl}`,
+      ].join("\n"),
+      buttonGroups: [
+        [{ text: "下载", action: `${FEISHU_DRIVE_DOWNLOAD_ACTION_PREFIX}approve:${requestId}`, style: "primary" }],
+        [{ text: "取消", action: `${FEISHU_DRIVE_DOWNLOAD_ACTION_PREFIX}cancel:${requestId}`, style: "danger" }],
+      ],
+    });
+    pending.actionMessageId = result.messageId;
+    this.driveDownloadRequests.set(requestId, pending);
+    this.status = {
+      ...this.status,
+      lastInboundAt: message.timestamp,
+      details: this.statusDetails("drive-download-pending"),
+    };
+  }
+
+  private async handleDriveDownloadCardAction(
+    event: FeishuCardActionEvent,
+    action: FeishuDriveDownloadCardAction,
+  ): Promise<Record<string, unknown>> {
+    const pending = this.driveDownloadRequests.get(action.requestId);
+    if (!pending) {
+      this.updateCardByCallbackToken(event, "下载请求已过期或已经处理。");
+      return feishuCardActionResponse();
+    }
+    const actorOpenId = cardActionSenderId(event);
+    if (pending.requesterOpenId && actorOpenId !== pending.requesterOpenId) {
+      await this.updateDriveDownloadActionMessage(pending, [
+        "只有发起人可以确认下载。",
+        `文件：${pending.fileName}`,
+      ].join("\n"));
+      return feishuCardActionResponse();
+    }
+    if (action.decision === "cancel") {
+      this.driveDownloadRequests.delete(action.requestId);
+      await this.updateDriveDownloadActionMessage(pending, [
+        "已取消下载。",
+        `文件：${pending.fileName}`,
+      ].join("\n"));
+      return feishuCardActionResponse();
+    }
+    if (pending.state === "running") {
+      await this.updateDriveDownloadActionMessage(pending, [
+        "正在下载，请稍候。",
+        `文件：${pending.fileName}`,
+        `保存到：${pending.directory}`,
+      ].join("\n"));
+      return feishuCardActionResponse();
+    }
+    pending.state = "running";
+    void this.runDriveDownload(pending);
+    return feishuCardActionResponse();
+  }
+
+  private async runDriveDownload(pending: PendingFeishuDriveDownload): Promise<void> {
+    try {
+      await this.updateDriveDownloadActionMessage(pending, [
+        "正在下载飞书云空间文件。",
+        `文件：${pending.fileName}`,
+        `保存到：${pending.directory}`,
+      ].join("\n"));
+      await ensureFeishuDriveDownloadDirectory(pending.directory, pending.directoryKind);
+      const localPath = await uniqueFeishuDriveDownloadPath(pending.directory, pending.fileName);
+      await downloadFeishuDriveFileToPath({
+        client: this.ensureClient(),
+        fileToken: pending.fileToken,
+        localPath,
+      });
+      this.driveDownloadRequests.delete(pending.id);
+      await this.updateDriveDownloadActionMessage(pending, [
+        "已下载飞书云空间文件。",
+        `文件：${pending.fileName}`,
+        `保存到：${localPath}`,
+      ].join("\n"));
+      this.status = {
+        ...this.status,
+        lastOutboundAt: new Date(this.now()).toISOString(),
+        lastError: undefined,
+        details: this.statusDetails("drive-download-completed"),
+      };
+    } catch (error) {
+      this.driveDownloadRequests.delete(pending.id);
+      this.recordSendError(error, "drive-download-failed");
+      await this.updateDriveDownloadActionMessage(pending, driveDownloadFailureText("飞书云空间文件下载失败。", error, pending.fileName));
+    }
+  }
+
+  private async updateDriveDownloadActionMessage(pending: PendingFeishuDriveDownload, text: string): Promise<void> {
+    try {
+      if (pending.actionMessageId) {
+        await this.updateText(pending.target, pending.actionMessageId, text, { metadata: { messageKind: "action" } });
+        return;
+      }
+      await this.sendText(pending.target, text);
+    } catch (error) {
+      this.recordSendError(error, "drive-download-card-update-failed");
+      try {
+        await this.sendText(pending.target, text);
+      } catch {
+        // Keep the original update failure in channel status.
+      }
+    }
   }
 
   private saveDriveFolderToken(token: string): boolean {
@@ -1032,19 +1424,215 @@ function isFeishuGroupMessageWithoutBotMention(message: ChannelMessage): boolean
   return raw?.chatCodex?.feishu?.group?.mentionedBot !== true;
 }
 
+function feishuDriveDownloadCardAction(event: FeishuCardActionEvent): FeishuDriveDownloadCardAction | undefined {
+  const action = cardActionString(event);
+  if (!action?.startsWith(FEISHU_DRIVE_DOWNLOAD_ACTION_PREFIX)) return undefined;
+  const rest = action.slice(FEISHU_DRIVE_DOWNLOAD_ACTION_PREFIX.length);
+  const match = /^(approve|cancel):(.+)$/.exec(rest);
+  if (!match) return undefined;
+  return {
+    decision: match[1] === "approve" ? "approve" : "cancel",
+    requestId: match[2],
+  };
+}
+
+function cardActionString(event: FeishuCardActionEvent): string | undefined {
+  const nested = objectDetail(event, "event");
+  const source = nested ?? event;
+  const rawAction = objectDetail(source, "action")
+    ?? objectDetail(source, "value")
+    ?? objectDetail(event, "action")
+    ?? objectDetail(event, "value")
+    ?? source;
+  const value = objectDetail(rawAction, "value") ?? rawAction as Record<string, unknown>;
+  return stringDetail(value, "action");
+}
+
+function driveDownloadFailureText(title: string, error: unknown, fileName?: string): string {
+  const message = error instanceof Error ? error.message : String(error);
+  const stage = error instanceof ChannelMediaDeliveryError ? error.stage : "download";
+  const reasonCode = error instanceof ChannelMediaDeliveryError ? error.reasonCode : "feishu_drive_download_failed";
+  return [
+    title,
+    ...(fileName ? [`文件：${fileName}`] : []),
+    `阶段：${stage}`,
+    `原因：${reasonCode}`,
+    `说明：${message}`,
+  ].join("\n");
+}
+
 function driveFolderTokenFromConfigText(text: string | undefined): string | undefined {
+  const trimmed = text?.trim();
+  if (!trimmed) return undefined;
+  const link = driveFolderLinkFromText(trimmed);
+  if (!link) return undefined;
+  const token = link.token;
+  const remaining = trimmed.replace(link.matchedText, " ");
+  return hasDriveFolderConfigIntent(remaining) ? token : undefined;
+}
+
+function driveFolderTokenFromText(text: string | undefined): string | undefined {
+  return driveFolderLinkFromText(text)?.token;
+}
+
+function driveFolderLinkFromText(text: string | undefined): { token: string; matchedText: string } | undefined {
   const trimmed = text?.trim();
   if (!trimmed) return undefined;
   const match = /(https?:\/\/[^\s<>"']*\/drive\/folder\/([A-Za-z0-9_-]+)[^\s<>"']*)/i.exec(trimmed)
     ?? /(^|\s)(\/drive\/folder\/([A-Za-z0-9_-]+)(?:[/?#][^\s<>"']*)?)/i.exec(trimmed);
   if (!match) return undefined;
-  const fullMatch = match[1] || match[2];
+  const matchedText = match[1] || match[2];
   const token = match[2]?.startsWith("/")
     ? match[3]
     : match[2];
-  if (!token) return undefined;
-  const remaining = trimmed.replace(fullMatch, "").replace(/[\s，,。.!！；;：:（）()[\]{}<>《》"'“”‘’]/g, "");
-  return remaining.length === 0 ? token : undefined;
+  return token ? { token, matchedText } : undefined;
+}
+
+function hasDriveFolderConfigIntent(text: string | undefined): boolean {
+  const trimmed = text?.trim();
+  if (!trimmed) return false;
+  return /(配置|设置|设为|保存|绑定|配对|中转文件夹|中转目录|FEISHU_DRIVE_FOLDER_TOKEN|drive\s*folder|folder\s*token)/i.test(trimmed);
+}
+
+function hasDriveFolderListIntent(text: string | undefined): boolean {
+  const trimmed = text?.trim();
+  if (!trimmed) return false;
+  if (/(配置|设置|设为|保存|绑定|配对|下载|发送|上传|FEISHU_DRIVE_FOLDER_TOKEN)/i.test(trimmed)) return false;
+  const mentionsRelayFolder = /(中转站|中转文件夹|中转目录|云空间中转|飞书云空间中转|drive\s*folder|relay\s*folder)/i.test(trimmed);
+  const asksForContents = /(里面|里边|里头|有什么|有哪些|查看|看看|看一下|列出|列表|清单|文件|内容)/i.test(trimmed);
+  return mentionsRelayFolder && asksForContents;
+}
+
+function formatDriveFolderListText(files: FeishuDriveFolderItem[], hasMore: boolean): string {
+  if (files.length === 0) return "飞书云空间中转文件夹当前没有文件。";
+  const header = `中转文件夹里有 ${files.length} 项${hasMore ? "（仅显示前 20 项）" : ""}：`;
+  const lines = files.map((file, index) => {
+    const label = driveFolderItemTypeLabel(file.type);
+    const url = file.url ? `\n   ${file.url}` : "";
+    return `${index + 1}. ${label} ${file.name}${url}`;
+  });
+  if (hasMore) lines.push("还有更多文件，当前先显示前 20 项。");
+  return [header, ...lines].join("\n");
+}
+
+function driveFolderItemTypeLabel(type: string): string {
+  switch (type) {
+    case "folder":
+      return "[文件夹]";
+    case "file":
+      return "[文件]";
+    case "doc":
+    case "docx":
+      return "[文档]";
+    case "sheet":
+      return "[表格]";
+    case "bitable":
+      return "[多维表格]";
+    case "mindnote":
+      return "[思维笔记]";
+    case "slides":
+      return "[幻灯片]";
+    case "shortcut":
+      return "[快捷方式]";
+    default:
+      return `[${type}]`;
+  }
+}
+
+type RecentDriveFolderFileReference =
+  | { kind: "none" }
+  | { kind: "matched"; file: FeishuDriveFolderItem }
+  | { kind: "ambiguous"; files: FeishuDriveFolderItem[] }
+  | { kind: "unsupported"; file: FeishuDriveFolderItem };
+
+function resolveRecentDriveFolderFileReference(
+  text: string,
+  files: FeishuDriveFolderItem[],
+  allowSingleFileFallback: boolean,
+): RecentDriveFolderFileReference {
+  const trimmed = text.trim();
+  if (!trimmed || files.length === 0) return { kind: "none" };
+  const hasReference = hasRecentDriveFolderFileReference(trimmed);
+  const ordinaryFiles = files.filter(isOrdinaryDriveFile);
+  const indexed = indexedDriveFolderFile(trimmed, files);
+  if (indexed) return indexed.type === "file" ? { kind: "matched", file: indexed } : { kind: "unsupported", file: indexed };
+  const matches = dedupeDriveFolderItems(files.filter((file) => driveFolderItemMatchesText(file, trimmed)));
+  if (matches.length === 1) {
+    const file = matches[0];
+    return file.type === "file" ? { kind: "matched", file } : { kind: "unsupported", file };
+  }
+  if (matches.length > 1) return { kind: "ambiguous", files: matches };
+  if (ordinaryFiles.length === 1 && (hasReference || allowSingleFileFallback)) {
+    return { kind: "matched", file: ordinaryFiles[0] };
+  }
+  if (allowSingleFileFallback && hasReference && ordinaryFiles.length > 1) {
+    return { kind: "ambiguous", files: ordinaryFiles };
+  }
+  return { kind: "none" };
+}
+
+function hasRecentDriveFolderFileReference(text: string): boolean {
+  return /(中转站|中转云盘|中转文件夹|中转目录|云盘|云空间|刚才|上面|里面|列表|这个|那个|该文件|第\s*\d+|\d+\s*(?:号|项|个)|图片|照片|文件|jpg|jpeg|png|gif|webp|bmp|pptx?|pdf|docx?|xlsx?|zip|rar|7z|txt|csv|mp4|mov|mp3|wav)/i.test(text);
+}
+
+function indexedDriveFolderFile(text: string, files: FeishuDriveFolderItem[]): FeishuDriveFolderItem | undefined {
+  const match = /(?:第\s*)?(\d+)\s*(?:个|项|号)?/.exec(text);
+  if (!match) return undefined;
+  const index = Number.parseInt(match[1], 10);
+  if (!Number.isSafeInteger(index) || index < 1 || index > files.length) return undefined;
+  return files[index - 1];
+}
+
+function driveFolderItemMatchesText(file: FeishuDriveFolderItem, text: string): boolean {
+  const normalizedText = normalizeDriveFolderSearchText(text);
+  const normalizedName = normalizeDriveFolderSearchText(file.name);
+  if (normalizedName && normalizedText.includes(normalizedName)) return true;
+  const extension = driveFolderFileExtension(file.name);
+  const stem = extension ? file.name.slice(0, -(extension.length + 1)) : file.name;
+  const normalizedStem = normalizeDriveFolderSearchText(stem);
+  if (normalizedStem.length >= 3 && normalizedText.includes(normalizedStem)) return true;
+  if (extension && driveFolderExtensionMatchesText(extension, text)) return true;
+  if (/(图片|照片)/.test(text) && isImageDriveFolderFile(file.name)) return true;
+  return false;
+}
+
+function normalizeDriveFolderSearchText(value: string): string {
+  return value.toLowerCase().replace(/[\s，,。.!！；;：:（）()[\]{}<>《》"'“”‘’_-]+/g, "");
+}
+
+function driveFolderExtensionMatchesText(extension: string, text: string): boolean {
+  const tokens: string[] = text.toLowerCase().match(/[a-z0-9]{2,6}/g) ?? [];
+  return driveFolderExtensionAliases(extension).some((alias) => tokens.includes(alias));
+}
+
+function driveFolderExtensionAliases(extension: string): string[] {
+  const normalized = extension.toLowerCase();
+  if (normalized === "jpg" || normalized === "jpeg") return ["jpg", "jpeg"];
+  return [normalized];
+}
+
+function driveFolderFileExtension(name: string): string | undefined {
+  const match = /\.([A-Za-z0-9]{1,12})$/.exec(name.trim());
+  return match?.[1]?.toLowerCase();
+}
+
+function isImageDriveFolderFile(name: string): boolean {
+  const extension = driveFolderFileExtension(name);
+  return extension ? ["jpg", "jpeg", "png", "gif", "webp", "bmp"].includes(extension) : false;
+}
+
+function isOrdinaryDriveFile(file: FeishuDriveFolderItem): boolean {
+  return file.type === "file";
+}
+
+function dedupeDriveFolderItems(files: FeishuDriveFolderItem[]): FeishuDriveFolderItem[] {
+  const seen = new Set<string>();
+  return files.filter((file) => {
+    const key = `${file.type}:${file.token}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function cleanCredentialRecord(credentials: Record<string, string | undefined>): Record<string, string> {

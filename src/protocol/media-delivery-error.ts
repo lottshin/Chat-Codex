@@ -1,4 +1,4 @@
-export type ChannelMediaErrorStage = "resolve" | "validate" | "upload" | "send" | "permission" | "link";
+export type ChannelMediaErrorStage = "resolve" | "validate" | "upload" | "send" | "permission" | "link" | "list" | "download";
 
 export class ChannelMediaDeliveryError extends Error {
   readonly stage: ChannelMediaErrorStage;
