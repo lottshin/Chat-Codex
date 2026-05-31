@@ -28,6 +28,7 @@ export interface BridgeBackgroundTurnsOptions {
   startRouteWorker(routeKey: string): void;
   routeQueueLength(routeKey: string): number;
   hasRouteWorker(routeKey: string): boolean;
+  onAssistantVisibleText?(message: ChannelMessage, target: ChannelTarget, text: string, cwd: string): void | Promise<void>;
 }
 
 export class BridgeBackgroundTurns {
@@ -43,6 +44,7 @@ export class BridgeBackgroundTurns {
   private readonly startRouteWorker: BridgeBackgroundTurnsOptions["startRouteWorker"];
   private readonly routeQueueLength: BridgeBackgroundTurnsOptions["routeQueueLength"];
   private readonly hasRouteWorker: BridgeBackgroundTurnsOptions["hasRouteWorker"];
+  private readonly onAssistantVisibleText?: BridgeBackgroundTurnsOptions["onAssistantVisibleText"];
   private readonly turns = new Map<string, BackgroundTurnState>();
 
   constructor(options: BridgeBackgroundTurnsOptions) {
@@ -62,6 +64,7 @@ export class BridgeBackgroundTurns {
     this.startRouteWorker = options.startRouteWorker;
     this.routeQueueLength = options.routeQueueLength;
     this.hasRouteWorker = options.hasRouteWorker;
+    this.onAssistantVisibleText = options.onAssistantVisibleText;
   }
 
   get size(): number {
@@ -133,6 +136,7 @@ export class BridgeBackgroundTurns {
     }
     const state: BackgroundTurnState = {
       routeKey,
+      sessionId: event.sessionId,
       message,
       target,
       finalText: "",
@@ -147,6 +151,8 @@ export class BridgeBackgroundTurns {
     const composedFinalText = composeFinalAnswer(state.finalPlanText, state.finalText);
     if (sendFinal && composedFinalText) {
       await this.delivery.sendText(state.target, composedFinalText);
+      const cwd = this.state.getSession(state.sessionId)?.session.cwd ?? process.cwd();
+      await this.onAssistantVisibleText?.(state.message, state.target, composedFinalText, cwd);
     }
     await this.delivery.sendTyping(state.target, false);
     this.progressDelivery.clearRoute(state.routeKey);

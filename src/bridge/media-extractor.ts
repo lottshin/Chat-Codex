@@ -5,6 +5,8 @@ import type { ChannelMedia } from "../protocol/channel.js";
 export const BRIDGE_SEND_FILE_PREFIX = "BRIDGE_SEND_FILE:";
 
 const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff", ".svg"]);
+const IMAGE_EXTENSION_PATTERN = "png|jpe?g|gif|webp|bmp|tiff?|svg";
+const KNOWN_FILE_EXTENSION_PATTERN = "png|jpe?g|gif|webp|bmp|tiff?|svg|pdf|docx?|xlsx?|pptx?|txt|md|csv|json|html?|xml|log|rtf|zip|tar|gz|tgz|7z|rar";
 const EXTENSION_MIME: Record<string, string> = {
   ".png": "image/png",
   ".jpg": "image/jpeg",
@@ -75,6 +77,26 @@ export function extractMediaRefs(text: string, cwd = process.cwd()): ChannelMedi
 
 export function extractLocalImageMedia(text: string, cwd: string): ChannelMedia[] {
   return extractMediaRefs(text, cwd).filter((media) => media.type === "image" && Boolean(media.path));
+}
+
+export function extractLocalDeliverableRefs(text: string, cwd = process.cwd(), maxFiles = Number.POSITIVE_INFINITY): ChannelMedia[] {
+  const candidates = [
+    ...markdownMediaRefs(text),
+    ...mediaDirectiveRefs(text),
+    ...labeledFileRefs(text),
+    ...bareLocalKnownFileRefs(text),
+  ];
+  const media: ChannelMedia[] = [];
+  const seen = new Set<string>();
+  for (const candidate of candidates) {
+    if (media.length >= maxFiles) break;
+    const item = mediaFromCandidate({ ...candidate, explicit: true }, cwd);
+    if (!item?.path) continue;
+    if (seen.has(item.path)) continue;
+    seen.add(item.path);
+    media.push(item);
+  }
+  return media;
 }
 
 export function extractBridgeSendFileRefs(text: string, cwd: string, maxFiles: number): BridgeSendFileExtraction {
@@ -178,8 +200,7 @@ function mediaDirectiveRefs(text: string): MediaCandidate[] {
 
 function labeledFileRefs(text: string): MediaCandidate[] {
   const refs: MediaCandidate[] = [];
-  const extensionPattern = "pdf|docx?|xlsx?|pptx?|txt|md|csv|json|html?|xml|log|rtf|zip|tar|gz|tgz|7z|rar";
-  const pattern = new RegExp(`(?:文件|附件|下载|File|Attachment|Download)\\s*[:：]\\s*(<[^>]+>|[^\\s"'<>]+?\\.(?:${extensionPattern})\\b)`, "gi");
+  const pattern = new RegExp(`(?:文件|附件|下载|File|Attachment|Download)\\s*[:：]\\s*(<[^>]+>|[^\\s"'<>]+?\\.(?:${KNOWN_FILE_EXTENSION_PATTERN})\\b)`, "gi");
   let match: RegExpExecArray | null;
   while ((match = pattern.exec(text)) !== null) {
     const cleaned = cleanRef(match[1]);
@@ -189,21 +210,47 @@ function labeledFileRefs(text: string): MediaCandidate[] {
 }
 
 function bareImageRefs(text: string): MediaCandidate[] {
+  return refsFromPatterns(text, [
+    new RegExp(`https?://[^\\s"'<>)]*\\.(?:${IMAGE_EXTENSION_PATTERN})(?:\\?[^\\s"'<>)]*)?`, "gi"),
+    new RegExp(`file://[^\\s"'<>)]*\\.(?:${IMAGE_EXTENSION_PATTERN})\\b`, "gi"),
+    new RegExp(`[A-Za-z]:\\\\[^\\r\\n"'<>|?*]+\\.(?:${IMAGE_EXTENSION_PATTERN})\\b`, "gi"),
+    new RegExp(`/(?!/)[^\\s"'<>)]*\\.(?:${IMAGE_EXTENSION_PATTERN})\\b`, "gi"),
+    new RegExp(`\\.\\.?/[^\\s"'<>)]*\\.(?:${IMAGE_EXTENSION_PATTERN})\\b`, "gi"),
+    new RegExp(`(?:[A-Za-z0-9_@%+=:,.-]+/)+[A-Za-z0-9_@%+=:,.-]+\\.(?:${IMAGE_EXTENSION_PATTERN})\\b`, "gi"),
+  ]);
+}
+
+function bareLocalKnownFileRefs(text: string): MediaCandidate[] {
+  return refsFromPatterns(text, [
+    new RegExp(`[A-Za-z]:\\\\[^\\r\\n"'<>|?*]+\\.(?:${KNOWN_FILE_EXTENSION_PATTERN})\\b`, "gi"),
+    new RegExp(`/(?!/)[^\\s"'<>)]*\\.(?:${KNOWN_FILE_EXTENSION_PATTERN})\\b`, "gi"),
+    new RegExp(`\\.\\.?/[^\\s"'<>)]*\\.(?:${KNOWN_FILE_EXTENSION_PATTERN})\\b`, "gi"),
+    new RegExp(`(?:[A-Za-z0-9_@%+=:,.-]+/)+[A-Za-z0-9_@%+=:,.-]+\\.(?:${KNOWN_FILE_EXTENSION_PATTERN})\\b`, "gi"),
+  ], true);
+}
+
+function refsFromPatterns(text: string, patterns: RegExp[], explicit?: boolean): MediaCandidate[] {
   const refs: MediaCandidate[] = [];
-  const extensionPattern = "png|jpe?g|gif|webp|bmp|tiff?|svg";
-  const pattern = new RegExp([
-    `https?://[^\\s"'<>)]*?\\.(?:${extensionPattern})(?:\\?[^\\s"'<>)]*)?`,
-    `file://[^\\s"'<>)]*?\\.(?:${extensionPattern})\\b`,
-    `/(?:[^\\s"'<>)]*?/)*[^\\s"'<>)]*?\\.(?:${extensionPattern})\\b`,
-    `\\.\\.?/(?:[^\\s"'<>)]*?/)*[^\\s"'<>)]*?\\.(?:${extensionPattern})\\b`,
-    `(?:[A-Za-z0-9_@%+=:,.-]+/)+[A-Za-z0-9_@%+=:,.-]+\\.(?:${extensionPattern})\\b`,
-  ].join("|"), "gi");
-  let match: RegExpExecArray | null;
-  while ((match = pattern.exec(text)) !== null) {
-    const cleaned = cleanRef(match[0]);
-    if (cleaned) refs.push({ value: cleaned });
+  for (const pattern of patterns) {
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(text)) !== null) {
+      if (isInsideUrlToken(text, match.index)) continue;
+      const cleaned = cleanRef(match[0]);
+      if (cleaned) refs.push({ value: cleaned, explicit });
+    }
   }
   return refs;
+}
+
+function isInsideUrlToken(text: string, index: number): boolean {
+  let tokenStart = 0;
+  for (let i = index - 1; i >= 0; i -= 1) {
+    if (/[\s"'<>()[\]]/.test(text[i])) {
+      tokenStart = i + 1;
+      break;
+    }
+  }
+  return /(?:https?|file):\/\//i.test(text.slice(tokenStart, index + 1));
 }
 
 function cleanRef(value: string | undefined): string | undefined {
@@ -271,6 +318,7 @@ function remoteMediaFromUrl(candidate: MediaCandidate): ChannelMedia | undefined
 function resolveMediaPath(value: string, cwd: string): string | undefined {
   try {
     const decoded = decodeURIComponent(value);
+    if (decoded.startsWith("//") || decoded.startsWith("\\\\")) return undefined;
     return path.isAbsolute(decoded) ? path.normalize(decoded) : path.resolve(cwd, decoded);
   } catch {
     return undefined;

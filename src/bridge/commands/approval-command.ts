@@ -10,6 +10,7 @@ export interface ApprovalCommandOptions {
   approvals: ApprovalManager;
   codex: CodexAdapter;
   delivery: BridgeDelivery;
+  suppressHandledText?: boolean;
 }
 
 export interface ApprovalCommandResult {
@@ -41,7 +42,9 @@ export async function handleApprovalCommand(
     }
     const pending = options.approvals.decide(key, message.routeKey, selection.decision, selection.optionId);
     await options.codex.resolveApproval?.(pending.adapterApprovalId ?? pending.approvalKey, selection.decision);
-    await options.delivery.sendText(target, `审批已处理：${formatApprovalDecision(selection.decision)}，当前操作将继续执行。\n下一步：等待当前任务继续输出；如需补充信息，直接发送普通消息。`);
+    if (!options.suppressHandledText) {
+      await options.delivery.sendText(target, `审批已处理：${formatApprovalDecision(selection.decision)}，当前操作将继续执行。\n下一步：等待当前任务继续输出；如需补充信息，直接发送普通消息。`);
+    }
     return { handled: true, approvalKey: pending.approvalKey, decision: selection.decision };
   } catch (error) {
     await options.delivery.sendText(target, error instanceof Error ? error.message : String(error));

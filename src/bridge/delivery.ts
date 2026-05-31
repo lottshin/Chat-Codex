@@ -22,6 +22,10 @@ export interface BridgeDeliveryOptions {
   backend?: AiBackend;
 }
 
+export interface ActionMessageSendResult extends SendResult {
+  actionMessage: boolean;
+}
+
 type FileDeliveryStatus = "sent" | "failed" | "skipped";
 
 interface FileDeliveryResult {
@@ -71,7 +75,7 @@ export class BridgeDelivery {
     return result;
   }
 
-  async sendApprovalTextUntilDelivered(routeKey: string, target: ChannelTarget, pending: PendingApproval): Promise<SendResult | undefined> {
+  async sendApprovalTextUntilDelivered(routeKey: string, target: ChannelTarget, pending: PendingApproval): Promise<ActionMessageSendResult | undefined> {
     const text = this.approvals.formatForChannel(pending, this.backendName);
     const actionMessage = approvalActionMessage(text, pending);
     let failures = 0;
@@ -94,13 +98,13 @@ export class BridgeDelivery {
     return undefined;
   }
 
-  async deliverActionMessage(target: ChannelTarget, message: ChannelActionMessage, fallbackText: string): Promise<SendResult> {
+  async deliverActionMessage(target: ChannelTarget, message: ChannelActionMessage, fallbackText: string): Promise<ActionMessageSendResult> {
     const capabilities = this.channels.getCapabilities(target.channelId);
     if (capabilities.buttons) {
       try {
         const result = await this.channels.sendActionMessage(target, message);
         this.transcript?.outbound(target, fallbackText);
-        return result;
+        return { ...result, actionMessage: true };
       } catch (error) {
         this.logger.warn("channel action message send failed", {
           channel: target.channelId,
@@ -108,7 +112,8 @@ export class BridgeDelivery {
         });
       }
     }
-    return this.deliverText(target, fallbackText);
+    const result = await this.deliverText(target, fallbackText);
+    return { ...result, actionMessage: false };
   }
 
   async updateActionMessage(target: ChannelTarget, messageId: string, text: string): Promise<boolean> {

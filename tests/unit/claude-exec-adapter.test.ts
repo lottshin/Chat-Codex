@@ -39,6 +39,19 @@ test("parseClaudeJsonLine captures slash commands and skills from init events", 
   ]);
 });
 
+test("parseClaudeJsonLine suppresses low-value Claude system task lifecycle events", () => {
+  for (const subtype of ["task_started", "task_notification"]) {
+    const parsed = parseClaudeJsonLine(
+      JSON.stringify({ type: "system", subtype, session_id: "claude-session" }),
+      "local-session",
+      "turn-1",
+    );
+
+    assert.equal(parsed?.actualSessionId, "claude-session");
+    assert.equal(parsed?.event, undefined);
+  }
+});
+
 test("parseClaudeJsonLine maps assistant text to delta", () => {
   const parsed = parseClaudeJsonLine(
     JSON.stringify({

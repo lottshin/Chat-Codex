@@ -22,6 +22,7 @@ export interface FeishuAdapterOptions extends FeishuCredentials {
   transportFactory?: FeishuTransportFactory;
   now?: () => number;
   inboundMediaRootDir?: string;
+  desktopDir?: string;
   stateDir?: string;
 }
 
@@ -81,6 +82,27 @@ export interface FeishuDriveMeta {
   url?: string;
 }
 
+export interface FeishuDriveFileListItem {
+  token: string;
+  name: string;
+  type: string;
+  parent_token?: string;
+  url?: string;
+  shortcut_info?: {
+    target_type: string;
+    target_token: string;
+  };
+  created_time?: string;
+  modified_time?: string;
+  owner_id?: string;
+}
+
+export interface FeishuDriveFileListData {
+  files?: FeishuDriveFileListItem[];
+  next_page_token?: string;
+  has_more?: boolean;
+}
+
 export interface FeishuResourceDownload {
   writeFile?: (filePath: string) => Promise<unknown>;
   getReadableStream: () => Readable;
@@ -122,6 +144,22 @@ export interface FeishuSdkClient {
             block_num: number;
           };
         }): Promise<FeishuApiResponse<FeishuDriveUploadData>>;
+        download(payload: {
+          path: {
+            file_token?: string;
+          };
+        }): Promise<FeishuResourceDownload>;
+        list(payload?: {
+          params?: {
+            page_size?: number;
+            page_token?: string;
+            folder_token?: string;
+            order_by?: "EditedTime" | "CreatedTime";
+            direction?: "ASC" | "DESC";
+            option?: string;
+            user_id_type?: "user_id" | "union_id" | "open_id";
+          };
+        }): Promise<FeishuApiResponse<FeishuDriveFileListData>>;
       };
     };
   };

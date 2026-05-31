@@ -129,6 +129,22 @@ test("ClaudeSdkAdapter maps SDK messages to Codex events and captures session id
   assert.deepEqual(adapter.listPromptSlashCommands(), ["frontend-design", "help", "scholar-kit"]);
 });
 
+test("ClaudeSdkAdapter suppresses empty Claude task lifecycle system progress", async () => {
+  const client = new FakeClaudeSdkClient();
+  client.messages = [
+    { type: "system", subtype: "task_started", session_id: "sdk-session-1" },
+    { type: "system", subtype: "task_notification", session_id: "sdk-session-1" },
+    { type: "result", subtype: "success", session_id: "sdk-session-1", result: "done" },
+  ];
+  const adapter = new ClaudeSdkAdapter({ client });
+  const session = await adapter.startSession({ routeKey: "route-1", cwd: process.cwd() });
+
+  const events = await collect(adapter.run(session.id, "hi"));
+
+  assert.equal(events.some((event) => event.type === "assistant.progress" && /task_/.test(event.text)), false);
+  assert.ok(events.some((event) => event.type === "assistant.completed" && event.text === "done"));
+});
+
 test("ClaudeSdkAdapter maps ExitPlanMode tool use to plan events", async () => {
   const client = new FakeClaudeSdkClient();
   client.messages = [

@@ -634,11 +634,10 @@ export function parseClaudeJsonLine(line: string, sessionId: string, turnId: str
       return { actualSessionId, event: { type: "turn.failed", sessionId, turnId, error: errorText(parsed.error) } };
     }
     if (parsed.type === "system" && parsed.subtype) {
+      const progress = claudeSystemProgress(parsed.subtype);
       return {
         actualSessionId,
-        event: parsed.subtype === "init"
-          ? undefined
-          : { type: "assistant.progress", sessionId, turnId, text: `Claude Code: ${parsed.subtype}`, kind: "other" },
+        event: progress ? { type: "assistant.progress", sessionId, turnId, text: progress, kind: "other" } : undefined,
         promptSlashCommands: parsed.subtype === "init" ? promptSlashCommandsFromInit(parsed.slash_commands) : undefined,
         promptSkills: parsed.subtype === "init" ? promptSkillsFromInit(parsed.skills) : undefined,
       };
@@ -647,6 +646,11 @@ export function parseClaudeJsonLine(line: string, sessionId: string, turnId: str
   } catch {
     return { text: line };
   }
+}
+
+function claudeSystemProgress(subtype: string): string | undefined {
+  if (subtype === "init" || subtype === "task_started" || subtype === "task_notification") return undefined;
+  return `Claude Code: ${subtype}`;
 }
 
 function promptSlashCommandsFromInit(slashCommands: unknown): string[] | undefined {
