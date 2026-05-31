@@ -253,7 +253,7 @@ BRIDGE_SEND_FILE: /absolute/path/to/file
 
 At most 3 files are sent per turn. Protocol lines are not shown to chat users.
 
-For Feishu Drive relay folders, messages such as "list the relay folder" are handled by the Feishu adapter directly instead of being sent to Codex/Claude Code. After a listing, users can ask to download a named or numbered file to the desktop; if they first clarify a file such as "the jpg one", a follow-up "save to desktop" reuses that clarified Drive file and still asks for confirmation before downloading.
+For Feishu Drive relay folders, messages such as "list the relay folder" are handled by the Feishu adapter directly instead of being sent to Codex/Claude Code. After a listing, users can ask to download a named file or reference a numbered item such as "the second one" to the desktop; if they first clarify a file such as "the jpg one", a follow-up "save to desktop" reuses that clarified Drive file and still asks for confirmation before downloading.
 
 ## Documentation
 
