@@ -123,6 +123,11 @@ interface RecentFeishuDriveFolderListing {
   expiresAt: number;
 }
 
+interface RecentFeishuDriveFolderFileSelection {
+  file: FeishuDriveFolderItem;
+  expiresAt: number;
+}
+
 export class FeishuAdapter implements ChannelAdapter {
   readonly id: string;
   readonly label = "Feishu Adapter";
@@ -151,6 +156,7 @@ export class FeishuAdapter implements ChannelAdapter {
   private readonly driveDownloadRequests = new Map<string, PendingFeishuDriveDownload>();
   private readonly pendingDriveFolderConfigs = new Map<string, PendingFeishuDriveFolderConfig>();
   private readonly recentDriveFolderListings = new Map<string, RecentFeishuDriveFolderListing>();
+  private readonly recentDriveFolderFileSelections = new Map<string, RecentFeishuDriveFolderFileSelection>();
 
   constructor(options: FeishuAdapterOptions = {}) {
     this.id = options.id ?? FEISHU_CHANNEL_ID;
@@ -233,6 +239,7 @@ export class FeishuAdapter implements ChannelAdapter {
     this.driveDownloadRequests.clear();
     this.pendingDriveFolderConfigs.clear();
     this.recentDriveFolderListings.clear();
+    this.recentDriveFolderFileSelections.clear();
     this.status = {
       ...this.status,
       state: "stopped",
@@ -829,6 +836,7 @@ export class FeishuAdapter implements ChannelAdapter {
         files: result.files,
         expiresAt: this.now() + this.dedupTtlMs,
       });
+      this.recentDriveFolderFileSelections.delete(message.routeKey);
       await this.sendText(target, formatDriveFolderListText(result.files, result.hasMore));
       this.status = {
         ...this.status,
@@ -852,6 +860,15 @@ export class FeishuAdapter implements ChannelAdapter {
     if (!listing) return undefined;
     if (listing.expiresAt > this.now()) return listing;
     this.recentDriveFolderListings.delete(routeKey);
+    this.recentDriveFolderFileSelections.delete(routeKey);
+    return undefined;
+  }
+
+  private activeRecentDriveFolderFileSelection(routeKey: string): RecentFeishuDriveFolderFileSelection | undefined {
+    const selection = this.recentDriveFolderFileSelections.get(routeKey);
+    if (!selection) return undefined;
+    if (selection.expiresAt > this.now()) return selection;
+    this.recentDriveFolderFileSelections.delete(routeKey);
     return undefined;
   }
 
@@ -861,7 +878,12 @@ export class FeishuAdapter implements ChannelAdapter {
     const text = message.text?.trim();
     if (!text) return false;
     const wantsDownload = hasFeishuDriveDownloadIntent(text);
-    const reference = resolveRecentDriveFolderFileReference(text, listing.files, wantsDownload);
+    const hasFileReference = hasRecentDriveFolderFileReference(text);
+    let reference = resolveRecentDriveFolderFileReference(text, listing.files, wantsDownload);
+    if (reference.kind === "none" && wantsDownload && !hasFileReference) {
+      const selection = this.activeRecentDriveFolderFileSelection(message.routeKey);
+      if (selection) reference = { kind: "matched", file: selection.file };
+    }
     if (reference.kind === "none") return false;
     const target = replyTargetFromMessage(message);
     if (reference.kind === "ambiguous") {
@@ -890,6 +912,10 @@ export class FeishuAdapter implements ChannelAdapter {
       return true;
     }
     if (!wantsDownload) {
+      this.recentDriveFolderFileSelections.set(message.routeKey, {
+        file: reference.file,
+        expiresAt: listing.expiresAt,
+      });
       await this.sendText(target, [
         `中转站里的文件是：${reference.file.name}`,
         "要保存到本机请回复：保存到桌面",
@@ -913,6 +939,7 @@ export class FeishuAdapter implements ChannelAdapter {
         directory: destination.directory,
         directoryKind: destination.directoryKind,
       });
+      this.recentDriveFolderFileSelections.delete(message.routeKey);
       return true;
     } catch (error) {
       await this.sendText(target, driveDownloadFailureText("飞书云空间文件下载失败。", error, reference.file.name));
