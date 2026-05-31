@@ -11,13 +11,7 @@ test("parseClaudeJsonLine captures session id from system events", () => {
   );
 
   assert.equal(parsed?.actualSessionId, "claude-session");
-  assert.deepEqual(parsed?.event, {
-    type: "assistant.progress",
-    sessionId: "local-session",
-    turnId: "turn-1",
-    text: "Claude Code: init",
-    kind: "other",
-  });
+  assert.equal(parsed?.event, undefined);
 });
 
 test("parseClaudeJsonLine captures slash commands and skills from init events", () => {

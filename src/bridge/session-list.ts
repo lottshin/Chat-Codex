@@ -1,3 +1,4 @@
+import { backendDisplayName } from "../backend/metadata.js";
 import { truncateDisplayText } from "../codex/codex-cli.js";
 import type { CodexAdapter, CodexSessionStatus, CodexSessionSummary } from "../codex/types.js";
 import type { MemoryStateStore, StoredSession } from "../state/memory-state-store.js";
@@ -193,7 +194,7 @@ function formatSessionListItem(item: SessionListItem, index: number): string[] {
   const suffix = markers.length > 0 ? `（${markers.join("，")}）` : "";
   return [
     `${index}. Session: \`${item.id}\`${suffix}`,
-    (item as MutableSessionListItem).backend ? `   - 后端: \`${(item as MutableSessionListItem).backend}\`` : undefined,
+    (item as MutableSessionListItem).backend ? `   - 入口: ${backendDisplayName((item as MutableSessionListItem).backend)}` : undefined,
     (item as MutableSessionListItem).backend === "claude" && (item as MutableSessionListItem).localSessionId ? `   - Bridge session: \`${(item as MutableSessionListItem).localSessionId}\`` : undefined,
     `   - 最近活跃: \`${formatSessionUpdatedAt(item.updatedAt)}\``,
     `   - 标题: ${formatSessionTitle(item.title)}`,

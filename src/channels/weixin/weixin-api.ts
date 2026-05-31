@@ -20,6 +20,8 @@ export interface WeixinApiClientOptions {
   channelVersion?: string;
   botAgent?: string;
   appId?: string;
+  cdnUploadMaxRetries?: number;
+  cdnUploadRetryBaseDelayMs?: number;
 }
 
 export class WeixinApiClient {
@@ -28,6 +30,8 @@ export class WeixinApiClient {
   private readonly channelVersion: string;
   private readonly botAgent: string;
   private readonly appId: string;
+  private readonly cdnUploadMaxRetries: number;
+  private readonly cdnUploadRetryBaseDelayMs: number;
 
   constructor(options: WeixinApiClientOptions = {}) {
     this.baseUrl = options.baseUrl ?? "https://ilinkai.weixin.qq.com";
@@ -35,6 +39,8 @@ export class WeixinApiClient {
     this.channelVersion = options.channelVersion ?? "2.4.3";
     this.botAgent = options.botAgent ?? "CodexWeChatMiddleware/0.1.0";
     this.appId = options.appId ?? "bot";
+    this.cdnUploadMaxRetries = Math.max(0, Math.floor(options.cdnUploadMaxRetries ?? 3));
+    this.cdnUploadRetryBaseDelayMs = Math.max(0, Math.floor(options.cdnUploadRetryBaseDelayMs ?? 100));
   }
 
   async startQrLogin(params: { botType: string; localTokenList?: string[] }): Promise<WeixinQrStartResponse> {
@@ -150,20 +156,35 @@ export class WeixinApiClient {
     body: Buffer;
     timeoutMs?: number;
   }): Promise<{ downloadParam: string }> {
-    const response = await this.fetchWithTimeout(params.url, {
-      method: "POST",
-      headers: { "Content-Type": "application/octet-stream" },
-      body: new Uint8Array(params.body),
-    }, params.timeoutMs);
-    if (response.status >= 400) {
-      const text = await response.text();
-      throw new Error(`cdn upload ${response.status}: ${text}`);
+    let lastError: Error | undefined;
+    for (let attempt = 0; attempt <= this.cdnUploadMaxRetries; attempt += 1) {
+      try {
+        const response = await this.fetchWithTimeout(params.url, {
+          method: "POST",
+          headers: { "Content-Type": "application/octet-stream" },
+          body: new Uint8Array(params.body),
+        }, params.timeoutMs);
+        if (response.status >= 400) {
+          const text = await response.text();
+          const error = new CdnUploadAttemptError(`cdn upload ${response.status}: ${text}`, isRetryableCdnUploadStatus(response.status));
+          if (!isRetryableCdnUploadStatus(response.status) || attempt >= this.cdnUploadMaxRetries) throw error;
+          lastError = error;
+        } else {
+          const downloadParam = response.headers.get("x-encrypted-param");
+          if (downloadParam) return { downloadParam };
+          const error = new Error("cdn upload response missing x-encrypted-param header");
+          if (attempt >= this.cdnUploadMaxRetries) throw error;
+          lastError = error;
+        }
+      } catch (error) {
+        const nextError = error instanceof Error ? error : new Error(String(error));
+        const retryable = error instanceof CdnUploadAttemptError ? error.retryable : true;
+        if (!retryable || attempt >= this.cdnUploadMaxRetries) throw nextError;
+        lastError = nextError;
+      }
+      await sleep(cdnUploadRetryDelayMs(this.cdnUploadRetryBaseDelayMs, attempt));
     }
-    const downloadParam = response.headers.get("x-encrypted-param");
-    if (!downloadParam) {
-      throw new Error("cdn upload response missing x-encrypted-param header");
-    }
-    return { downloadParam };
+    throw lastError ?? new Error("cdn upload failed");
   }
 
   async fetchBinary(params: {
@@ -281,6 +302,27 @@ function buildClientVersion(version: string): number {
 function randomWechatUin(): string {
   const value = crypto.randomBytes(4).readUInt32BE(0);
   return Buffer.from(String(value), "utf-8").toString("base64");
+}
+
+function isRetryableCdnUploadStatus(status: number): boolean {
+  return status === 408 || status === 429 || status >= 500;
+}
+
+class CdnUploadAttemptError extends Error {
+  constructor(message: string, readonly retryable: boolean) {
+    super(message);
+    this.name = "CdnUploadAttemptError";
+  }
+}
+
+function cdnUploadRetryDelayMs(baseDelayMs: number, attempt: number): number {
+  if (baseDelayMs <= 0) return 0;
+  return baseDelayMs * Math.max(1, attempt + 1);
+}
+
+function sleep(ms: number): Promise<void> {
+  if (ms <= 0) return Promise.resolve();
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 interface WeixinApiResponse {

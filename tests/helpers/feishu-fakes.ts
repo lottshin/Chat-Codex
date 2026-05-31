@@ -2,6 +2,7 @@ import type {
   FeishuApiResponse,
   FeishuCardActionEvent,
   FeishuCredentials,
+  FeishuDriveMeta,
   FeishuEventDispatcher,
   FeishuEventHandlers,
   FeishuMessageReceiveEvent,
@@ -23,10 +24,14 @@ export class FakeFeishuClient implements FeishuSdkClient {
   readonly messageResourceGetPayloads: Array<Parameters<FeishuSdkClient["im"]["messageResource"]["get"]>[0]> = [];
   readonly reactionCreatePayloads: Array<Parameters<FeishuSdkClient["im"]["messageReaction"]["create"]>[0]> = [];
   readonly reactionDeletePayloads: Array<Parameters<FeishuSdkClient["im"]["messageReaction"]["delete"]>[0]> = [];
+  readonly driveFileUploadAllPayloads: Array<Parameters<NonNullable<NonNullable<NonNullable<FeishuSdkClient["drive"]>["v1"]>["file"]>["uploadAll"]>[0]> = [];
+  readonly driveFileUploadPreparePayloads: Array<Parameters<NonNullable<NonNullable<NonNullable<FeishuSdkClient["drive"]>["v1"]>["file"]>["uploadPrepare"]>[0]> = [];
+  readonly driveFileUploadPartPayloads: Array<Parameters<NonNullable<NonNullable<NonNullable<FeishuSdkClient["drive"]>["v1"]>["file"]>["uploadPart"]>[0]> = [];
+  readonly driveFileUploadFinishPayloads: Array<Parameters<NonNullable<NonNullable<NonNullable<FeishuSdkClient["drive"]>["v1"]>["file"]>["uploadFinish"]>[0]> = [];
   readonly cardIdConvertPayloads: Array<{ data: { message_id: string } }> = [];
   readonly cardUpdatePayloads: Array<{ data: { card: { type: "card_json"; data: string }; uuid?: string; sequence: number }; path: { card_id: string } }> = [];
   readonly userGetPayloads: unknown[] = [];
-  readonly requestPayloads: Array<{ method: string; url: string; data?: unknown }> = [];
+  readonly requestPayloads: Array<{ method: string; url: string; data?: unknown; params?: Record<string, unknown> }> = [];
   probeResponse: FeishuApiResponse<{ pingBotInfo?: { botID?: string; botName?: string } }> = {
     code: 0,
     data: {
@@ -62,6 +67,39 @@ export class FakeFeishuClient implements FeishuSdkClient {
   reactionDeleteResponse: FeishuApiResponse = {
     code: 0,
   };
+  driveUploadAllResponse: FeishuApiResponse<{ file_token?: string }> = {
+    code: 0,
+    data: { file_token: "box_file_upload" },
+  };
+  driveUploadPrepareResponse: FeishuApiResponse<{ upload_id?: string; block_size?: number; block_num?: number }> = {
+    code: 0,
+    data: { upload_id: "upload_1", block_size: 4 * 1024 * 1024, block_num: 1 },
+  };
+  driveUploadPartResponse: FeishuApiResponse = {
+    code: 0,
+  };
+  driveUploadFinishResponse: FeishuApiResponse<{ file_token?: string }> = {
+    code: 0,
+    data: { file_token: "box_file_upload" },
+  };
+  driveMetaResponse: FeishuApiResponse<{ metas?: FeishuDriveMeta[] }> = {
+    code: 0,
+    data: {
+      metas: [{
+        doc_token: "box_file_upload",
+        doc_type: "file",
+        title: "file",
+        owner_id: "ou_bot",
+        create_time: "1",
+        latest_modify_user: "ou_bot",
+        latest_modify_time: "1",
+        url: "https://tenant.feishu.cn/file/box_file_upload",
+      }],
+    },
+  };
+  drivePermissionResponse: FeishuApiResponse = {
+    code: 0,
+  };
   imageCreateResponse = {
     image_key: "img_upload",
   };
@@ -76,6 +114,37 @@ export class FakeFeishuClient implements FeishuSdkClient {
   messageResourceError?: Error;
   reactionCreateError?: Error;
   reactionDeleteError?: Error;
+
+  drive = {
+    v1: {
+      file: {
+        uploadAll: async (payload: Parameters<NonNullable<NonNullable<NonNullable<FeishuSdkClient["drive"]>["v1"]>["file"]>["uploadAll"]>[0]) => {
+          this.driveFileUploadAllPayloads.push(payload);
+          return this.driveUploadAllResponse.data ?? null;
+        },
+        uploadPrepare: async (payload: Parameters<NonNullable<NonNullable<NonNullable<FeishuSdkClient["drive"]>["v1"]>["file"]>["uploadPrepare"]>[0]) => {
+          this.driveFileUploadPreparePayloads.push(payload);
+          const size = payload.data.size;
+          const blockSize = this.driveUploadPrepareResponse.data?.block_size ?? 4 * 1024 * 1024;
+          return {
+            ...this.driveUploadPrepareResponse,
+            data: {
+              ...this.driveUploadPrepareResponse.data,
+              block_num: this.driveUploadPrepareResponse.data?.block_num ?? Math.ceil(size / blockSize),
+            },
+          };
+        },
+        uploadPart: async (payload: Parameters<NonNullable<NonNullable<NonNullable<FeishuSdkClient["drive"]>["v1"]>["file"]>["uploadPart"]>[0]) => {
+          this.driveFileUploadPartPayloads.push(payload);
+          return this.driveUploadPartResponse;
+        },
+        uploadFinish: async (payload: Parameters<NonNullable<NonNullable<NonNullable<FeishuSdkClient["drive"]>["v1"]>["file"]>["uploadFinish"]>[0]) => {
+          this.driveFileUploadFinishPayloads.push(payload);
+          return this.driveUploadFinishResponse;
+        },
+      },
+    },
+  };
 
   cardkit = {
     v1: {
@@ -145,10 +214,28 @@ export class FakeFeishuClient implements FeishuSdkClient {
     },
   };
 
-  async request<T = FeishuApiResponse>(payload?: { method: string; url: string; data?: unknown }): Promise<T> {
+  async request<T = FeishuApiResponse>(payload?: { method: string; url: string; data?: unknown; params?: Record<string, unknown> }): Promise<T> {
     if (payload) {
       this.requestPayloads.push(payload);
       if (payload.method === "PATCH") return this.updateResponse as T;
+      if (payload.url.includes("/drive/v1/files/upload_all")) return this.driveUploadAllResponse as T;
+      if (payload.url.includes("/drive/v1/files/upload_prepare")) {
+        const size = typeof (payload.data as { size?: unknown } | undefined)?.size === "number"
+          ? (payload.data as { size: number }).size
+          : 0;
+        const blockSize = this.driveUploadPrepareResponse.data?.block_size ?? 4 * 1024 * 1024;
+        return {
+          ...this.driveUploadPrepareResponse,
+          data: {
+            ...this.driveUploadPrepareResponse.data,
+            block_num: this.driveUploadPrepareResponse.data?.block_num ?? Math.ceil(size / blockSize),
+          },
+        } as T;
+      }
+      if (payload.url.includes("/drive/v1/files/upload_part")) return this.driveUploadPartResponse as T;
+      if (payload.url.includes("/drive/v1/files/upload_finish")) return this.driveUploadFinishResponse as T;
+      if (payload.url.includes("/drive/v1/metas/batch_query")) return this.driveMetaResponse as T;
+      if (payload.url.includes("/permissions/") && payload.url.includes("/members")) return this.drivePermissionResponse as T;
     }
     return this.probeResponse as T;
   }

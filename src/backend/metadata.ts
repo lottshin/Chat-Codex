@@ -98,6 +98,10 @@ export function backendDisplayName(backend: AiBackend | undefined): string {
   return backendMetadata(backend).displayName;
 }
 
+export function commandProfileDisplayName(profile: CommandNamespaceProfile | undefined): string {
+  return profile === "claude" ? METADATA.claude.displayName : METADATA.codex.displayName;
+}
+
 export function backendCliName(backend: AiBackend | undefined): string {
   return backendMetadata(backend).cliName;
 }
@@ -125,9 +129,9 @@ export function backendSupportsFeature(backend: AiBackend | undefined, feature: 
 }
 
 export function unsupportedCommandMessage(backend: AiBackend | undefined, command: string, featureLabel: string): string {
-  return `当前后端 ${backendDisplayName(backend)} 暂不支持 /${command}（${featureLabel}）。`;
+  return `${backendDisplayName(backend)} 暂不支持 /${command}（${featureLabel}）。`;
 }
 
 export function formatUnsupportedBackendFeature(backend: AiBackend | undefined, feature: string): string {
-  return `当前后端 ${backendDisplayName(backend)} 暂不支持${feature}。`;
+  return `${backendDisplayName(backend)} 暂不支持${feature}。`;
 }

@@ -1,4 +1,5 @@
 import type { ApprovalManager } from "../../approvals/approval-manager.js";
+import { backendDisplayName, type AiBackend } from "../../backend/metadata.js";
 import type { CodexAdapter } from "../../codex/types.js";
 import type { ChannelMessage, ChannelTarget } from "../../protocol/channel.js";
 import type { MemoryStateStore } from "../../state/memory-state-store.js";
@@ -9,6 +10,7 @@ import type { BridgeRouteQueue } from "../route-queue.js";
 import type { BridgeRouteSteering } from "../route-steering.js";
 
 export interface StopCommandOptions {
+  backend?: AiBackend;
   state: MemoryStateStore;
   codex: CodexAdapter;
   approvals: ApprovalManager;
@@ -44,7 +46,7 @@ export async function handleStopCommand(
     return;
   }
   if (!options.codex.cancel) {
-    await options.delivery.sendText(target, "当前后端不支持取消。");
+    await options.delivery.sendText(target, `${backendDisplayName(binding.backend ?? options.backend)} 暂不支持取消。`);
     return;
   }
   const clearedQueued = options.routeQueue.clearQueued(message.routeKey);

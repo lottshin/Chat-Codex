@@ -1,5 +1,5 @@
 import type { ApprovalManager } from "../approvals/approval-manager.js";
-import { backendDisplayName, backendSupportsFeature, type AiBackend, type BackendCommandFeature, type CommandNamespaceProfile } from "../backend/metadata.js";
+import { backendDisplayName, backendSupportsFeature, commandProfileDisplayName, type AiBackend, type BackendCommandFeature, type CommandNamespaceProfile } from "../backend/metadata.js";
 import type { CodexRunPolicyStatus } from "../codex/codex-cli.js";
 import type {
   CodexAdapter,
@@ -150,7 +150,7 @@ export class BridgeStatusText {
       : undefined;
     const sessionLines = [
       `- 当前会话: ${binding ? `\`${binding.sessionId}\`` : formatUnboundSessionForStatus(pendingInitialBinding)}`,
-      binding?.backend ? `- 后端: \`${binding.backend}\`` : undefined,
+      binding?.backend ? `- 入口: ${backendDisplayName(binding.backend)}` : undefined,
       binding?.backend === "claude" && localSession?.backendSessionId ? `- Claude session: \`${localSession.backendSessionId}\`` : undefined,
       `- 运行状态: ${formatCodexStatus(sessionStatus)}`,
       `- 当前模型: ${formatModelInfoForStatus(sessionStatus.model)}`,
@@ -220,14 +220,14 @@ export class BridgeStatusText {
     const contextLines = formatContextUsageLines(sessionStatus.context);
     const usageLines = sessionStatus.context
       ? contextLines
-      : ["- 当前会话暂无 token 用量数据；后端完成一轮并上报 usage 后会显示。"];
+      : [`- 当前会话暂无 token 用量数据；${backendDisplayName(binding.backend ?? this.backend)} 完成一轮并上报 usage 后会显示。`];
 
     return [
       `**${backendDisplayName(this.backend)} 使用量**`,
       "",
       "- **会话**",
       `  - 当前会话: \`${binding.sessionId}\``,
-      binding.backend ? `  - 后端: \`${binding.backend}\`` : undefined,
+      binding.backend ? `  - 入口: ${backendDisplayName(binding.backend)}` : undefined,
       binding.backend === "claude" && localSession?.backendSessionId ? `  - Claude session: \`${localSession.backendSessionId}\`` : undefined,
       `  - 运行状态: ${formatCodexStatus(sessionStatus)}`,
       `  - 当前模型: ${formatModelInfoForStatus(sessionStatus.model)}`,
@@ -300,7 +300,7 @@ export class BridgeStatusText {
       `  - Sender: \`${formatPeerContext(message.sender.id, message.sender.displayName)}\``,
       "- **Session**",
       `  - 当前会话: ${binding ? `\`${binding.sessionId}\`` : "未绑定"}`,
-      binding?.backend ? `  - 后端: \`${binding.backend}\`` : undefined,
+      binding?.backend ? `  - 入口: ${backendDisplayName(binding.backend)}` : undefined,
       binding?.backend === "claude" && localSession?.backendSessionId ? `  - Claude session: \`${localSession.backendSessionId}\`` : undefined,
       `  - 运行状态: ${formatCodexStatus(sessionStatus)}`,
       `  - 当前模型: ${formatModelInfoForStatus(sessionStatus.model)}`,
@@ -498,7 +498,7 @@ export class BridgeStatusText {
         description: "查看或设置当前会话的实验 Goal 长期目标。",
         feature: "goal",
         details: [
-          "`/goal pause`: 暂停 Goal，保留目标但暂时不让后端按它持续推进。",
+          "`/goal pause`: 暂停 Goal，保留目标但暂时不让 Codex 按它持续推进。",
           "`/goal resume`: 恢复 Goal，继续按已暂停的目标推进。",
           "`/goal clear`: 清除 Goal，退出当前会话的 Goal 追踪。",
         ],
@@ -518,10 +518,11 @@ export class BridgeStatusText {
       },
       {
         command: "/sendfile <任务内容>",
-        description: "本轮允许当前后端在最终回复中声明要发送的本地文件。",
+        description: `本轮允许 ${commandProfileDisplayName(this.commandProfile)} 在最终回复中声明待发送的本地文件，确认后发送。`,
         details: [
           "普通消息里的本地路径、Markdown 链接或 file:// 引用不会自动作为附件发送。",
-          "最终回复必须声明 `BRIDGE_SEND_FILE: /absolute/path/to/file`，Bridge 会剥离协议行后发送文件。",
+          "最终回复必须声明 `BRIDGE_SEND_FILE: /absolute/path/to/file`，Bridge 会剥离协议行并发送确认卡片或确认命令文本。",
+          "点击发送或执行 `/sendfile-approve <编号>` 后才会真正发送文件；取消则不会发送。",
           "渠道必须支持图片/文件发送；发送失败会汇总为文件发送结果。",
         ],
         feature: "sendfile",
@@ -652,7 +653,7 @@ export class BridgeStatusText {
       "**别名值**",
       "- `normal` = `brief`；`verbose` / `debug` = `detailed`；`quiet` / `off` / `none` = `silent`。",
       "",
-      `文件不会由进度模式自动发送；需要本轮允许发文件时使用 \`${sendFileCommand} <任务内容>\`。`,
+      `文件不会由进度模式自动发送；需要本轮允许发文件时使用 \`${sendFileCommand} <任务内容>\`，后续仍需确认。`,
     ].join("\n");
   }
 
@@ -711,6 +712,7 @@ export class BridgeStatusText {
     const policyStatus = this.runPolicyStatus(sessionId);
     const policy = policyStatus?.policy ?? this.codex.getRunPolicy?.(sessionId);
     const permissionCommand = commandForProfile(this.commandProfile, "/permission");
+    const assistantName = backendDisplayName(this.backend);
     return [
       "**权限模式**",
       "",
@@ -721,8 +723,8 @@ export class BridgeStatusText {
       policyStatus?.note ? `- 说明: ${policyStatus.note}` : undefined,
       "",
       "**Codex / bridge 权限模式**",
-      "- `approval`: 使用 `workspace-write` sandbox；如当前后端支持，会在聊天里发起审批。",
-      "- `full`: 完全权限，会跳过审批或权限检查，当前后端可以直接执行命令并修改文件，风险很高，需要 `confirm`。",
+      `- \`approval\`: 使用 \`workspace-write\` sandbox；如 ${assistantName} 支持，会在聊天里发起审批。`,
+      `- \`full\`: 完全权限，会跳过审批或权限检查，${assistantName} 可以直接执行命令并修改文件，风险很高，需要 \`confirm\`。`,
       "",
       "**Claude Code 权限模式**",
       "- `default`、`auto`、`acceptEdits`、`dontAsk`、`plan`: 映射到 Claude Code `--permission-mode`。",

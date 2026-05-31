@@ -8,6 +8,7 @@ export interface FeishuCredentials {
   accountId?: string;
   verificationToken?: string;
   encryptKey?: string;
+  driveFolderToken?: string;
 }
 
 export interface FeishuAdapterOptions extends FeishuCredentials {
@@ -59,6 +60,27 @@ export interface FeishuFileUploadData {
   file_key?: string;
 }
 
+export interface FeishuDriveUploadData {
+  file_token?: string;
+}
+
+export interface FeishuDrivePrepareData {
+  upload_id?: string;
+  block_size?: number;
+  block_num?: number;
+}
+
+export interface FeishuDriveMeta {
+  doc_token: string;
+  doc_type: string;
+  title?: string;
+  owner_id?: string;
+  create_time?: string;
+  latest_modify_user?: string;
+  latest_modify_time?: string;
+  url?: string;
+}
+
 export interface FeishuResourceDownload {
   writeFile?: (filePath: string) => Promise<unknown>;
   getReadableStream: () => Readable;
@@ -66,6 +88,43 @@ export interface FeishuResourceDownload {
 }
 
 export interface FeishuSdkClient {
+  drive?: {
+    v1?: {
+      file?: {
+        uploadAll(payload: {
+          data: {
+            file_name: string;
+            parent_type: "explorer";
+            parent_node: string;
+            size: number;
+            file: Buffer;
+          };
+        }): Promise<FeishuDriveUploadData | null>;
+        uploadPrepare(payload: {
+          data: {
+            file_name: string;
+            parent_type: "explorer";
+            parent_node: string;
+            size: number;
+          };
+        }): Promise<FeishuApiResponse<FeishuDrivePrepareData>>;
+        uploadPart(payload: {
+          data: {
+            upload_id: string;
+            seq: number;
+            size: number;
+            file: Buffer;
+          };
+        }): Promise<FeishuApiResponse | null>;
+        uploadFinish(payload: {
+          data: {
+            upload_id: string;
+            block_num: number;
+          };
+        }): Promise<FeishuApiResponse<FeishuDriveUploadData>>;
+      };
+    };
+  };
   cardkit?: {
     v1?: {
       card?: {
@@ -167,6 +226,7 @@ export interface FeishuSdkClient {
     method: string;
     url: string;
     data?: unknown;
+    params?: Record<string, unknown>;
   }): Promise<T>;
 }
 

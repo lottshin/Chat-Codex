@@ -6,6 +6,7 @@ import { commandBody } from "../formatters.js";
 export interface SendFileCommandOptions {
   delivery: BridgeDelivery;
   routeQueue: BridgeRouteQueue;
+  assistantName?: string;
 }
 
 export async function handleSendFileCommand(
@@ -18,9 +19,10 @@ export async function handleSendFileCommand(
   const prompt = commandBody(rawText, commandName);
   const usageCommand = `/${commandName}`;
   if (!prompt) {
+    const assistantName = options.assistantName ?? "Codex";
     await options.delivery.sendText(target, [
       "缺少任务内容。",
-      `用法: \`${usageCommand} <你要当前后端做什么，并在最终结果里发文件>\``,
+      `用法: \`${usageCommand} <你要 ${assistantName} 做什么，并在最终结果里发文件>\``,
       "需要用这个命令开启本轮文件发送；普通消息里的本地路径不会自动作为附件发送。",
     ].join("\n"));
     return;

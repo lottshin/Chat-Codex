@@ -1,3 +1,4 @@
+import { backendDisplayName, type AiBackend } from "../../backend/metadata.js";
 import type { Logger } from "../../logging/logger.js";
 import type { ChannelMessage, ChannelTarget } from "../../protocol/channel.js";
 import type { MemoryStateStore } from "../../state/memory-state-store.js";
@@ -8,6 +9,7 @@ import { ROUTE_BUSY_MUTATION_REJECT_TEXT } from "../bridge-types.js";
 import { formatNumber, formatPercent } from "../formatters.js";
 
 export interface CompactCommandOptions {
+  backend?: AiBackend;
   codex: CodexAdapter;
   state: MemoryStateStore;
   delivery: BridgeDelivery;
@@ -34,10 +36,11 @@ export async function handleCompactCommand(
     return;
   }
   if (!options.codex.compactSession) {
+    const assistantName = backendDisplayName(binding.backend ?? options.backend);
     await options.delivery.sendText(target, [
-      "当前后端不支持 /compact。",
-      "这只表示当前接入方式不能压缩后端会话，不影响继续发送普通消息。",
-      "下一步：发送 /status 查看当前后端和会话，或直接发送普通消息继续任务。",
+      `${assistantName} 暂不支持 /compact。`,
+      `这只表示 ${assistantName} 不能压缩当前会话，不影响继续发送普通消息。`,
+      `下一步：发送 /status 查看 ${assistantName} 会话状态，或直接发送普通消息继续任务。`,
     ].join("\n"));
     return;
   }
@@ -132,7 +135,7 @@ export function isCompactConfirm(args: string[]): boolean {
 
 export function compactConfirmationText(sessionId: string, context: CodexSessionContextUsage | undefined): string {
   return [
-    "即将压缩当前绑定的后端会话历史上下文。",
+    "即将压缩当前绑定的会话历史上下文。",
     "不会修改项目文件、git 状态或工作目录。",
     "",
     `Session: ${sessionId}`,

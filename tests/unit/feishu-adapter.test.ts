@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { FeishuAdapter } from "../../src/channels/feishu/feishu-adapter.js";
 import { DEFAULT_CHANNEL_DELIVERY_POLICY } from "../../src/protocol/delivery-policy.js";
+import { ChannelMediaDeliveryError } from "../../src/protocol/media-delivery-error.js";
 import { FakeFeishuTransportFactory, sampleFeishuTextEvent } from "../helpers/feishu-fakes.js";
 
 const credentials = {
@@ -184,6 +185,176 @@ test("FeishuAdapter uploads and sends image and file media", async () => {
     { image_key: "img_upload" },
     { file_key: "file_upload" },
   ]);
+});
+
+test("FeishuAdapter sends images over 10 MB as ordinary files up to 30 MB", async () => {
+  const factory = new FakeFeishuTransportFactory();
+  const adapter = new FeishuAdapter({ ...credentials, transportFactory: factory, connectOnStart: false });
+  const filePath = path.join(tempDir("codex-feishu-large-image-"), "large.png");
+  fs.writeFileSync(filePath, Buffer.alloc(10 * 1024 * 1024 + 1));
+  await adapter.start();
+
+  await adapter.sendMedia(targetWithOpenId(), {
+    type: "image",
+    path: filePath,
+    name: "large.png",
+    mimeType: "image/png",
+  });
+
+  assert.equal(factory.client.imageCreatePayloads.length, 0);
+  assert.equal(factory.client.fileCreatePayloads.length, 1);
+  assert.equal(factory.client.replyPayloads.at(-1)?.data.msg_type, "file");
+});
+
+test("FeishuAdapter reports over-30MB files without Drive folder token", async () => {
+  const factory = new FakeFeishuTransportFactory();
+  const adapter = new FeishuAdapter({ ...credentials, transportFactory: factory, connectOnStart: false });
+  const filePath = path.join(tempDir("codex-feishu-no-drive-"), "huge.zip");
+  fs.writeFileSync(filePath, Buffer.alloc(30 * 1024 * 1024 + 1));
+  await adapter.start();
+
+  await assert.rejects(
+    () => adapter.sendMedia(targetWithOpenId(), { type: "file", path: filePath, name: "huge.zip" }),
+    (error) => error instanceof ChannelMediaDeliveryError
+      && error.stage === "validate"
+      && error.reasonCode === "feishu_drive_folder_token_missing"
+      && /FEISHU_DRIVE_FOLDER_TOKEN/.test(error.message),
+  );
+  assert.equal(factory.client.fileCreatePayloads.length, 0);
+});
+
+test("FeishuAdapter uploads over-30MB files to Drive and grants current open_id only", async () => {
+  const factory = new FakeFeishuTransportFactory();
+  factory.client.driveUploadFinishResponse = { code: 0, data: { file_token: "box_file_1" } };
+  factory.client.driveMetaResponse = {
+    code: 0,
+    data: {
+      metas: [{
+        doc_token: "box_file_1",
+        doc_type: "file",
+        title: "huge.zip",
+        owner_id: "ou_bot",
+        create_time: "1",
+        latest_modify_user: "ou_bot",
+        latest_modify_time: "1",
+        url: "https://tenant.feishu.cn/file/box_file_1",
+      }],
+    },
+  };
+  const adapter = new FeishuAdapter({
+    ...credentials,
+    driveFolderToken: "fld_relay",
+    transportFactory: factory,
+    connectOnStart: false,
+  });
+  const filePath = path.join(tempDir("codex-feishu-drive-"), "huge.zip");
+  fs.writeFileSync(filePath, Buffer.alloc(30 * 1024 * 1024 + 1));
+  await adapter.start();
+
+  await adapter.sendMedia(targetWithOpenId("ou_requester"), {
+    type: "file",
+    path: filePath,
+    name: "huge.zip",
+  });
+
+  assert.equal(factory.client.driveFileUploadPreparePayloads.length, 1);
+  assert.ok(factory.client.driveFileUploadPartPayloads.length > 0);
+  assert.equal(factory.client.driveFileUploadPartPayloads[0]?.data.file instanceof Buffer, true);
+  assert.equal(factory.client.driveFileUploadFinishPayloads.length, 1);
+  assert.equal(factory.client.requestPayloads.some((payload) => payload.url.includes("/drive/v1/files/upload_part")), false);
+  assert.ok(factory.client.requestPayloads.some((payload) => payload.url.includes("/drive/v1/metas/batch_query")));
+  const permissionPayload = factory.client.requestPayloads.find((payload) => payload.url.includes("/permissions/box_file_1/members"));
+  assert.ok(permissionPayload);
+  assert.deepEqual(permissionPayload.data, {
+    member_type: "openid",
+    member_id: "ou_requester",
+    perm: "view",
+  });
+  assert.match(factory.client.sentTexts().at(-1) ?? "", /https:\/\/tenant\.feishu\.cn\/file\/box_file_1/);
+});
+
+test("FeishuAdapter saves Drive folder token from direct folder links without invoking the agent", async () => {
+  const factory = new FakeFeishuTransportFactory();
+  const stateDir = tempDir("codex-feishu-drive-config-");
+  const adapter = new FeishuAdapter({ ...credentials, transportFactory: factory, stateDir });
+  let received = 0;
+  adapter.onMessage(async () => {
+    received += 1;
+  });
+
+  await adapter.start();
+  await factory.dispatcher.emitReceive(sampleFeishuTextEvent({
+    app_id: credentials.appId,
+    message: {
+      message_id: "om_drive_folder",
+      chat_id: "oc_user",
+      content: JSON.stringify({ text: "https://my.feishu.cn/drive/folder/WImjfx4RnlAV6tdHS4lcDTkKnRc" }),
+    },
+  }));
+
+  const saved = JSON.parse(fs.readFileSync(path.join(stateDir, "accounts", "work", "credentials.local.json"), "utf-8")) as {
+    credentials?: Record<string, string>;
+  };
+  assert.equal(saved.credentials?.appId, credentials.appId);
+  assert.equal(saved.credentials?.appSecret, credentials.appSecret);
+  assert.equal(saved.credentials?.driveFolderToken, "WImjfx4RnlAV6tdHS4lcDTkKnRc");
+  assert.equal(received, 0);
+  assert.match(factory.client.sentTexts().at(-1) ?? "", /已配置飞书云空间中转文件夹/);
+});
+
+test("FeishuAdapter does not save Drive folder token from group messages", async () => {
+  const factory = new FakeFeishuTransportFactory();
+  const stateDir = tempDir("codex-feishu-drive-config-group-");
+  const adapter = new FeishuAdapter({ ...credentials, transportFactory: factory, stateDir, groupEnabled: true });
+  let received = 0;
+  adapter.onMessage(async () => {
+    received += 1;
+  });
+
+  await adapter.start();
+  await factory.dispatcher.emitReceive(sampleFeishuTextEvent({
+    app_id: credentials.appId,
+    message: {
+      message_id: "om_group_drive_folder",
+      chat_id: "oc_group",
+      chat_type: "group",
+      content: JSON.stringify({ text: "@_bot https://my.feishu.cn/drive/folder/WImjfx4RnlAV6tdHS4lcDTkKnRc" }),
+      mentions: [{
+        key: "@_bot",
+        id: { open_id: "ou_bot" },
+        name: "Codex Bot",
+      }],
+    },
+  }));
+
+  assert.equal(fs.existsSync(path.join(stateDir, "accounts", "work", "credentials.local.json")), false);
+  assert.equal(received, 1);
+});
+
+test("FeishuAdapter refuses Drive fallback without current message open_id", async () => {
+  const factory = new FakeFeishuTransportFactory();
+  const adapter = new FeishuAdapter({
+    ...credentials,
+    driveFolderToken: "fld_relay",
+    transportFactory: factory,
+    connectOnStart: false,
+  });
+  const filePath = path.join(tempDir("codex-feishu-drive-no-openid-"), "huge.zip");
+  fs.writeFileSync(filePath, Buffer.alloc(30 * 1024 * 1024 + 1));
+  await adapter.start();
+
+  await assert.rejects(
+    () => adapter.sendMedia(targetWithOpenId("", "user_id_fallback"), {
+      type: "file",
+      path: filePath,
+      name: "huge.zip",
+    }),
+    (error) => error instanceof ChannelMediaDeliveryError
+      && error.stage === "permission"
+      && error.reasonCode === "feishu_sender_open_id_missing",
+  );
+  assert.equal(factory.client.requestPayloads.some((payload) => payload.url.includes("/permissions/")), false);
+  assert.equal(factory.client.sentTexts().some((text) => text.includes("tenant.feishu.cn")), false);
 });
 
 test("FeishuAdapter updates text messages through Feishu message update API", async () => {
@@ -797,6 +968,20 @@ test("FeishuAdapter sendText replies to source message first", async () => {
 
 function tempDir(prefix: string): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+}
+
+function targetWithOpenId(openId = "ou_user", recipientId = openId ?? "user_id_fallback") {
+  return {
+    channelId: "feishu",
+    routeKey: "feishu:work:direct:oc_user",
+    accountId: "work",
+    conversation: { id: "oc_user", kind: "direct" as const },
+    recipient: { id: recipientId },
+    context: {
+      sourceMessageId: "om_source",
+      ...(openId ? { feishuSenderOpenId: openId } : {}),
+    },
+  };
 }
 
 test("FeishuAdapter sendText falls back to chat_id create when reply fails", async () => {

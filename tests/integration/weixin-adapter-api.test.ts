@@ -6,6 +6,7 @@ import path from "node:path";
 import { FileWeixinAccountStore } from "../../src/channels/weixin/weixin-account-store.js";
 import { WeixinAdapter } from "../../src/channels/weixin/weixin-adapter.js";
 import type { FetchLike } from "../../src/channels/weixin/weixin-api.js";
+import { ChannelMediaDeliveryError } from "../../src/protocol/media-delivery-error.js";
 
 function jsonResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -333,7 +334,7 @@ test("WeixinAdapter sends typing state with getconfig typing ticket", async () =
     store,
     pollOnStart: false,
     outboundMinIntervalMs: 0,
-    apiOptions: { fetch: fetchImpl },
+    apiOptions: { fetch: fetchImpl, cdnUploadRetryBaseDelayMs: 0 },
   });
   const target = {
     channelId: "weixin",
@@ -498,6 +499,106 @@ test("WeixinAdapter uploads and sends file attachments", async () => {
   assert.equal(fileItem.file_item.file_name, "report.pdf");
   assert.equal(fileItem.file_item.len, "6");
   assert.equal(fileItem.file_item.media.encrypt_query_param, "download-file-param");
+});
+
+test("WeixinAdapter retries temporary CDN upload failures", async () => {
+  const store = new FileWeixinAccountStore(tempStateDir());
+  store.saveAccount({
+    accountId: "abc-im-bot",
+    token: "token-1",
+    baseUrl: "https://api.example",
+    cdnBaseUrl: "https://cdn.example/c2c",
+    savedAt: new Date().toISOString(),
+  });
+  const filePath = path.join(tempStateDir(), "retry.pdf");
+  fs.writeFileSync(filePath, Buffer.from("retry"));
+  let cdnAttempts = 0;
+  const fetchImpl: FetchLike = async (input) => {
+    const url = String(input);
+    if (url.includes("getuploadurl")) return jsonResponse({ upload_full_url: "https://cdn.example/retry-upload" });
+    if (url === "https://cdn.example/retry-upload") {
+      cdnAttempts += 1;
+      if (cdnAttempts === 1) return new Response("temporary", { status: 503 });
+      return new Response("", {
+        status: 200,
+        headers: { "x-encrypted-param": "download-after-retry" },
+      });
+    }
+    if (url.includes("sendmessage")) return jsonResponse({});
+    throw new Error(`unexpected fetch ${url}`);
+  };
+  const adapter = new WeixinAdapter({
+    baseUrl: "https://api.example",
+    store,
+    pollOnStart: false,
+    outboundMinIntervalMs: 0,
+    apiOptions: { fetch: fetchImpl },
+  });
+
+  await adapter.sendMedia({
+    channelId: "weixin",
+    routeKey: "weixin:abc-im-bot:direct:user@im.wechat",
+    accountId: "abc-im-bot",
+    conversation: { id: "user@im.wechat", kind: "direct" },
+    recipient: { id: "user@im.wechat" },
+  }, {
+    type: "file",
+    path: filePath,
+    name: "retry.pdf",
+    mimeType: "application/pdf",
+  });
+
+  assert.equal(cdnAttempts, 2);
+});
+
+test("WeixinAdapter reports CDN upload failures as structured upload errors", async () => {
+  const store = new FileWeixinAccountStore(tempStateDir());
+  store.saveAccount({
+    accountId: "abc-im-bot",
+    token: "token-1",
+    baseUrl: "https://api.example",
+    cdnBaseUrl: "https://cdn.example/c2c",
+    savedAt: new Date().toISOString(),
+  });
+  const filePath = path.join(tempStateDir(), "failed.pdf");
+  fs.writeFileSync(filePath, Buffer.from("failed"));
+  let cdnAttempts = 0;
+  const fetchImpl: FetchLike = async (input) => {
+    const url = String(input);
+    if (url.includes("getuploadurl")) return jsonResponse({ upload_full_url: "https://cdn.example/upload-failed" });
+    if (url === "https://cdn.example/upload-failed") {
+      cdnAttempts += 1;
+      return new Response("denied", { status: 403 });
+    }
+    throw new Error(`unexpected fetch ${url}`);
+  };
+  const adapter = new WeixinAdapter({
+    baseUrl: "https://api.example",
+    store,
+    pollOnStart: false,
+    outboundMinIntervalMs: 0,
+    apiOptions: { fetch: fetchImpl, cdnUploadRetryBaseDelayMs: 0 },
+  });
+
+  await assert.rejects(
+    () => adapter.sendMedia({
+      channelId: "weixin",
+      routeKey: "weixin:abc-im-bot:direct:user@im.wechat",
+      accountId: "abc-im-bot",
+      conversation: { id: "user@im.wechat", kind: "direct" },
+      recipient: { id: "user@im.wechat" },
+    }, {
+      type: "file",
+      path: filePath,
+      name: "failed.pdf",
+      mimeType: "application/pdf",
+    }),
+    (error) => error instanceof ChannelMediaDeliveryError
+      && error.stage === "upload"
+      && error.reasonCode === "weixin_media_upload_failed"
+      && /cdn upload 403/.test(error.message),
+  );
+  assert.equal(cdnAttempts, 1);
 });
 
 test("WeixinAdapter downloads inbound image and file attachments before emitting ChannelMessage", async () => {

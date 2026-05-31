@@ -10,6 +10,7 @@ import { ROUTE_BUSY_MUTATION_REJECT_TEXT } from "./bridge-types.js";
 import { isRouteBusyMutationCommand } from "./formatters.js";
 import type { BridgeDelivery } from "./delivery.js";
 import type { PlanWorkflowChoice } from "./plan-workflow.js";
+import type { SendFileConfirmationDecision } from "./sendfile-confirmation.js";
 
 const BRIDGE_COMMAND_NAMES = new Set([
   "help",
@@ -47,6 +48,10 @@ const BRIDGE_COMMAND_NAMES = new Set([
   "grop",
   "name",
   "sendfile",
+  "sendfile-approve",
+  "sendfile-confirm",
+  "sendfile-deny",
+  "sendfile-cancel",
   "skills",
   "skill",
   "model",
@@ -121,6 +126,7 @@ export interface BridgeCommandHandlers {
   groupReceive(message: ChannelMessage, target: ChannelTarget, args: string[], commandName: string): Promise<void>;
   groupName(message: ChannelMessage, target: ChannelTarget, args: string[]): Promise<void>;
   sendFile(message: ChannelMessage, target: ChannelTarget, rawText: string, commandName: string): Promise<void>;
+  sendFileConfirmation(message: ChannelMessage, target: ChannelTarget, args: string[], decision: SendFileConfirmationDecision): Promise<void>;
   skills(message: ChannelMessage): Promise<string>;
   model(message: ChannelMessage, target: ChannelTarget, args: string[]): Promise<void>;
   permission(message: ChannelMessage, target: ChannelTarget, args: string[]): Promise<void>;
@@ -294,6 +300,14 @@ export class BridgeCommandRouter {
       case "sendfile":
         if (await this.rejectUnsupported(target, "sendfile", "sendfile", "文件发送协议")) return;
         await this.handlers.sendFile(message, target, rawText, name);
+        return;
+      case "sendfile-approve":
+      case "sendfile-confirm":
+        await this.handlers.sendFileConfirmation(message, target, args, "approve");
+        return;
+      case "sendfile-deny":
+      case "sendfile-cancel":
+        await this.handlers.sendFileConfirmation(message, target, args, "deny");
         return;
       case "skills":
       case "skill":

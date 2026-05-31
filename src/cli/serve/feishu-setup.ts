@@ -15,6 +15,7 @@ export async function addFeishuBot(rl: Interface, channelActions: ChannelActions
     `飞书域默认 ${DEFAULT_FEISHU_DOMAIN}，普通用户可直接回车。`,
     "凭证会保存到本机用户状态目录的 credentials.local.json，不会写入 Git 跟踪文件。",
     "也可以在启动前通过 FEISHU_APP_ID / FEISHU_APP_SECRET 环境变量覆盖。",
+    "如需发送超过 30 MB 的飞书文件，可配置 FEISHU_DRIVE_FOLDER_TOKEN；这里可以先留空。",
     "输入 0 返回上一级。",
   ].join("\n"));
   const credentials = await askFeishuCredentials(rl);
@@ -58,5 +59,6 @@ export async function askFeishuCredentials(rl: Interface): Promise<FeishuCredent
   const accountId = await askRequired(rl, "请输入账号标识（本地名称，必填）: ");
   if (!accountId) return undefined;
   const domain = await askOptional(rl, `飞书域 [${DEFAULT_FEISHU_DOMAIN}，普通用户直接回车]: `, DEFAULT_FEISHU_DOMAIN);
-  return normalizeFeishuCredentials({ appId, appSecret, domain, accountId });
+  const driveFolderToken = await askOptional(rl, "请输入 FEISHU_DRIVE_FOLDER_TOKEN（可选，留空跳过）: ", "");
+  return normalizeFeishuCredentials({ appId, appSecret, domain, accountId, driveFolderToken });
 }

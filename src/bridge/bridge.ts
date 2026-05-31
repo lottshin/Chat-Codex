@@ -1,4 +1,4 @@
-import type { CommandNamespaceProfile } from "../backend/metadata.js";
+import { commandProfileDisplayName, type CommandNamespaceProfile } from "../backend/metadata.js";
 import { ApprovalManager } from "../approvals/approval-manager.js";
 import type { ApprovalDecision } from "../approvals/types.js";
 import type { CodexRunPolicyStatus } from "../codex/codex-cli.js";
@@ -33,9 +33,18 @@ import { BridgeBackgroundTurns } from "./background-turns.js";
 import { BridgeCommandRouter, canonicalBridgeCommandName, isBridgeAliasCommandName } from "./command-router.js";
 import { SessionContextRefreshManager } from "./context-refresh.js";
 import { BridgeDelivery } from "./delivery.js";
+import { detectFileDeliveryIntent } from "./file-delivery-intent.js";
 import { BridgeProgressDelivery } from "./progress-delivery.js";
 import { BridgeRouteQueue } from "./route-queue.js";
 import { BridgeRouteSteering } from "./route-steering.js";
+import {
+  PendingSendFileDeliveryStore,
+  sendFileConfirmationActionMessage,
+  sendFileConfirmationFallbackText,
+  type PendingSendFileDelivery,
+  type SendFileConfirmationDecision,
+  type SendFileConfirmationRequest,
+} from "./sendfile-confirmation.js";
 import { BridgeSideTasks } from "./side-tasks.js";
 import { RouteTrustGate } from "./route-trust-gate.js";
 import { BridgeSessionFlow } from "./session-flow.js";
@@ -118,6 +127,7 @@ export class Bridge {
   private readonly routeMessages = new Map<string, ChannelMessage>();
   private readonly routeTargets = new Map<string, ChannelTarget>();
   private readonly pendingMedia = new PendingMediaManager();
+  private readonly pendingSendFiles = new PendingSendFileDeliveryStore();
   private stopBackgroundEvents?: () => void;
 
   constructor(options: BridgeOptions) {
@@ -205,6 +215,7 @@ export class Bridge {
       contextRefresh: this.contextRefresh,
       onPlanWorkflowReady: (workflow) => this.planWorkflows.set(workflow),
       onApprovalActionMessageSent: (approvalKey, messageId) => this.approvalActionMessageIds.set(approvalKey, messageId),
+      onSendFileConfirmationRequested: (request) => this.requestSendFileConfirmation(request),
       backend: options.backend,
       commandProfile: this.commandProfile,
     });
@@ -309,6 +320,7 @@ export class Bridge {
           pendingMedia: this.pendingMedia,
           delivery: this.delivery,
           cancelCompactConfirmation: (routeKey) => this.cancelCompactConfirmation(routeKey),
+          cancelSendFileConfirmation: (routeKey) => this.cancelSendFileConfirmation(routeKey),
         }, message, target),
         whoami: (message) => isFeishuGroupMessage(message)
           ? formatFeishuGroupWhoami(message, this.feishuGroupMembers, this.state)
@@ -317,6 +329,7 @@ export class Bridge {
         collaborationMode: async (message, target, mode, rawText, commandName) => {
           if (mode === "default") this.planWorkflows.delete(message.routeKey);
           await handleCollaborationModeCommand({
+            backend: options.backend,
             codex: this.codex,
             delivery: this.delivery,
             routeQueue: this.routeQueue,
@@ -352,9 +365,12 @@ export class Bridge {
         sendFile: (message, target, rawText, commandName) => handleSendFileCommand({
           delivery: this.delivery,
           routeQueue: this.routeQueue,
+          assistantName: commandProfileDisplayName(this.commandProfile),
         }, message, target, rawText, commandName),
+        sendFileConfirmation: (message, target, args, decision) => this.handleSendFileConfirmationCommand(message, target, args, decision),
         skills: (message) => this.statusTextRenderer.skillsText(message),
         model: (message, target, args) => handleModelCommand({
+          backend: options.backend,
           codex: this.codex,
           state: this.state,
           delivery: this.delivery,
@@ -362,6 +378,7 @@ export class Bridge {
           statusText: this.statusTextRenderer,
         }, message, target, args),
         permission: (message, target, args) => handlePermissionCommand({
+          backend: options.backend,
           codex: this.codex,
           state: this.state,
           delivery: this.delivery,
@@ -377,6 +394,7 @@ export class Bridge {
         stop: async (message, target) => {
           this.planWorkflows.delete(message.routeKey);
           await handleStopCommand({
+            backend: options.backend,
             state: this.state,
             codex: this.codex,
             approvals: this.approvals,
@@ -387,6 +405,7 @@ export class Bridge {
           }, message, target);
         },
         compact: (message, target, args) => handleCompactCommand({
+          backend: options.backend,
           codex: this.codex,
           state: this.state,
           delivery: this.delivery,
@@ -413,6 +432,7 @@ export class Bridge {
     this.routeSteering.clearAll();
     this.sideTasks.clearAll();
     this.pendingMedia.clearAll();
+    this.pendingSendFiles.clearAll();
     this.progressDelivery.clearAll();
     this.stopBackgroundEvents?.();
     this.stopBackgroundEvents = undefined;
@@ -479,7 +499,7 @@ export class Bridge {
     }
     this.clearCompactConfirmation(message.routeKey);
     if (attachments.failed.length > 0) {
-      await this.delivery.sendText(target, inboundMediaSaveFailedText());
+      await this.delivery.sendText(target, inboundMediaSaveFailedText(commandProfileDisplayName(this.commandProfile)));
       if (attachments.usable.length === 0) return;
     }
     if (attachments.unsupported.length > 0 && attachments.usable.length === 0) {
@@ -502,7 +522,7 @@ export class Bridge {
     const acceptedAttachments = inputAttachments.slice(0, PENDING_MEDIA_MAX_ATTACHMENTS);
     const rejectedAttachments = inputAttachments.slice(PENDING_MEDIA_MAX_ATTACHMENTS);
     if (rejectedAttachments.length > 0) {
-      await this.delivery.sendText(target, inboundMediaTurnOverflowText(rejectedAttachments.length));
+      await this.delivery.sendText(target, inboundMediaTurnOverflowText(rejectedAttachments.length, commandProfileDisplayName(this.commandProfile)));
     }
     const rawInput = acceptedAttachments.length > 0
       ? codexInputFromTextAndAttachments(text, acceptedAttachments)
@@ -511,6 +531,13 @@ export class Bridge {
       ? "supplement"
       : "say";
     const input = withGroupConversationPromptPrefix(message, rawInput, groupPrefixMode);
+    const fileDeliveryIntent = message.conversation.kind === "group"
+      ? { enabled: false }
+      : detectFileDeliveryIntent(text);
+    if (fileDeliveryIntent.enabled) {
+      await this.routeQueue.enqueuePrompt(message, target, input, { sendFile: true });
+      return;
+    }
     if (await this.routeSteering.tryEnqueue(message, target, input)) return;
     await this.routeQueue.enqueuePrompt(message, target, input);
   }
@@ -645,6 +672,65 @@ export class Bridge {
     await this.delivery.updateActionMessage(workflow.target, workflow.actionMessageId, planActionStatusText(choice));
   }
 
+  private async requestSendFileConfirmation(request: SendFileConfirmationRequest): Promise<void> {
+    if (request.extraction.requestedCount === 0) return;
+    if (request.extraction.media.length === 0) {
+      await this.delivery.sendRequestedFileExtraction(request.target, request.extraction);
+      return;
+    }
+    const pending = this.pendingSendFiles.create(request);
+    const result = await this.delivery.deliverActionMessage(
+      request.target,
+      sendFileConfirmationActionMessage(pending),
+      sendFileConfirmationFallbackText(pending),
+    );
+    this.pendingSendFiles.setActionMessageId(pending.id, result.messageId);
+  }
+
+  private async handleSendFileConfirmationCommand(
+    message: ChannelMessage,
+    target: ChannelTarget,
+    args: string[],
+    decision: SendFileConfirmationDecision,
+  ): Promise<void> {
+    const id = args[0]?.trim();
+    const pending = this.pendingSendFiles.get(id);
+    if (!pending || pending.routeKey !== message.routeKey) {
+      await this.delivery.sendText(target, "当前没有这个待确认文件发送请求。");
+      return;
+    }
+    if (pending.requestedBy !== message.sender.id) {
+      await this.delivery.sendText(target, "这个文件发送请求不是你发起的，不能处理。");
+      return;
+    }
+    this.pendingSendFiles.delete(pending.id);
+    if (decision === "deny") {
+      await this.updateSendFileActionMessageOrSendText(message, pending, "已取消文件发送。");
+      return;
+    }
+    await this.updateSendFileActionMessage(message, pending, "正在发送文件。");
+    await this.delivery.sendRequestedFileExtraction(pending.target, pending.extraction);
+  }
+
+  private async updateSendFileActionMessage(
+    message: ChannelMessage,
+    pending: PendingSendFileDelivery,
+    text: string,
+  ): Promise<void> {
+    const messageId = pending.actionMessageId ?? actionMessageSourceId(message);
+    if (messageId) await this.delivery.updateActionMessage(pending.target, messageId, text);
+  }
+
+  private async updateSendFileActionMessageOrSendText(
+    message: ChannelMessage,
+    pending: PendingSendFileDelivery,
+    text: string,
+  ): Promise<void> {
+    const messageId = pending.actionMessageId ?? actionMessageSourceId(message);
+    if (messageId && await this.delivery.updateActionMessage(pending.target, messageId, text)) return;
+    await this.delivery.sendText(pending.target, text);
+  }
+
   async waitForIdle(): Promise<void> {
     while (this.routeQueue.workerCount() > 0 || this.backgroundTurns.size > 0 || this.routeSteering.hasPendingWork() || this.sideTasks.size > 0) {
       if (this.routeQueue.workerCount() > 0) {
@@ -666,7 +752,7 @@ export class Bridge {
   ): Promise<void> {
     const result = this.pendingMedia.add(message.routeKey, attachments ?? [], message.id);
     if (result.accepted.length > 0) {
-      await this.delivery.sendText(target, pendingMediaPromptText(result.total));
+      await this.delivery.sendText(target, pendingMediaPromptText(result.total, commandProfileDisplayName(this.commandProfile)));
     }
     if (result.rejected.length > 0) {
       await this.delivery.sendText(target, pendingMediaOverflowText(result.rejected.length, result.total));
@@ -719,6 +805,10 @@ export class Bridge {
     if (this.compactStateForRoute(routeKey).type !== "confirming") return false;
     this.routeCompactStates.delete(routeKey);
     return true;
+  }
+
+  private cancelSendFileConfirmation(routeKey: string): number {
+    return this.pendingSendFiles.cancelRoute(routeKey);
   }
 
   private isCompactRunning(routeKey: string): boolean {

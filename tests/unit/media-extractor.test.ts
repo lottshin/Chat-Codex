@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { extractBridgeSendFileRefs, extractMediaRefs, stripBridgeSendFileRefs } from "../../src/bridge/media-extractor.js";
+import { extractBridgeSendFileRefs, extractMediaRefs, hasBridgeSendFileRefs, stripBridgeSendFileRefs } from "../../src/bridge/media-extractor.js";
 
 function tempDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "media-extractor-test-"));
@@ -138,4 +138,21 @@ test("extractBridgeSendFileRefs caps requested files and strips protocol lines",
   assert.equal(extraction.media.length, 3);
   assert.equal(extraction.overflowCount, 1);
   assert.equal(stripBridgeSendFileRefs(text), "文件如下：\n已完成。");
+});
+
+test("extractBridgeSendFileRefs handles formatted bridge protocol lines", () => {
+  const root = tempDir();
+  const file = path.join(root, "formatted.pptx");
+  fs.writeFileSync(file, "pptx");
+  const text = [
+    "已确认文件存在，发送给你：",
+    file,
+    `\u001b[32mBRIDGE_SEND_FILE: ${file}\u001b[0m`,
+  ].join("\n");
+
+  const extraction = extractBridgeSendFileRefs(text, root, 3);
+
+  assert.equal(hasBridgeSendFileRefs(text), true);
+  assert.deepEqual(extraction.media.map((item) => item.path), [file]);
+  assert.equal(stripBridgeSendFileRefs(text), `已确认文件存在，发送给你：\n${file}`);
 });
