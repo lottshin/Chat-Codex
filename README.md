@@ -210,6 +210,7 @@ TUI 会引导完成 Codex 检查、渠道管理、聊天绑定和启动服务。
 | `npm test` | 构建并运行全部单元测试和集成测试 |
 | `npm run test:unit` | 运行单元测试 |
 | `npm run test:integration` | 运行集成测试 |
+| `npm run smoke:claude-sdk` | 运行真实 Claude Agent SDK 工具审批链路 smoke；不属于默认 `npm test` |
 | `npm run chat-codex` | 启动开发版 Chat-Codex TUI |
 | `npm run cli:chat-codex` | `chat-codex` 的等价开发入口 |
 | `chat-codex --version` | 查看已安装 Chat-Codex 版本 |

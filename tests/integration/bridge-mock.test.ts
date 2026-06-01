@@ -4,11 +4,7 @@ import { Bridge } from "../../src/bridge/bridge.js";
 import { ChannelRegistry } from "../../src/channels/registry.js";
 import { MockChannelAdapter } from "../../src/channels/mock/mock-channel-adapter.js";
 import { MockCodexAdapter } from "../../src/codex/mock-codex-adapter.js";
-import { ClaudeSdkAdapter } from "../../src/claude/claude-sdk-adapter.js";
-import { ClaudeApprovalService } from "../../src/claude/approval-service.js";
 import { ApprovalManager } from "../../src/approvals/approval-manager.js";
-import { BridgeDelivery } from "../../src/bridge/delivery.js";
-import { SilentLogger } from "../../src/logging/logger.js";
 import { truncateDisplayText } from "../../src/codex/codex-cli.js";
 import { codexInputPlainText, normalizeCodexInput } from "../../src/codex/input.js";
 import type { CodexAdapter, CodexBackgroundEventHandler, CodexCollaborationMode, CodexCompactResult, CodexEvent, CodexGoal, CodexPromptInput, CodexRunOptions, CodexSession, CodexSessionContextUsage, CodexSessionStatus, CodexSessionSummary, CodexTurnInput, StartSessionInput } from "../../src/codex/types.js";
@@ -801,31 +797,6 @@ test("Bridge creates Codex App chat sessions with optional first prompt", async 
   assert.ok(channel.sentMessages.some((message) => message.text.includes("Mock Codex 回复: 帮我总结这个项目")));
 });
 
-
-(process.env.CHAT_CODEX_CLAUDE_SDK_SMOKE === "1" ? test : test.skip)("Bridge resumes Claude SDK tool execution after numeric approval", async () => {
-  const channel = new MockChannelAdapter();
-  const approvals = new ApprovalManager();
-  const logger = new SilentLogger();
-  const delivery = new BridgeDelivery({ channels: new ChannelRegistry({ channels: [channel], logger }), approvals, logger, approvalSendRetryDelayMs: 1, backend: "claude" });
-  const approvalService = new ClaudeApprovalService({ approvals, delivery, logger });
-  const adapter = new ClaudeSdkAdapter({ approvalService });
-  const bridge = new Bridge({ channel, codex: adapter, approvals, logger, cwd: process.cwd() });
-  const fileName = `bridge-sdk-approval-${Date.now()}.tmp`;
-  await bridge.start();
-
-  try {
-    await channel.emitText("/new");
-    const promptPromise = channel.emitText(`必须调用 Bash 工具，命令必须完全等于：cmd /c type nul > ${fileName}。不要调用任何其他命令，不要解释。`);
-    await waitFor(() => channel.sentMessages.some((message) => message.text.includes("请选择处理方式")), 90_000);
-    await channel.emitText("/1");
-    await waitFor(() => fs.existsSync(path.join(process.cwd(), fileName)), 90_000);
-    await promptPromise;
-    assert.equal(fs.existsSync(path.join(process.cwd(), fileName)), true);
-  } finally {
-    fs.rmSync(path.join(process.cwd(), fileName), { force: true });
-    await bridge.stop();
-  }
-});
 test("Bridge handles compact confirmation and success over mock channel", async () => {
   const channel = new MockChannelAdapter({ typing: true });
   const codex = new ContextUsageCodexAdapter();

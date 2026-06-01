@@ -509,6 +509,7 @@ function sdkResultError(record: Record<string, unknown>): string {
 
 function systemProgress(record: Record<string, unknown>): string | undefined {
   if (record.subtype === "status" && typeof record.status === "string") return `Claude 状态: ${record.status}`;
+  if (record.subtype === "api_retry") return "Claude API 正在重试请求";
   if (record.subtype === "task_started" && typeof record.description === "string") return record.description;
   if (record.subtype === "task_progress") {
     if (typeof record.summary === "string" && record.summary) return record.summary;
