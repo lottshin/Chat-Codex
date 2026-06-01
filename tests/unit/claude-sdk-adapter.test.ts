@@ -145,6 +145,20 @@ test("ClaudeSdkAdapter suppresses empty Claude task lifecycle system progress", 
   assert.ok(events.some((event) => event.type === "assistant.completed" && event.text === "done"));
 });
 
+test("ClaudeSdkAdapter reports Claude API retry system progress", async () => {
+  const client = new FakeClaudeSdkClient();
+  client.messages = [
+    { type: "system", subtype: "api_retry", session_id: "sdk-session-1" },
+    { type: "result", subtype: "success", session_id: "sdk-session-1", result: "done" },
+  ];
+  const adapter = new ClaudeSdkAdapter({ client });
+  const session = await adapter.startSession({ routeKey: "route-1", cwd: process.cwd() });
+
+  const events = await collect(adapter.run(session.id, "hi"));
+
+  assert.ok(events.some((event) => event.type === "assistant.progress" && event.text === "Claude API 正在重试请求"));
+});
+
 test("ClaudeSdkAdapter maps ExitPlanMode tool use to plan events", async () => {
   const client = new FakeClaudeSdkClient();
   client.messages = [

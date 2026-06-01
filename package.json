@@ -1,6 +1,6 @@
 {
   "name": "chat-codex",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Connect local Codex or Claude Code to Weixin and Feishu through a terminal TUI.",
   "author": "小黄 and Codex",
   "license": "MIT",
@@ -44,6 +44,7 @@
     "test:unit": "npm run build && node scripts/run-tests.mjs unit",
     "test:integration": "npm run build && node scripts/run-tests.mjs integration",
     "smoke:plan": "npm run build && node scripts/smoke-plan-workflow.mjs",
+    "smoke:claude-sdk": "npm run build && node scripts/smoke-claude-sdk-approval.mjs",
     "smoke:claude-options:capture": "node scripts/capture-claude-native-options.mjs",
     "smoke:claude-options:compare": "npm run build && node scripts/compare-claude-native-options.mjs",
     "chat-codex": "npm run build && node dist/src/cli.js",

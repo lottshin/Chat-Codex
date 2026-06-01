@@ -1525,8 +1525,9 @@ function hasDriveFolderListIntent(text: string | undefined): boolean {
   const trimmed = text?.trim();
   if (!trimmed) return false;
   if (/(配置|设置|设为|保存|绑定|配对|下载|发送|上传|FEISHU_DRIVE_FOLDER_TOKEN)/i.test(trimmed)) return false;
-  const mentionsRelayFolder = /(中转站|中转文件夹|中转目录|云空间中转|飞书云空间中转|drive\s*folder|relay\s*folder)/i.test(trimmed);
-  const asksForContents = /(里面|里边|里头|有什么|有哪些|查看|看看|看一下|列出|列表|清单|文件|内容)/i.test(trimmed);
+  const mentionsRelayFolder = /(中转站|中转云盘|中转文件夹|中转目录|云空间中转|飞书云空间中转|drive\s*folder|relay\s*folder)/i.test(trimmed);
+  const asksForContents = /(有什么|有哪些|查看|看看|看一下|列出|列表|清单|内容)/i.test(trimmed)
+    || /(里面|里边|里头).{0,12}(文件|内容)/i.test(trimmed);
   return mentionsRelayFolder && asksForContents;
 }
 

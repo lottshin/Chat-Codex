@@ -4,11 +4,7 @@ import { Bridge } from "../../src/bridge/bridge.js";
 import { ChannelRegistry } from "../../src/channels/registry.js";
 import { MockChannelAdapter } from "../../src/channels/mock/mock-channel-adapter.js";
 import { MockCodexAdapter } from "../../src/codex/mock-codex-adapter.js";
-import { ClaudeSdkAdapter } from "../../src/claude/claude-sdk-adapter.js";
-import { ClaudeApprovalService } from "../../src/claude/approval-service.js";
 import { ApprovalManager } from "../../src/approvals/approval-manager.js";
-import { BridgeDelivery } from "../../src/bridge/delivery.js";
-import { SilentLogger } from "../../src/logging/logger.js";
 import { truncateDisplayText } from "../../src/codex/codex-cli.js";
 import { codexInputPlainText, normalizeCodexInput } from "../../src/codex/input.js";
 import type { CodexAdapter, CodexBackgroundEventHandler, CodexCollaborationMode, CodexCompactResult, CodexEvent, CodexGoal, CodexPromptInput, CodexRunOptions, CodexSession, CodexSessionContextUsage, CodexSessionStatus, CodexSessionSummary, CodexTurnInput, StartSessionInput } from "../../src/codex/types.js";
@@ -801,31 +797,6 @@ test("Bridge creates Codex App chat sessions with optional first prompt", async 
   assert.ok(channel.sentMessages.some((message) => message.text.includes("Mock Codex 回复: 帮我总结这个项目")));
 });
 
-
-(process.env.CHAT_CODEX_CLAUDE_SDK_SMOKE === "1" ? test : test.skip)("Bridge resumes Claude SDK tool execution after numeric approval", async () => {
-  const channel = new MockChannelAdapter();
-  const approvals = new ApprovalManager();
-  const logger = new SilentLogger();
-  const delivery = new BridgeDelivery({ channels: new ChannelRegistry({ channels: [channel], logger }), approvals, logger, approvalSendRetryDelayMs: 1, backend: "claude" });
-  const approvalService = new ClaudeApprovalService({ approvals, delivery, logger });
-  const adapter = new ClaudeSdkAdapter({ approvalService });
-  const bridge = new Bridge({ channel, codex: adapter, approvals, logger, cwd: process.cwd() });
-  const fileName = `bridge-sdk-approval-${Date.now()}.tmp`;
-  await bridge.start();
-
-  try {
-    await channel.emitText("/new");
-    const promptPromise = channel.emitText(`必须调用 Bash 工具，命令必须完全等于：cmd /c type nul > ${fileName}。不要调用任何其他命令，不要解释。`);
-    await waitFor(() => channel.sentMessages.some((message) => message.text.includes("请选择处理方式")), 90_000);
-    await channel.emitText("/1");
-    await waitFor(() => fs.existsSync(path.join(process.cwd(), fileName)), 90_000);
-    await promptPromise;
-    assert.equal(fs.existsSync(path.join(process.cwd(), fileName)), true);
-  } finally {
-    fs.rmSync(path.join(process.cwd(), fileName), { force: true });
-    await bridge.stop();
-  }
-});
 test("Bridge handles compact confirmation and success over mock channel", async () => {
   const channel = new MockChannelAdapter({ typing: true });
   const codex = new ContextUsageCodexAdapter();
@@ -2730,6 +2701,58 @@ test("Bridge confirms recently mentioned local file when user asks to send it", 
   assert.equal(channel.sentMedia.length, 1);
   assert.equal(channel.sentMedia[0].media.path, imagePath);
   assert.match(channel.updatedMessages[0]?.text ?? "", /正在发送文件/);
+});
+
+test("Bridge does not reuse recent local files for local cloud download requests", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "bridge-cloud-download-context-"));
+  const imagePath = path.join(root, "previous-local-image.png");
+  fs.writeFileSync(imagePath, "png");
+  const channel = new MockChannelAdapter({ media: true, buttons: true, messageUpdate: true });
+  const codex = new VisibleFilePathCodexAdapter(imagePath);
+  const bridge = new Bridge({ channel, codex, cwd: root, backend: "claude", commandProfile: "claude" });
+
+  await bridge.start();
+  await channel.emitText("生成一张本地图片");
+  await bridge.waitForIdle();
+
+  assert.equal(codex.prompts.length, 1);
+  assert.ok(channel.sentMessages.some((message) => message.text.includes(imagePath)));
+
+  await channel.emitText("把云盘里的图片保存到桌面");
+  await bridge.waitForIdle();
+  await bridge.stop();
+
+  assert.equal(codex.prompts.length, 1);
+  assert.equal(channel.sentActionMessages.length, 0);
+  assert.equal(channel.sentMedia.length, 0);
+  assert.ok(channel.sentMessages.some((message) => message.text.includes("云盘文件下载需要在对应渠道里完成")));
+});
+
+test("Bridge keeps pending attachments when rejecting local cloud download requests", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "bridge-cloud-download-pending-media-"));
+  const imagePath = path.join(root, "pending.png");
+  fs.writeFileSync(imagePath, "png");
+  const channel = new MockChannelAdapter({ media: true });
+  const codex = new SteerableBlockingCodexAdapter();
+  const bridge = new Bridge({ channel, codex, cwd: root });
+
+  await bridge.start();
+  await channel.emitAttachment([{
+    id: "pending-image",
+    type: "image",
+    localPath: imagePath,
+    name: "pending.png",
+    mimeType: "image/png",
+  }]);
+  await channel.emitText("把云盘里的图片保存到桌面");
+  await channel.emitText("解释这张图");
+  await bridge.waitForIdle();
+  await bridge.stop();
+
+  assert.equal(codex.promptInputs.length, 1);
+  const prompt = codex.promptInputs[0];
+  assert.equal(prompt.items.some((item) => item.type === "localImage" && item.path === imagePath), true);
+  assert.ok(channel.sentMessages.some((message) => message.text.includes("云盘文件下载需要在对应渠道里完成")));
 });
 
 test("Bridge cancels pending sendfile delivery from confirmation action", async () => {

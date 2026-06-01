@@ -495,6 +495,61 @@ test("FeishuAdapter downloads a recently listed relay folder jpg without invokin
   assert.deepEqual(factory.client.driveFileDownloadPayloads[0], { path: { file_token: "box_file_jpg" } });
 });
 
+test("FeishuAdapter downloads a recently listed relay folder image from generic cloud wording", async () => {
+  const factory = new FakeFeishuTransportFactory();
+  const desktopDir = tempDir("codex-feishu-drive-cloud-wording-desktop-");
+  factory.client.driveDownloadBuffer = Buffer.from("cloud image bytes");
+  factory.client.driveFileListResponse = {
+    code: 0,
+    data: {
+      files: [
+        {
+          token: "box_file_png",
+          name: "云盘截图.png",
+          type: "file",
+          url: "https://tenant.feishu.cn/file/box_file_png",
+        },
+      ],
+      has_more: false,
+    },
+  };
+  const adapter = new FeishuAdapter({
+    ...credentials,
+    driveFolderToken: "fld_relay",
+    transportFactory: factory,
+    desktopDir,
+  });
+  let received = 0;
+  adapter.onMessage(async () => {
+    received += 1;
+  });
+
+  await adapter.start();
+  await factory.dispatcher.emitReceive(sampleFeishuTextEvent({
+    app_id: credentials.appId,
+    message: {
+      message_id: "om_drive_folder_list_before_cloud_wording_download",
+      chat_id: "oc_user",
+      content: JSON.stringify({ text: "你帮我看看这个中转云盘里面有什么文件" }),
+    },
+  }));
+  await factory.dispatcher.emitReceive(sampleFeishuTextEvent({
+    app_id: credentials.appId,
+    message: {
+      message_id: "om_drive_folder_cloud_wording_download",
+      chat_id: "oc_user",
+      content: JSON.stringify({ text: "把云盘里的图片保存到桌面" }),
+    },
+  }));
+
+  assert.equal(received, 0);
+  const card = latestFeishuActionCard(factory);
+  assert.match(card.elements?.[0]?.content ?? "", /确认下载飞书云空间文件/);
+  assert.match(card.elements?.[0]?.content ?? "", /云盘截图\.png/);
+  assert.match(card.elements?.[0]?.content ?? "", new RegExp(escapeRegExp(desktopDir)));
+  assert.equal(factory.client.driveFileDownloadPayloads.length, 0);
+});
+
 test("FeishuAdapter downloads a recently listed relay folder file by numeric index", async () => {
   const factory = new FakeFeishuTransportFactory();
   const desktopDir = tempDir("codex-feishu-drive-index-desktop-");
