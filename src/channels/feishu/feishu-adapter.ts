@@ -1603,11 +1603,48 @@ function hasRecentDriveFolderFileReference(text: string): boolean {
 }
 
 function indexedDriveFolderFile(text: string, files: FeishuDriveFolderItem[]): FeishuDriveFolderItem | undefined {
-  const match = /(?:第\s*)?(\d+)\s*(?:个|项|号)?/.exec(text);
-  if (!match) return undefined;
-  const index = Number.parseInt(match[1], 10);
-  if (!Number.isSafeInteger(index) || index < 1 || index > files.length) return undefined;
+  const index = driveFolderFileIndexFromText(text);
+  if (index === undefined || !Number.isSafeInteger(index) || index < 1 || index > files.length) return undefined;
   return files[index - 1];
+}
+
+function driveFolderFileIndexFromText(text: string): number | undefined {
+  const digitMatch = /(?:第\s*)?(\d+)\s*(?:个|项|号)?/.exec(text);
+  if (digitMatch?.[1]) return Number.parseInt(digitMatch[1], 10);
+  const chineseMatch = /第\s*([一二两三四五六七八九十]{1,3})\s*(?:个|项|号)?/.exec(text);
+  if (!chineseMatch?.[1]) return undefined;
+  return chineseOrdinalToNumber(chineseMatch[1]);
+}
+
+function chineseOrdinalToNumber(value: string): number | undefined {
+  const digits: Record<string, number> = {
+    一: 1,
+    二: 2,
+    两: 2,
+    三: 3,
+    四: 4,
+    五: 5,
+    六: 6,
+    七: 7,
+    八: 8,
+    九: 9,
+  };
+  if (value === "十") return 10;
+  if (value.startsWith("十")) {
+    const ones = value.slice(1);
+    return 10 + (ones ? digits[ones] ?? Number.NaN : 0);
+  }
+  if (value.endsWith("十")) {
+    const tens = value.slice(0, -1);
+    return (digits[tens] ?? Number.NaN) * 10;
+  }
+  const tenIndex = value.indexOf("十");
+  if (tenIndex > 0) {
+    const tens = value.slice(0, tenIndex);
+    const ones = value.slice(tenIndex + 1);
+    return (digits[tens] ?? Number.NaN) * 10 + (ones ? digits[ones] ?? Number.NaN : 0);
+  }
+  return digits[value];
 }
 
 function driveFolderItemMatchesText(file: FeishuDriveFolderItem, text: string): boolean {

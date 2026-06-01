@@ -495,6 +495,144 @@ test("FeishuAdapter downloads a recently listed relay folder jpg without invokin
   assert.deepEqual(factory.client.driveFileDownloadPayloads[0], { path: { file_token: "box_file_jpg" } });
 });
 
+test("FeishuAdapter downloads a recently listed relay folder file by numeric index", async () => {
+  const factory = new FakeFeishuTransportFactory();
+  const desktopDir = tempDir("codex-feishu-drive-index-desktop-");
+  factory.client.driveDownloadBuffer = Buffer.from("numeric second file bytes");
+  factory.client.driveFileListResponse = {
+    code: 0,
+    data: {
+      files: [
+        {
+          token: "box_file_pdf",
+          name: "会议纪要.pdf",
+          type: "file",
+          url: "https://tenant.feishu.cn/file/box_file_pdf",
+        },
+        {
+          token: "box_file_ppt",
+          name: "方案.pptx",
+          type: "file",
+          url: "https://tenant.feishu.cn/file/box_file_ppt",
+        },
+      ],
+      has_more: false,
+    },
+  };
+  const adapter = new FeishuAdapter({
+    ...credentials,
+    driveFolderToken: "fld_relay",
+    transportFactory: factory,
+    desktopDir,
+  });
+  let received = 0;
+  adapter.onMessage(async () => {
+    received += 1;
+  });
+
+  await adapter.start();
+  await factory.dispatcher.emitReceive(sampleFeishuTextEvent({
+    app_id: credentials.appId,
+    message: {
+      message_id: "om_drive_folder_list_before_index_download",
+      chat_id: "oc_user",
+      content: JSON.stringify({ text: "你帮我看看这个中转站里面有什么文件" }),
+    },
+  }));
+  await factory.dispatcher.emitReceive(sampleFeishuTextEvent({
+    app_id: credentials.appId,
+    message: {
+      message_id: "om_drive_folder_download_index",
+      chat_id: "oc_user",
+      content: JSON.stringify({ text: "下载第 2 个到桌面" }),
+    },
+  }));
+
+  const card = latestFeishuActionCard(factory);
+  assert.equal(received, 0);
+  assert.match(card.elements?.[0]?.content ?? "", /确认下载飞书云空间文件/);
+  assert.match(card.elements?.[0]?.content ?? "", /方案\.pptx/);
+  assert.doesNotMatch(card.elements?.[0]?.content ?? "", /会议纪要\.pdf/);
+  assert.equal(factory.client.driveFileDownloadPayloads.length, 0);
+});
+
+test("FeishuAdapter downloads a recently listed relay folder file by Chinese ordinal", async () => {
+  const factory = new FakeFeishuTransportFactory();
+  const desktopDir = tempDir("codex-feishu-drive-ordinal-desktop-");
+  factory.client.driveDownloadBuffer = Buffer.from("second file bytes");
+  factory.client.driveFileListResponse = {
+    code: 0,
+    data: {
+      files: [
+        {
+          token: "box_file_pdf",
+          name: "会议纪要.pdf",
+          type: "file",
+          url: "https://tenant.feishu.cn/file/box_file_pdf",
+        },
+        {
+          token: "box_file_jpg",
+          name: "现场照片.jpg",
+          type: "file",
+          url: "https://tenant.feishu.cn/file/box_file_jpg",
+        },
+      ],
+      has_more: false,
+    },
+  };
+  const adapter = new FeishuAdapter({
+    ...credentials,
+    driveFolderToken: "fld_relay",
+    transportFactory: factory,
+    desktopDir,
+  });
+  let received = 0;
+  adapter.onMessage(async () => {
+    received += 1;
+  });
+
+  await adapter.start();
+  await factory.dispatcher.emitReceive(sampleFeishuTextEvent({
+    app_id: credentials.appId,
+    message: {
+      message_id: "om_drive_folder_list_before_ordinal_download",
+      chat_id: "oc_user",
+      content: JSON.stringify({ text: "你帮我看看这个中转站里面有什么文件" }),
+    },
+  }));
+  await factory.dispatcher.emitReceive(sampleFeishuTextEvent({
+    app_id: credentials.appId,
+    message: {
+      message_id: "om_drive_folder_download_second",
+      chat_id: "oc_user",
+      content: JSON.stringify({ text: "把第二个保存到桌面" }),
+    },
+  }));
+
+  const card = latestFeishuActionCard(factory);
+  const actions = feishuCardActionValues(card);
+  assert.equal(received, 0);
+  assert.match(card.elements?.[0]?.content ?? "", /确认下载飞书云空间文件/);
+  assert.match(card.elements?.[0]?.content ?? "", /现场照片\.jpg/);
+  assert.doesNotMatch(card.elements?.[0]?.content ?? "", /会议纪要\.pdf/);
+  assert.match(card.elements?.[0]?.content ?? "", new RegExp(escapeRegExp(desktopDir)));
+  assert.equal(factory.client.driveFileDownloadPayloads.length, 0);
+
+  await factory.dispatcher.emitCardAction({
+    app_id: credentials.appId,
+    event_id: "ev_drive_folder_download_second",
+    token: "callback-token",
+    open_id: "ou_user",
+    open_chat_id: "oc_user",
+    open_message_id: "om_reply",
+    action: { value: { action: actions[0] } },
+  });
+
+  const expectedPath = path.join(desktopDir, "现场照片.jpg");
+  await waitFor(() => assert.deepEqual(fs.readFileSync(expectedPath), Buffer.from("second file bytes")));
+  assert.deepEqual(factory.client.driveFileDownloadPayloads[0], { path: { file_token: "box_file_jpg" } });
+});
+
 test("FeishuAdapter clarifies recently listed relay folder file references without invoking the agent", async () => {
   const factory = new FakeFeishuTransportFactory();
   factory.client.driveFileListResponse = {
