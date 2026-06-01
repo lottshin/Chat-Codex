@@ -2732,6 +2732,58 @@ test("Bridge confirms recently mentioned local file when user asks to send it", 
   assert.match(channel.updatedMessages[0]?.text ?? "", /正在发送文件/);
 });
 
+test("Bridge does not reuse recent local files for local cloud download requests", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "bridge-cloud-download-context-"));
+  const imagePath = path.join(root, "previous-local-image.png");
+  fs.writeFileSync(imagePath, "png");
+  const channel = new MockChannelAdapter({ media: true, buttons: true, messageUpdate: true });
+  const codex = new VisibleFilePathCodexAdapter(imagePath);
+  const bridge = new Bridge({ channel, codex, cwd: root, backend: "claude", commandProfile: "claude" });
+
+  await bridge.start();
+  await channel.emitText("生成一张本地图片");
+  await bridge.waitForIdle();
+
+  assert.equal(codex.prompts.length, 1);
+  assert.ok(channel.sentMessages.some((message) => message.text.includes(imagePath)));
+
+  await channel.emitText("把云盘里的图片保存到桌面");
+  await bridge.waitForIdle();
+  await bridge.stop();
+
+  assert.equal(codex.prompts.length, 1);
+  assert.equal(channel.sentActionMessages.length, 0);
+  assert.equal(channel.sentMedia.length, 0);
+  assert.ok(channel.sentMessages.some((message) => message.text.includes("云盘文件下载需要在对应渠道里完成")));
+});
+
+test("Bridge keeps pending attachments when rejecting local cloud download requests", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "bridge-cloud-download-pending-media-"));
+  const imagePath = path.join(root, "pending.png");
+  fs.writeFileSync(imagePath, "png");
+  const channel = new MockChannelAdapter({ media: true });
+  const codex = new SteerableBlockingCodexAdapter();
+  const bridge = new Bridge({ channel, codex, cwd: root });
+
+  await bridge.start();
+  await channel.emitAttachment([{
+    id: "pending-image",
+    type: "image",
+    localPath: imagePath,
+    name: "pending.png",
+    mimeType: "image/png",
+  }]);
+  await channel.emitText("把云盘里的图片保存到桌面");
+  await channel.emitText("解释这张图");
+  await bridge.waitForIdle();
+  await bridge.stop();
+
+  assert.equal(codex.promptInputs.length, 1);
+  const prompt = codex.promptInputs[0];
+  assert.equal(prompt.items.some((item) => item.type === "localImage" && item.path === imagePath), true);
+  assert.ok(channel.sentMessages.some((message) => message.text.includes("云盘文件下载需要在对应渠道里完成")));
+});
+
 test("Bridge cancels pending sendfile delivery from confirmation action", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "bridge-sendfile-deny-test-"));
   const filePath = path.join(root, "report.pdf");

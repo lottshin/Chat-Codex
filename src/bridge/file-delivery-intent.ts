@@ -31,3 +31,12 @@ export function detectRecentFileDeliveryIntent(text: string | undefined): FileDe
   }
   return { enabled: false, reason: "not_delivery" };
 }
+
+export function isLocalCloudDownloadIntent(text: string | undefined): boolean {
+  const normalized = text?.trim();
+  if (!normalized) return false;
+  const intent = classifyFileActionIntent(normalized);
+  return intent.action === "download_to_local"
+    && intent.target === "local_computer"
+    && intent.source === "cloud";
+}

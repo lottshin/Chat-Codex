@@ -33,7 +33,7 @@ import { BridgeBackgroundTurns } from "./background-turns.js";
 import { BridgeCommandRouter, canonicalBridgeCommandName, isBridgeAliasCommandName } from "./command-router.js";
 import { SessionContextRefreshManager } from "./context-refresh.js";
 import { BridgeDelivery } from "./delivery.js";
-import { detectFileDeliveryIntent, detectRecentFileDeliveryIntent } from "./file-delivery-intent.js";
+import { detectFileDeliveryIntent, detectRecentFileDeliveryIntent, isLocalCloudDownloadIntent } from "./file-delivery-intent.js";
 import { extractLocalDeliverableRefs } from "./media-extractor.js";
 import { BridgeProgressDelivery } from "./progress-delivery.js";
 import { BridgeRouteQueue } from "./route-queue.js";
@@ -529,6 +529,10 @@ export class Bridge {
     }
     if (this.sessionFlow.shouldAskBeforeBindingSession(message)) {
       await this.routeQueue.enqueuePrompt(message, target, text);
+      return;
+    }
+    if (isLocalCloudDownloadIntent(text)) {
+      await this.delivery.sendText(target, "云盘文件下载需要在对应渠道里完成。请在飞书里先发送“看看中转站里面有什么文件”，再说“下载第 2 个到桌面”或“把云盘里的图片保存到桌面”。");
       return;
     }
     const inputAttachments = [...this.pendingMedia.consume(message.routeKey), ...attachments.usable];
