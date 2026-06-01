@@ -19,6 +19,9 @@
 - `development-and-test.zh-CN.md`
   中文开发与测试规范。说明代码分层、质量要求、每个功能的自测要求、测试报告目录和报告格式。
 
+- `release-regression-checklist.zh-CN.md`
+  发布前真机回归清单。覆盖飞书中转站、飞书 Drive 文件链接、本地文件发送、微信图片/文件发送和进度噪声验收。
+
 - `agent-guide.zh-CN.md`
   Agent 开发指南。由旧版根 README 拆出，面向 coding agent，汇总阅读顺序、核心规则、目录边界、模块拆分、测试和提交要求。
 
@@ -168,9 +171,10 @@ secrets/feishu.local.md
 21. 做飞书运行日志、聊天绑定列表或群聊发言人前缀时读 `feishu-user-name-cache-design.zh-CN.md`，确认私聊 open_id 兜底、群聊手工名册和展示格式。
 22. 读 `cli-interaction-redesign.zh-CN.md`，了解上一轮普通 CLI 重构背景和历史设计。
 23. 读 `development-and-test.zh-CN.md`，确认开发和测试报告要求。
-24. 读 `git-management.zh-CN.md`，确认提交边界和忽略规则。
-25. Agent 继续读 `agent-guide.zh-CN.md`，确认执行规范。
-26. 需要 Codex 协议或微信插件源码细节时，先读 `../references/README.md`，按里面的说明拉取本地参考源码。
+24. 发布前读 `release-regression-checklist.zh-CN.md`，确认真实飞书/微信文件链路和进度噪声回归项。
+25. 读 `git-management.zh-CN.md`，确认提交边界和忽略规则。
+26. Agent 继续读 `agent-guide.zh-CN.md`，确认执行规范。
+27. 需要 Codex 协议或微信插件源码细节时，先读 `../references/README.md`，按里面的说明拉取本地参考源码。
 
 ## 分阶段工作顺序
 
