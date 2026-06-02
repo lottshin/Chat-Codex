@@ -1,4 +1,5 @@
 import type { ChannelMessage } from "../../protocol/channel.js";
+import type { FileHistoryStore } from "../../bridge/file-history-store.js";
 import type { Readable } from "node:stream";
 
 export interface FeishuCredentials {
@@ -24,6 +25,7 @@ export interface FeishuAdapterOptions extends FeishuCredentials {
   inboundMediaRootDir?: string;
   desktopDir?: string;
   stateDir?: string;
+  fileHistory?: FileHistoryStore;
 }
 
 export interface FeishuBotIdentity {

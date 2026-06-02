@@ -11,6 +11,7 @@ import type { FeishuCredentials } from "../../channels/feishu/feishu-types.js";
 import { WeixinAdapter } from "../../channels/weixin/weixin-adapter.js";
 import { FileWeixinAccountStore, normalizeWeixinAccountId, type StoredWeixinAccount } from "../../channels/weixin/weixin-account-store.js";
 import type { ChannelAdapter, ChannelCapabilities, ChannelStatus } from "../../protocol/channel.js";
+import type { FileHistoryStore } from "../../bridge/file-history-store.js";
 import { ChannelConfigStore } from "../../state/channel-config-store.js";
 import { FileStateStore, type RemoveChannelStateResult } from "../../state/file-state-store.js";
 import type { ChannelInstanceRecord } from "../../state/persistent-state-types.js";
@@ -21,6 +22,10 @@ export interface ChannelActionsOptions {
   configStore?: ChannelConfigStore;
   legacyWeixinStore?: FileWeixinAccountStore;
   env?: NodeJS.ProcessEnv;
+}
+
+export interface RuntimeAdapterOptions {
+  fileHistory?: FileHistoryStore;
 }
 
 export interface ManagedChannelSummary {
@@ -166,13 +171,13 @@ export class ChannelActions {
     return this.registerWeixinAccount(account);
   }
 
-  createRuntimeAdapters(): ChannelAdapter[] {
+  createRuntimeAdapters(options: RuntimeAdapterOptions = {}): ChannelAdapter[] {
     return this.configStore.listChannelInstances()
       .filter((record) => record.enabled)
-      .map((record) => this.createRuntimeAdapter(record));
+      .map((record) => this.createRuntimeAdapter(record, options));
   }
 
-  createRuntimeAdapter(record: ChannelInstanceRecord): ChannelAdapter {
+  createRuntimeAdapter(record: ChannelInstanceRecord, options: RuntimeAdapterOptions = {}): ChannelAdapter {
     if (record.type === "weixin") {
       return new WeixinAdapter({
         id: record.id,
@@ -188,6 +193,7 @@ export class ChannelActions {
         accountId: record.defaultAccountId ?? credentials.accountId ?? DEFAULT_FEISHU_ACCOUNT_ID,
         groupEnabled: isChannelGroupReceiveEnabled(record),
         stateDir: this.configStore.resolveStateDir(record.stateDir),
+        fileHistory: options.fileHistory,
       });
     }
     throw new Error(`暂不支持的渠道类型: ${record.type}`);

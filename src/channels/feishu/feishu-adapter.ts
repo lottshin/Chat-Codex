@@ -28,6 +28,11 @@ import { LOCAL_STATE_SCHEMA_VERSION, type ChannelAccountCredentialsDocument } fr
 import { readJsonFile, writeJsonFileAtomic } from "../../state/state-files.js";
 import { buildFeishuActionCard, feishuCardActionToInboundText } from "./feishu-card.js";
 import {
+  FileHistoryStore,
+  fileHistoryDriveDownloadRequestFromItem,
+  type FileHistoryReferenceResolution,
+} from "../../bridge/file-history-store.js";
+import {
   downloadFeishuDriveFileToPath,
   grantFeishuDriveFileView,
   listFeishuDriveFolderItems,
@@ -143,6 +148,7 @@ export class FeishuAdapter implements ChannelAdapter {
   private readonly inboundMediaRootDir?: string;
   private readonly desktopDir?: string;
   private readonly stateDir?: string;
+  private readonly fileHistory: FileHistoryStore;
   private handler?: ChannelMessageHandler;
   private status: ChannelStatus;
   private client?: FeishuSdkClient;
@@ -172,6 +178,7 @@ export class FeishuAdapter implements ChannelAdapter {
     this.inboundMediaRootDir = options.inboundMediaRootDir;
     this.desktopDir = options.desktopDir;
     this.stateDir = options.stateDir;
+    this.fileHistory = options.fileHistory ?? new FileHistoryStore({ now: this.now, ttlMs: this.dedupTtlMs });
     this.status = {
       channelId: this.id,
       state: missingFeishuCredentials(this.credentials).length > 0 ? "login_required" : "stopped",
@@ -689,6 +696,7 @@ export class FeishuAdapter implements ChannelAdapter {
     if (await this.tryHandleDriveFolderConfigMessage(message)) return;
     if (await this.tryHandleDriveFolderListMessage(message)) return;
     if (await this.tryHandleDriveFileDownloadMessage(message)) return;
+    if (await this.tryHandleFileHistoryDriveDownloadMessage(message)) return;
     if (await this.tryHandleRecentDriveFolderFileMessage(message)) return;
     await downloadFeishuInboundAttachments({
       client: this.ensureClient(),
@@ -836,6 +844,7 @@ export class FeishuAdapter implements ChannelAdapter {
         files: result.files,
         expiresAt: this.now() + this.dedupTtlMs,
       });
+      this.fileHistory.recordFeishuDriveListing(message.routeKey, result.files, { messageId: message.id });
       this.recentDriveFolderFileSelections.delete(message.routeKey);
       await this.sendText(target, formatDriveFolderListText(result.files, result.hasMore));
       this.status = {
@@ -870,6 +879,73 @@ export class FeishuAdapter implements ChannelAdapter {
     if (selection.expiresAt > this.now()) return selection;
     this.recentDriveFolderFileSelections.delete(routeKey);
     return undefined;
+  }
+
+  private async tryHandleFileHistoryDriveDownloadMessage(message: ChannelMessage): Promise<boolean> {
+    const text = message.text?.trim();
+    if (!text || !hasFeishuDriveDownloadIntent(text) || !hasRecentDriveFolderFileReference(text)) return false;
+    const resolution = this.fileHistory.resolveReference(message.routeKey, text, { action: "download_to_local" });
+    if (resolution.kind === "none") return false;
+    return this.handleFileHistoryDriveDownloadResolution(message, text, resolution);
+  }
+
+  private async handleFileHistoryDriveDownloadResolution(
+    message: ChannelMessage,
+    text: string,
+    resolution: FileHistoryReferenceResolution,
+  ): Promise<boolean> {
+    const target = replyTargetFromMessage(message);
+    if (resolution.kind === "ambiguous") {
+      await this.sendText(target, [
+        "中转站里匹配到多个文件，请直接说文件名或序号：",
+        ...resolution.items.map((item, index) => `${index + 1}. ${item.name}`),
+      ].join("\n"));
+      this.status = {
+        ...this.status,
+        lastInboundAt: message.timestamp,
+        details: this.statusDetails("drive-folder-reference-ambiguous"),
+      };
+      return true;
+    }
+    if (resolution.kind === "unsupported") {
+      await this.sendText(target, [
+        "这项不是云空间普通文件，暂不支持直接下载。",
+        `名称：${resolution.item.name}`,
+        `类型：${resolution.item.feishuDriveType ?? "unknown"}`,
+      ].join("\n"));
+      this.status = {
+        ...this.status,
+        lastInboundAt: message.timestamp,
+        details: this.statusDetails("drive-folder-reference-unsupported"),
+      };
+      return true;
+    }
+    if (resolution.kind !== "feishu_drive_file") return false;
+    const request = fileHistoryDriveDownloadRequestFromItem(resolution.item);
+    if (!request) return false;
+    try {
+      const destination = resolveFeishuDriveDownloadDirectory(text, {
+        defaultRootDir: this.inboundMediaRootDir,
+        desktopDir: this.desktopDir,
+      });
+      await this.requestDriveFileDownloadConfirmation(message, {
+        fileToken: request.fileToken,
+        fileName: request.fileName,
+        sourceUrl: request.sourceUrl,
+        directory: destination.directory,
+        directoryKind: destination.directoryKind,
+      });
+      this.recentDriveFolderFileSelections.delete(message.routeKey);
+      return true;
+    } catch (error) {
+      await this.sendText(target, driveDownloadFailureText("飞书云空间文件下载失败。", error, request.fileName));
+      this.status = {
+        ...this.status,
+        lastInboundAt: message.timestamp,
+        details: this.statusDetails("drive-folder-reference-download-failed"),
+      };
+      return true;
+    }
   }
 
   private async tryHandleRecentDriveFolderFileMessage(message: ChannelMessage): Promise<boolean> {
@@ -1086,6 +1162,11 @@ export class FeishuAdapter implements ChannelAdapter {
         client: this.ensureClient(),
         fileToken: pending.fileToken,
         localPath,
+      });
+      this.fileHistory.recordFeishuDriveDownload(pending.target.routeKey, localPath, {
+        name: pending.fileName,
+        url: pending.sourceUrl,
+        feishuFileToken: pending.fileToken,
       });
       this.driveDownloadRequests.delete(pending.id);
       await this.updateDriveDownloadActionMessage(pending, [

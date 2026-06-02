@@ -1,6 +1,7 @@
 import { Bridge } from "../../bridge/bridge.js";
 import { BridgeDelivery } from "../../bridge/delivery.js";
 import { APPROVAL_SEND_RETRY_DELAY_MS } from "../../bridge/bridge-types.js";
+import { FileHistoryStore } from "../../bridge/file-history-store.js";
 import { ApprovalManager } from "../../approvals/approval-manager.js";
 import { LimitedTurnScheduler } from "../../bridge/turn-scheduler.js";
 import { ChannelRegistry } from "../../channels/registry.js";
@@ -31,7 +32,8 @@ export async function startServeBridge(
   channelActions: ChannelActions,
   display: { tui?: boolean } = {},
 ): Promise<void> {
-  const adapters = channelActions.createRuntimeAdapters();
+  const fileHistory = new FileHistoryStore();
+  const adapters = channelActions.createRuntimeAdapters({ fileHistory });
   if (adapters.length === 0) {
     throw new Error("未发现可启动的渠道。请先运行 chat-codex，在“管理渠道”里添加并启用微信账号或飞书机器人。");
   }
@@ -79,6 +81,7 @@ export async function startServeBridge(
     progressMode: startup.progressMode,
     contextRefresh: { defaultPolicy: contextRefresh },
     routeTrustMode: "real_channels",
+    fileHistory,
     channelCapabilities: {
       setGroupEnabled: (channelId, enabled) => {
         const updated = channelActions.setChannelGroupEnabled(channelId, enabled);

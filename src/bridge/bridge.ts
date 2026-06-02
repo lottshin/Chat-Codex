@@ -143,7 +143,7 @@ export class Bridge {
   private readonly routeTargets = new Map<string, ChannelTarget>();
   private readonly pendingMedia = new PendingMediaManager();
   private readonly pendingSendFiles = new PendingSendFileDeliveryStore();
-  private readonly fileHistory = new FileHistoryStore();
+  private readonly fileHistory: FileHistoryStore;
   private readonly recentDeliverables = new Map<string, RecentDeliverables>();
   private stopBackgroundEvents?: () => void;
 
@@ -163,6 +163,7 @@ export class Bridge {
     this.transcript = options.transcript;
     this.commandProfile = options.commandProfile ?? "codex";
     this.cwd = options.cwd ?? process.cwd();
+    this.fileHistory = options.fileHistory ?? new FileHistoryStore();
     this.feishuGroupMembers = new FeishuGroupMemberRegistry({
       stateRootDir: options.feishuGroupMemberStateRootDir,
       cwd: this.cwd,

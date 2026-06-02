@@ -11,6 +11,7 @@ import type { TurnScheduler } from "./turn-scheduler.js";
 import type { PairingCodeManager } from "./pairing-code-manager.js";
 import type { ContextRefreshPolicy } from "../context-refresh/types.js";
 import type { CodexSessionContextFingerprint } from "../codex/session-context-fingerprint.js";
+import type { FileHistoryStore } from "./file-history-store.js";
 
 export interface BridgeOptions {
   channel?: ChannelAdapter;
@@ -38,6 +39,7 @@ export interface BridgeOptions {
   contextRefresh?: BridgeContextRefreshOptions;
   channelCapabilities?: BridgeChannelCapabilityController;
   feishuGroupMemberStateRootDir?: string;
+  fileHistory?: FileHistoryStore;
 }
 
 export interface BridgeContextRefreshOptions {
