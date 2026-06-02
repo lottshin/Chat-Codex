@@ -1,7 +1,7 @@
 <h1 align="center">Chat-Codex</h1>
 
 <p align="center">
-A lightweight chat middleware that connects local Codex to Weixin and Feishu.
+A lightweight chat middleware that connects local Codex or Claude Code to Weixin and Feishu.
 </p>
 
 <p align="center">
@@ -16,7 +16,7 @@ A lightweight chat middleware that connects local Codex to Weixin and Feishu.
 <img src="https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white" alt="TypeScript">
 <img src="https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=111827" alt="React">
 <img src="https://img.shields.io/badge/TUI-Ink-0ea5e9" alt="Ink TUI">
-<img src="https://img.shields.io/badge/Runtime-Codex-111827" alt="Codex">
+<img src="https://img.shields.io/badge/Runtime-Codex%20%7C%20Claude%20Code-111827" alt="Codex and Claude Code">
 <img src="https://img.shields.io/badge/Channel-Weixin-07C160?logo=wechat&logoColor=white" alt="Weixin">
 <img src="https://img.shields.io/badge/Channel-Feishu-2563EB" alt="Feishu">
 <img src="https://img.shields.io/badge/License-MIT-green" alt="License">
@@ -42,17 +42,18 @@ A lightweight chat middleware that connects local Codex to Weixin and Feishu.
 
 ## Overview
 
-Chat-Codex is a lightweight middleware for connecting Weixin and Feishu private chats to a local Codex runtime. It normalizes messages from different chat platforms, binds each chat route to an independent Codex session, and sends Codex replies, approvals, progress, and files back to the correct conversation.
+Chat-Codex is a lightweight middleware for connecting Weixin and Feishu private chats to a local Codex or Claude Code runtime. It normalizes messages from different chat platforms, binds each chat route to an independent session, and sends Codex/Claude Code replies, approvals, progress, and files back to the correct conversation.
 
-The core goal is to make Codex usable from chat windows while keeping routes, sessions, approvals, and files isolated across channels and users.
+The core goal is to make Codex/Claude Code usable from chat windows while keeping routes, sessions, approvals, and files isolated across channels and users.
 
 ## Capabilities
 
 - Unified `chat-codex` entry with a TUI for channel management, chat bindings, permissions, and startup.
 - Weixin account and Feishu bot integration.
-- Independent Codex session binding per chat route.
-- One Codex session can only belong to one route, preventing context, approval, and file delivery mix-ups.
+- Independent Codex/Claude Code session binding per chat route.
+- One Codex/Claude Code session can only belong to one route, preventing context, approval, and file delivery mix-ups.
 - Codex app-server as the default Codex integration, with `codex exec --json` as a fallback adapter.
+- Claude Code support through `chat-claude`, `--backend claude`, or `terminal claude`.
 - Chat-side commands for creating/resuming sessions, inspecting status, stopping turns, handling approvals, switching permissions, switching models, and sending files.
 - Local persistence for channel instances, chat bindings, session owners, session policies, and pending bindings.
 - Runtime TUI log panel for inbound messages, outbound replies, progress, media, and errors.
@@ -67,7 +68,7 @@ npm install -g chat-codex
 chat-codex
 ```
 
-Before first launch, set up the local Codex CLI. Chat-Codex talks to Codex by launching the local `codex` CLI as a child process, using either `codex app-server` or `codex exec`. Installing only the Codex desktop app does not necessarily make the `codex` command available.
+Before first launch, set up the local Codex CLI or Claude Code CLI. Chat-Codex talks to Codex by launching the local `codex` CLI as a child process, using either `codex app-server` or `codex exec`. Installing only the Codex desktop app does not necessarily make the `codex` command available.
 
 Official Codex CLI setup guide: <https://developers.openai.com/codex/quickstart>
 
@@ -92,7 +93,9 @@ codex --version
 codex
 ```
 
-On first launch, follow the TUI to check Codex, manage channels, bind chats, and start the service.
+For Claude Code, make sure the local `claude` CLI is installed and logged in, then start the Claude Code entry with `chat-claude` or select the Claude backend in the TUI.
+
+On first launch, follow the TUI to check Codex/Claude Code, manage channels, bind chats, and start the service.
 
 ### First-time Pairing
 
@@ -111,7 +114,7 @@ After pairing succeeds, that chat is stored as a trusted route and remains usabl
 | Runtime | Node.js 22+ |
 | Language | TypeScript / ESM |
 | TUI | Ink + React |
-| Codex integration | Codex app-server, `codex exec --json` fallback |
+| Codex / Claude Code integration | Codex app-server, `codex exec --json` fallback, Claude Code print/stream-json |
 | Weixin channel | Adapted `@tencent-weixin/openclaw-weixin` communication capability |
 | Feishu channel | `@larksuiteoapi/node-sdk` + WebSocket |
 | State | Local JSON files |
@@ -152,6 +155,7 @@ The TUI guides Codex checks, channel management, chat bindings, and service star
 | `npm run cli:mock` | Mock channel loop |
 | `npm run cli:terminal:mock` | Terminal channel + MockCodex |
 | `npm run cli:terminal:codex` | Terminal channel + real Codex |
+| `npm run cli:terminal:claude` | Terminal channel + real Claude Code |
 | `npm run cli:weixin:status` | Weixin helper status check |
 | `npm run cli:weixin:login` | Weixin helper QR login |
 | `npm run cli:feishu:status` | Feishu helper credential and bot identity check |
@@ -180,16 +184,17 @@ Bridge Core
 CodexAdapter
   |-- AppServerCodexAdapter (default)
   |-- ExecCodexAdapter (fallback)
+  |-- ClaudeExecAdapter
   |
   v
-Codex CLI / Codex app-server
+Codex CLI / Codex app-server / Claude Code CLI
 ```
 
 Core boundaries:
 
-- Codex integration only goes through `CodexAdapter`.
+- Codex/Claude Code integration goes through the shared adapter contract.
 - Chat channels only go through `ChannelAdapter`.
-- Bridge Core owns generic routing, queues, session binding, approvals, permissions, and Codex turn scheduling.
+- Bridge Core owns generic routing, queues, session binding, approvals, permissions, and Codex/Claude Code turn scheduling.
 - Login, platform tokens, cursors, rate limits, retries, typing, and media upload belong to concrete channel adapters.
 - Channel-specific delivery behavior is expressed through `ChannelCapabilities` and `ChannelDeliveryPolicy`.
 
@@ -199,7 +204,7 @@ Stable route key:
 <channelId>:<accountId>:<conversationKind>:<conversationId>
 ```
 
-Normal messages for the same route are serialized. Different routes can run different Codex sessions concurrently. A Codex session can only belong to one route.
+Normal messages for the same route are serialized. Different routes can run different Codex/Claude Code sessions concurrently. A session can only belong to one route.
 
 ## Chat Commands
 
@@ -208,11 +213,11 @@ These commands are sent from Weixin or Feishu private chats. Command messages by
 | Command | Purpose |
 | --- | --- |
 | `/help` | Show available commands for the current channel |
-| `/new` | Create a new Codex session for the current chat route |
-| `/resume [session\|number]` | Resume and bind an existing Codex session |
+| `/new` | Create a new Codex/Claude Code session for the current chat route |
+| `/resume [session\|number]` | Resume and bind an existing Codex/Claude Code session |
 | `/use [session\|number]` | Switch the active session for the current route |
 | `/sessions` | List sessions owned or used by the current route |
-| `/sessions all` | List locally discoverable Codex sessions |
+| `/sessions all` | List locally discoverable Codex/Claude Code sessions |
 | `/status` | Show session, model, token, queue, approval, permission, and channel status |
 | `/whoami` | Show current channel, route, sender, and conversation identity |
 | `/debug` | Show debug state |
@@ -231,7 +236,8 @@ These commands are sent from Weixin or Feishu private chats. Command messages by
 | `/model <model or number> [effort]` | Switch model and reasoning effort |
 | `/model effort <effort>` | Switch reasoning effort only |
 | `/model default` | Clear the current session model override |
-| `/sendfile <task>` | Allow Codex to declare files for this turn |
+| `/files` | Show recent files and Feishu Drive items for the current route |
+| `/sendfile <task>` | Allow Codex/Claude Code to declare files for this turn |
 | `/skills` / `/skill` | List discovered Claude Code skills; call one with `/<skill-name> <task>` |
 | `/compact` | Compact the current session history; requires `/compact confirm` |
 | `/progress [brief\|detailed\|silent]` | Progress delivery mode for non-Weixin channels |
@@ -241,19 +247,23 @@ These commands are sent from Weixin or Feishu private chats. Command messages by
 
 Local paths, Markdown images, and `file://` references in ordinary replies are shown as text and are not sent automatically.
 
-To allow Codex to generate and send files for one turn, send:
+To allow Codex/Claude Code to generate and send files for one turn, either ask naturally or send:
 
 ```text
 /sendfile <task>
 ```
 
-Bridge only parses internal protocol lines at the end of the final Codex reply:
+Bridge only parses internal protocol lines at the end of the final Codex/Claude Code reply:
 
 ```text
 BRIDGE_SEND_FILE: /absolute/path/to/file
 ```
 
-At most 3 files are sent per turn. Protocol lines are not shown to chat users.
+At most 3 files are sent per turn. Protocol lines are not shown to chat users. Bridge always asks for file-send confirmation before sending local files.
+
+Use `/files` or `/show files` to inspect recent files for the current route. Sources include local files mentioned by Codex/Claude Code final replies, Weixin/Feishu attachments saved to the local upload directory, Feishu relay-folder listing items, and local files saved from Feishu Drive downloads. Plain internet links are not recorded.
+
+Natural references such as "send it to me", "send the previous one", or "send the second file" resolve against recent local files and still open a send-file confirmation. Feishu Drive references such as "download the second one to desktop" or "save the cloud image to desktop" resolve against recent relay-folder items and still open a Drive download confirmation.
 
 For Feishu Drive relay folders, messages such as "list the relay folder" are handled by the Feishu adapter directly instead of being sent to Codex/Claude Code. After a listing, users can ask to download a named file or reference a numbered item such as "the second one" to the desktop; if they first clarify a file such as "the jpg one", a follow-up "save to desktop" reuses that clarified Drive file and still asks for confirmation before downloading.
 
