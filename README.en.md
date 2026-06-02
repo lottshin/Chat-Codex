@@ -143,6 +143,8 @@ The TUI guides Codex checks, channel management, chat bindings, and service star
 | `npm test` | Build and run all unit and integration tests |
 | `npm run test:unit` | Run unit tests |
 | `npm run test:integration` | Run integration tests |
+| `npm run smoke:claude-sdk` | Run the deterministic local Claude SDK approval smoke; not part of default `npm test` |
+| `npm run smoke:claude-sdk:real` | Run the live Claude Agent SDK / provider smoke; on failure, add `-- --debug-sdk` to collect Claude Code subprocess logs |
 | `npm run chat-codex` | Start the development Chat-Codex TUI |
 | `npm run cli:chat-codex` | Equivalent development entry |
 | `chat-codex --version` | Show the installed Chat-Codex version |
