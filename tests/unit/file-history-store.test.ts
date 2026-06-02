@@ -105,6 +105,21 @@ test("FileHistoryStore records only usable inbound attachments", () => {
   assert.equal(items[0].messageId, "user-1");
 });
 
+test("FileHistoryStore keeps inbound attachment source when assistant repeats the same local path", () => {
+  const root = tempDir();
+  const filePath = path.join(root, "upload.pdf");
+  fs.writeFileSync(filePath, "pdf");
+  const store = new FileHistoryStore({ now: () => 1_000 });
+
+  store.recordInboundAttachments("route-a", [localAttachment(filePath)], { messageId: "user-1" });
+  store.recordLocalDeliverables("route-a", [localMedia(filePath)], { messageId: "assistant-1" });
+
+  const items = store.list("route-a");
+  assert.equal(items.length, 1);
+  assert.equal(items[0].source, "inbound_attachment");
+  assert.equal(items[0].messageId, "user-1");
+});
+
 test("FileHistoryStore records Feishu Drive listings and resolves ordinals from shown order", () => {
   const store = new FileHistoryStore({ now: () => 1_000 });
 

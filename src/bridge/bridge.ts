@@ -34,6 +34,12 @@ import { BridgeCommandRouter, canonicalBridgeCommandName, isBridgeAliasCommandNa
 import { SessionContextRefreshManager } from "./context-refresh.js";
 import { BridgeDelivery } from "./delivery.js";
 import { detectFileDeliveryIntent, detectRecentFileDeliveryIntent, isLocalCloudDownloadIntent } from "./file-delivery-intent.js";
+import {
+  FileHistoryStore,
+  fileHistoryExtractionFromLocalItems,
+  formatFileHistoryList,
+  type FileHistoryReferenceResolution,
+} from "./file-history-store.js";
 import { extractLocalDeliverableRefs } from "./media-extractor.js";
 import { BridgeProgressDelivery } from "./progress-delivery.js";
 import { BridgeRouteQueue } from "./route-queue.js";
@@ -137,6 +143,7 @@ export class Bridge {
   private readonly routeTargets = new Map<string, ChannelTarget>();
   private readonly pendingMedia = new PendingMediaManager();
   private readonly pendingSendFiles = new PendingSendFileDeliveryStore();
+  private readonly fileHistory = new FileHistoryStore();
   private readonly recentDeliverables = new Map<string, RecentDeliverables>();
   private stopBackgroundEvents?: () => void;
 
@@ -313,6 +320,7 @@ export class Bridge {
           }, message, target, args, rawText);
         },
         status: (message) => this.statusTextRenderer.statusText(message),
+        files: (message) => this.fileHistoryText(message.routeKey),
         usage: (message) => this.statusTextRenderer.usageText(message),
         btw: (message, target, rawText) => this.sideTasks.start(message, target, rawText),
         dir: (message, target, args) => handleDirCommand({
@@ -445,6 +453,7 @@ export class Bridge {
     this.sideTasks.clearAll();
     this.pendingMedia.clearAll();
     this.pendingSendFiles.clearAll();
+    this.fileHistory.clearAll();
     this.recentDeliverables.clear();
     this.progressDelivery.clearAll();
     this.stopBackgroundEvents?.();
@@ -519,6 +528,9 @@ export class Bridge {
       await this.delivery.sendText(target, inboundMediaUnsupportedText());
       return;
     }
+    if (attachments.usable.length > 0) {
+      this.fileHistory.recordInboundAttachments(message.routeKey, attachments.usable, { messageId: message.id });
+    }
     if (!text && attachments.usable.length > 0) {
       await this.addPendingMedia(message, target, attachments.usable);
       return;
@@ -559,6 +571,11 @@ export class Bridge {
       ? { enabled: false }
       : detectRecentFileDeliveryIntent(text);
     if (recentFileDeliveryIntent.enabled) {
+      const historical = this.fileHistorySendResolution(message.routeKey, text);
+      if (historical) {
+        await this.handleFileHistorySendResolution(message, target, historical);
+        return;
+      }
       const extraction = this.recentDeliverableExtraction(message.routeKey);
       if (extraction) {
         this.recentDeliverables.delete(message.routeKey);
@@ -717,7 +734,34 @@ export class Bridge {
       this.recentDeliverables.delete(routeKey);
       return;
     }
+    this.fileHistory.recordLocalDeliverables(routeKey, media);
     this.recentDeliverables.set(routeKey, { media, createdAt: Date.now() });
+  }
+
+  private fileHistoryText(routeKey: string): string {
+    return formatFileHistoryList(this.fileHistory.list(routeKey));
+  }
+
+  private fileHistorySendResolution(routeKey: string, text: string): FileHistoryReferenceResolution | undefined {
+    const resolution = this.fileHistory.resolveReference(routeKey, text, { action: "send_to_chat" });
+    return resolution.kind === "none" ? undefined : resolution;
+  }
+
+  private async handleFileHistorySendResolution(
+    message: ChannelMessage,
+    target: ChannelTarget,
+    resolution: FileHistoryReferenceResolution,
+  ): Promise<void> {
+    if (resolution.kind === "ambiguous") {
+      await this.delivery.sendText(target, [
+        "匹配到多个文件，请直接说文件名或序号：",
+        ...resolution.items.map((item, index) => `${index + 1}. ${item.name}`),
+      ].join("\n"));
+      return;
+    }
+    if (resolution.kind !== "local_media") return;
+    const extraction = fileHistoryExtractionFromLocalItems(resolution.items, SEND_FILE_MAX_FILES);
+    await this.requestSendFileConfirmation({ message, target, extraction });
   }
 
   private recentDeliverableExtraction(routeKey: string): SendFileConfirmationRequest["extraction"] | undefined {

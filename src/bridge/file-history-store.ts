@@ -131,6 +131,10 @@ export class FileHistoryStore {
     this.records.set(routeKey, this.activeItems(routeKey));
   }
 
+  clearAll(): void {
+    this.records.clear();
+  }
+
   resolveReference(routeKey: string, text: string | undefined, options: FileHistoryReferenceOptions): FileHistoryReferenceResolution {
     const normalized = text?.trim() ?? "";
     const active = this.activeItems(routeKey);
@@ -174,8 +178,9 @@ export class FileHistoryStore {
 
   private prepend(routeKey: string, item: FileHistoryItem): void {
     const active = this.activeItems(routeKey);
-    const deduped = active.filter((existing) => itemKey(existing) !== itemKey(item));
-    this.records.set(routeKey, [item, ...deduped].slice(0, this.maxItemsPerRoute));
+    const existing = active.find((candidate) => itemKey(candidate) === itemKey(item));
+    const deduped = active.filter((candidate) => itemKey(candidate) !== itemKey(item));
+    this.records.set(routeKey, [mergeDuplicateItem(existing, item), ...deduped].slice(0, this.maxItemsPerRoute));
   }
 
   private activeItems(routeKey: string): FileHistoryItem[] {
@@ -403,6 +408,23 @@ function cloneItems(items: readonly FileHistoryItem[]): FileHistoryItem[] {
 
 function itemKey(item: FileHistoryItem): string {
   return item.localPath ?? item.url ?? item.feishuFileToken ?? `${item.source}:${item.name}`;
+}
+
+function mergeDuplicateItem(existing: FileHistoryItem | undefined, incoming: FileHistoryItem): FileHistoryItem {
+  if (!existing) return incoming;
+  if (shouldKeepExistingSource(existing, incoming)) {
+    return {
+      ...existing,
+      sizeBytes: existing.sizeBytes ?? incoming.sizeBytes,
+      mimeType: existing.mimeType ?? incoming.mimeType,
+      expiresAt: Math.max(existing.expiresAt, incoming.expiresAt),
+    };
+  }
+  return incoming;
+}
+
+function shouldKeepExistingSource(existing: FileHistoryItem, incoming: FileHistoryItem): boolean {
+  return existing.source === "inbound_attachment" && incoming.source === "agent_local";
 }
 
 function kindFromChannelMedia(media: ChannelMedia): FileHistoryKind {

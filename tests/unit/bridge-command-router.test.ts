@@ -515,6 +515,7 @@ function routerFixture(options: {
       btwCalls.push(rawText);
     },
     status: async () => "status",
+    files: () => "files",
     show: async (_message, args, commandName) => `show:${commandName}:${args.join(",")}`,
     sessions: async () => "sessions",
     resumeOrUseSession: async (_message, _target, command, sessionRef) => {

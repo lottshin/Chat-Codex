@@ -326,6 +326,27 @@ class VisibleFilePathCodexAdapter extends MockCodexAdapter {
   }
 }
 
+class VisibleTextCodexAdapter extends MockCodexAdapter {
+  readonly prompts: string[] = [];
+
+  constructor(private readonly finalText: string) {
+    super();
+  }
+
+  override async *run(sessionId: string, prompt: CodexPromptInput): AsyncIterable<CodexEvent> {
+    this.prompts.push(codexInputPlainText(prompt));
+    const turnId = `visible-text-turn-${Date.now()}`;
+    yield { type: "turn.started", sessionId, turnId };
+    yield {
+      type: "assistant.completed",
+      sessionId,
+      turnId,
+      text: this.finalText,
+    };
+    yield { type: "turn.completed", sessionId, turnId };
+  }
+}
+
 class ManyProgressCodexAdapter extends MockCodexAdapter {
   override async *run(sessionId: string, _prompt: string): AsyncIterable<CodexEvent> {
     const turnId = `many-progress-turn-${Date.now()}`;
@@ -2701,6 +2722,122 @@ test("Bridge confirms recently mentioned local file when user asks to send it", 
   assert.equal(channel.sentMedia.length, 1);
   assert.equal(channel.sentMedia[0].media.path, imagePath);
   assert.match(channel.updatedMessages[0]?.text ?? "", /正在发送文件/);
+});
+
+test("Bridge /files lists recently mentioned local files", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "bridge-files-command-local-"));
+  const imagePath = path.join(root, "feishu-login-qr.png");
+  fs.writeFileSync(imagePath, "png");
+  const channel = new MockChannelAdapter({ media: true });
+  const codex = new VisibleFilePathCodexAdapter(imagePath);
+  const bridge = new Bridge({ channel, codex, cwd: root, backend: "claude", commandProfile: "claude" });
+
+  await bridge.start();
+  await channel.emitText("生成飞书登录二维码截图");
+  await bridge.waitForIdle();
+  await channel.emitText("/files");
+  await bridge.waitForIdle();
+  await bridge.stop();
+
+  const filesText = channel.sentMessages.at(-1)?.text ?? "";
+  assert.match(filesText, /最近文件：/);
+  assert.match(filesText, /\[本地\] feishu-login-qr\.png/);
+  assert.match(filesText, new RegExp(escapeRegExp(imagePath)));
+  assert.equal(codex.prompts.length, 1);
+});
+
+test("Bridge /files lists usable inbound attachments", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "bridge-files-command-attachment-"));
+  const filePath = path.join(root, "upload.pdf");
+  fs.writeFileSync(filePath, "pdf");
+  const channel = new MockChannelAdapter({ media: true });
+  const codex = new SteerableBlockingCodexAdapter();
+  const bridge = new Bridge({ channel, codex, cwd: root });
+
+  await bridge.start();
+  await channel.emitAttachment([mockFileAttachment(filePath)], { text: "总结这个文件" });
+  await bridge.waitForIdle();
+  await channel.emitText("/files");
+  await bridge.waitForIdle();
+  await bridge.stop();
+
+  const filesText = channel.sentMessages.at(-1)?.text ?? "";
+  assert.match(filesText, /最近文件：/);
+  assert.match(filesText, /\[聊天附件\] upload\.pdf/);
+  assert.match(filesText, new RegExp(escapeRegExp(filePath)));
+  assert.equal(codex.promptInputs.length, 1);
+});
+
+test("Bridge sends inbound attachment from file history after explicit send request", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "bridge-file-history-attachment-send-"));
+  const imagePath = path.join(root, "upload.png");
+  fs.writeFileSync(imagePath, "png");
+  const channel = new MockChannelAdapter({ media: true, buttons: true, messageUpdate: true });
+  const codex = new SteerableBlockingCodexAdapter();
+  const bridge = new Bridge({ channel, codex, cwd: root });
+
+  await bridge.start();
+  await channel.emitAttachment([mockImageAttachment(imagePath)], { text: "先看一下这张图" });
+  await bridge.waitForIdle();
+  await channel.emitText("把刚才那张图发给我");
+  await bridge.waitForIdle();
+
+  assert.equal(codex.promptInputs.length, 1);
+  assert.equal(channel.sentMedia.length, 0);
+  assert.equal(channel.sentActionMessages.length, 1);
+  assert.ok(channel.sentActionMessages[0]?.message.text.includes("确认发送文件"));
+  assert.ok(channel.sentActionMessages[0]?.message.text.includes(imagePath));
+
+  await channel.emitText("/sendfile-approve f001");
+  await bridge.waitForIdle();
+  await bridge.stop();
+
+  assert.equal(channel.sentMedia.length, 1);
+  assert.equal(channel.sentMedia[0].media.path, imagePath);
+});
+
+test("Bridge clarifies multiple matching file-history images instead of auto-sending", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "bridge-file-history-ambiguous-"));
+  const one = path.join(root, "one.png");
+  const two = path.join(root, "two.png");
+  fs.writeFileSync(one, "one");
+  fs.writeFileSync(two, "two");
+  const channel = new MockChannelAdapter({ media: true, buttons: true });
+  const codex = new VisibleTextCodexAdapter([
+    `第一张图：${one}`,
+    `第二张图：${two}`,
+  ].join("\n"));
+  const bridge = new Bridge({ channel, codex, cwd: root });
+
+  await bridge.start();
+  await channel.emitText("生成两张图");
+  await bridge.waitForIdle();
+  await channel.emitText("把图片发给我");
+  await bridge.waitForIdle();
+  await bridge.stop();
+
+  assert.equal(codex.prompts.length, 1);
+  assert.equal(channel.sentActionMessages.length, 0);
+  const clarifyText = channel.sentMessages.at(-1)?.text ?? "";
+  assert.match(clarifyText, /匹配到多个文件/);
+  assert.match(clarifyText, /two\.png/);
+  assert.match(clarifyText, /one\.png/);
+});
+
+test("Bridge /files ignores plain internet links from assistant text", async () => {
+  const channel = new MockChannelAdapter({ media: true });
+  const codex = new VisibleTextCodexAdapter("参考链接：https://example.com/report.pdf");
+  const bridge = new Bridge({ channel, codex, cwd: process.cwd() });
+
+  await bridge.start();
+  await channel.emitText("给我一个链接");
+  await bridge.waitForIdle();
+  await channel.emitText("/files");
+  await bridge.waitForIdle();
+  await bridge.stop();
+
+  assert.equal(channel.sentMessages.at(-1)?.text, "当前没有可引用的最近文件。");
+  assert.equal(codex.prompts.length, 1);
 });
 
 test("Bridge does not reuse recent local files for local cloud download requests", async () => {

@@ -37,6 +37,7 @@ test("detectRecentFileDeliveryIntent enables short send-current-file replies onl
   assert.equal(detectRecentFileDeliveryIntent("发我").enabled, true);
   assert.equal(detectRecentFileDeliveryIntent("发一下").enabled, true);
   assert.equal(detectRecentFileDeliveryIntent("把这个发给我").enabled, true);
+  assert.equal(detectRecentFileDeliveryIntent("把刚才那张图发给我").enabled, true);
 
   assert.equal(detectRecentFileDeliveryIntent("发给张三").enabled, false);
   assert.equal(detectRecentFileDeliveryIntent("发到群里").enabled, false);

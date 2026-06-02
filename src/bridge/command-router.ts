@@ -21,6 +21,7 @@ const BRIDGE_COMMAND_NAMES = new Set([
   "btw",
   "show",
   "status",
+  "files",
   "session",
   "sessions",
   "all-sessions",
@@ -107,6 +108,7 @@ export interface BridgeCommandHandlers {
   usage(message: ChannelMessage): Promise<string>;
   btw(message: ChannelMessage, target: ChannelTarget, rawText: string): Promise<void>;
   status(message: ChannelMessage): Promise<string>;
+  files(message: ChannelMessage): string;
   show(message: ChannelMessage, args: string[], commandName: string): Promise<string>;
   sessions(message: ChannelMessage, args: string[], commandName: string): Promise<string>;
   resumeOrUseSession(message: ChannelMessage, target: ChannelTarget, command: "resume" | "use", sessionRef: string | undefined): Promise<void>;
@@ -212,6 +214,9 @@ export class BridgeCommandRouter {
         return;
       case "status":
         await this.delivery.sendText(target, await this.handlers.status(message));
+        return;
+      case "files":
+        await this.delivery.sendText(target, this.handlers.files(message));
         return;
       case "usage":
         await this.delivery.sendText(target, await this.handlers.usage(message));
