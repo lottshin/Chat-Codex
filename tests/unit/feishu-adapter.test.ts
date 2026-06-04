@@ -891,8 +891,12 @@ test("FeishuAdapter records completed Drive downloads into file history", async 
   });
 
   const expectedPath = path.join(desktopDir, "现场照片.jpg");
-  await waitFor(() => assert.deepEqual(fs.readFileSync(expectedPath), Buffer.from("download history bytes")));
-  const items = fileHistory.list("feishu:work:direct:oc_user");
+  let items = fileHistory.list("feishu:work:direct:oc_user");
+  await waitFor(() => {
+    assert.deepEqual(fs.readFileSync(expectedPath), Buffer.from("download history bytes"));
+    items = fileHistory.list("feishu:work:direct:oc_user");
+    assert.equal(items.length, 2);
+  });
   assert.equal(items[0].source, "feishu_drive_download");
   assert.equal(items[0].name, "现场照片.jpg");
   assert.equal(items[0].localPath, expectedPath);

@@ -238,7 +238,7 @@ export class ExecCodexAdapter implements CodexAdapter {
       policy: this.getRunPolicy(sessionId),
       interactiveApprovals: false,
       effectiveApprovalPolicy: "never",
-      note: "codex exec 是非交互模式，不会把审批请求回调给微信；approval 只恢复 workspace-write sandbox。",
+      note: "codex exec 是非交互模式，不会把审批请求回调给中间件；approval 只恢复 workspace-write sandbox。",
     };
   }
 

@@ -292,9 +292,9 @@ function formatGoalStatusForUser(status: CodexGoalStatus): string {
 
 export function formatApprovalSupport(status: CodexRunPolicyStatus): string {
   if (status.interactiveApprovals) {
-    return status.effectiveApprovalPolicy ? `支持微信内审批（实际策略 ${status.effectiveApprovalPolicy}）` : "支持微信内审批";
+    return status.effectiveApprovalPolicy ? `支持聊天内审批（实际策略 ${status.effectiveApprovalPolicy}）` : "支持聊天内审批";
   }
-  return status.effectiveApprovalPolicy ? `不支持微信内审批（实际策略 ${status.effectiveApprovalPolicy}）` : "不支持微信内审批";
+  return status.effectiveApprovalPolicy ? `不支持聊天内审批（实际策略 ${status.effectiveApprovalPolicy}）` : "不支持聊天内审批";
 }
 
 export function formatContextUsageLines(context: CodexSessionContextUsage | undefined): string[] {

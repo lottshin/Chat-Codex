@@ -351,8 +351,8 @@ export function formatChannelStatusDetails(status: ChannelStatus, capabilities?:
 }
 
 export function formatAdapterModeForUser(adapterMode: ServeCodexSummary["adapterMode"]): string {
-  if (adapterMode === "app-server") return "Codex app-server（推荐，支持在微信里处理审批）";
-  return "Codex exec（备用模式，不支持微信交互审批）";
+  if (adapterMode === "app-server") return "Codex app-server（推荐，支持在聊天里处理审批）";
+  return "Codex exec（备用模式，不支持聊天内交互审批）";
 }
 
 export function formatPermissionModeForUser(permissionMode: CodexPermissionMode): string {

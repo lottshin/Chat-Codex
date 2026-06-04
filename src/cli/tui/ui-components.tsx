@@ -217,12 +217,12 @@ export function padRight(value: string, width: number): string {
 function footerHint(screen: Screen["name"], context?: "firstRun" | "emptyChannels"): string {
   if (context === "firstRun") return "↑↓ 选择  Enter 执行  1/w 微信  2/f 飞书  3/p 权限  4/x 默认刷新  5/d 工作目录  0/q 退出";
   if (context === "emptyChannels") return "↑↓ 选择  Enter 执行  1/w 微信  2/f 飞书  Esc/q 返回";
-  if (screen === "home") return "↑↓ 选择  Enter 执行  w 微信  f 飞书  c 渠道  b 绑定  t 配对  p 权限  x 默认刷新  d 目录  q 退出";
+  if (screen === "home") return "↑↓ 选择  Enter 执行  w 微信  f 飞书  c 渠道  b 会话  t 聊天权限  p 权限  x 默认刷新  d 目录  q 退出";
   if (screen === "channels") return "↑↓ 选择  Enter 执行  w 微信  f 飞书  e 启停  Esc 返回";
   if (screen === "channelRename") return "输入后 Enter 保存；留空清除备注  Esc 返回";
   if (screen === "bindings") return "↑↓ 选择  Enter 详情  n 新建  m 手动绑定  u 解绑  p 权限  Esc 返回";
-  if (screen === "pairing") return "↑↓ 选择  Enter 详情  m 手动信任  r 撤销信任  u 撤销并解绑  Esc 返回";
-  if (screen === "pairingDetail") return "↑↓ 选择  Enter 执行  m 手动信任  r 撤销信任  u 撤销并解绑  Esc 返回";
+  if (screen === "pairing") return "↑↓ 选择  Enter 详情  m 本机授权  r 撤销授权  u 撤销并解绑  Esc 返回";
+  if (screen === "pairingDetail") return "↑↓ 选择  Enter 执行  m 本机授权  r 撤销授权  u 撤销并解绑  Esc 返回";
   if (screen === "addWeixin") return "Enter 获取/检查二维码  Esc 返回";
   if (screen === "addFeishu") return "输入后 Enter 下一步  Secret 不回显  Esc 返回";
   if (screen === "weixinBinding") return "↑↓ 选择  ←/→ 翻页  Enter 执行  数字选本页  n 新建  m 手动输入  0 暂不绑定";
@@ -231,7 +231,7 @@ function footerHint(screen: Screen["name"], context?: "firstRun" | "emptyChannel
   if (screen === "contextRefresh") return "↑↓ 选择  Enter 保存  Esc 返回";
   if (screen === "workdir") return "↑↓ 选择  Enter 保存  1/d 当前目录  2/m 输入路径  Esc 返回";
   if (screen === "workdirInput") return "输入后 Enter 保存  Esc 返回";
-  if (screen === "startConfirm") return "Enter 启动服务  Esc / q 返回";
+  if (screen === "startConfirm") return "↑↓ 选择渠道  Enter 启动所选渠道  数字启动对应渠道  Esc/q 返回";
   return "↑↓ 选择  Enter 执行  Esc 返回  q 返回";
 }
 

@@ -31,8 +31,9 @@ test("Ink TUI renders dashboard and navigates to core pages", async () => {
   assert.match(cleanFrame(view), /codex-cli 0\.130\.0/);
   assert.match(cleanFrame(view), /darwin arm64/);
   assert.match(cleanFrame(view), /渠道/);
-  assert.match(cleanFrame(view), /聊天绑定/);
-  assert.match(cleanFrame(view), /配对信任/);
+  assert.match(cleanFrame(view), /会话管理/);
+  assert.match(cleanFrame(view), /聊天权限/);
+  assert.doesNotMatch(cleanFrame(view), /聊天绑定|配对管理|配对信任/);
   assert.match(cleanFrame(view), /权限/);
   assert.match(cleanFrame(view), /默认上下文刷新/);
   assert.match(cleanFrame(view), /没有单独规则的聊天会继承当前全局默认/);
@@ -52,7 +53,7 @@ test("Ink TUI renders dashboard and navigates to core pages", async () => {
   await waitForInk();
   view.stdin.write("b");
   await waitForInk();
-  assert.match(cleanFrame(view), /聊天绑定/);
+  assert.match(cleanFrame(view), /会话管理/);
   assert.match(cleanFrame(view), /飞书 \/ default \/ oc_abc/);
   assert.match(cleanFrame(view), /微信 \/ wx-main \/ 主聊天/);
   assert.match(cleanFrame(view), /待生效/);
@@ -61,9 +62,9 @@ test("Ink TUI renders dashboard and navigates to core pages", async () => {
   await waitForInk();
   view.stdin.write("t");
   await waitForInk();
-  assert.match(cleanFrame(view), /配对管理/);
-  assert.match(cleanFrame(view), /待配对/);
-  assert.match(cleanFrame(view), /已信任/);
+  assert.match(cleanFrame(view), /聊天权限/);
+  assert.match(cleanFrame(view), /待本机确认/);
+  assert.match(cleanFrame(view), /已授权/);
 
   view.stdin.write("\u001B");
   await waitForInk();
@@ -118,13 +119,87 @@ test("Ink TUI handles help, Feishu form back, and start confirmation", async () 
   await waitForInk();
   assert.match(cleanFrame(startView), /启动服务/);
   assert.match(cleanFrame(startView), /信息展示/);
-  assert.match(cleanFrame(startView), /确认后会启动 Bridge，并进入 Chat Codex 运行中面板/);
-  assert.match(cleanFrame(startView), /聊天绑定 \/ 新聊天策略\s+首条消息自动创建新 session/);
+  assert.match(cleanFrame(startView), /选择一个渠道后会启动 Bridge，并进入 Chat Codex 运行中面板/);
+  assert.match(cleanFrame(startView), /会话管理 \/ 新聊天策略\s+首条消息自动创建新 session/);
   assert.match(cleanFrame(startView), /上下文刷新 \/ 默认策略\s+关闭/);
+  assert.match(cleanFrame(startView), /启动渠道/);
+  assert.doesNotMatch(cleanFrame(startView), /1\. 启动服务/);
+  assert.match(cleanFrame(startView), /1\. 飞书 \/ default/);
+  assert.doesNotMatch(cleanFrame(startView), /启动前操作|2\. 管理渠道|3\. 聊天权限|4\. 会话管理/);
   startView.stdin.write("\r");
   await waitForInk();
   assert.deepEqual(result, { start: true });
   startView.unmount();
+});
+
+test("Ink TUI start page starts the selected channel without becoming a second home menu", async () => {
+  const dashboard = dashboardFixture();
+  dashboard.channels.push({
+    record: {
+      id: "feishu-codex",
+      type: "feishu",
+      enabled: false,
+      stateDir: "state/channels/feishu/feishu-codex",
+      defaultAccountId: "codex",
+      credentialSource: "interactive",
+      createdAt: "2026-05-16T00:00:00.000Z",
+      updatedAt: "2026-05-16T00:00:00.000Z",
+    },
+    status: {
+      channelId: "feishu-codex",
+      state: "connected",
+      account: "codex",
+    },
+    capabilities: {
+      text: true,
+      media: false,
+      typing: true,
+      direct: true,
+      group: false,
+      thread: false,
+      login: "none",
+      messageUpdate: false,
+      streamingHint: true,
+    },
+  });
+  dashboard.canStart = {
+    ok: true,
+    channels: dashboard.channels.filter((channel) => channel.record.enabled),
+    message: "可以启动服务。",
+  };
+  const toggles: Array<{ channelId: string; enabled: boolean }> = [];
+  let result: { start: boolean } | undefined;
+  const view = render(<ChatCodexTui actions={mockActions(dashboard, {
+    setChannelEnabled: async (channelId, enabled) => {
+      toggles.push({ channelId, enabled });
+      const channel = dashboard.channels.find((item) => item.record.id === channelId);
+      if (!channel) return undefined;
+      channel.record.enabled = enabled;
+      dashboard.canStart = enabled
+        ? { ok: true, channels: dashboard.channels, message: "可以启动服务。" }
+        : { ok: false, reason: "no_enabled_channels", message: "还没有启用的渠道。请先添加或启用微信账号、飞书机器人。" };
+      return channel;
+    },
+  })} onDone={(next) => { result = next; }} />);
+  await waitForInk();
+  view.stdin.write("8");
+  await waitForInk();
+  view.stdin.write("\u001B[B");
+  await waitForInk();
+  assert.match(cleanFrame(view), /启动渠道/);
+  assert.match(cleanFrame(view), /1\. 飞书 \/ default/);
+  assert.match(cleanFrame(view), /2\. 飞书 \/ codex/);
+  assert.doesNotMatch(cleanFrame(view), /1\. 启动服务/);
+  assert.doesNotMatch(cleanFrame(view), /启动前操作|2\. 管理渠道|3\. 聊天权限|4\. 会话管理/);
+  view.stdin.write("\r");
+  await waitForInk();
+
+  assert.deepEqual(toggles, [
+    { channelId: "feishu-default", enabled: false },
+    { channelId: "feishu-codex", enabled: true },
+  ]);
+  assert.deepEqual(result, { start: true });
+  view.unmount();
 });
 
 test("Ink TUI exposes add channel actions when channels already exist", async () => {
@@ -616,7 +691,7 @@ test("Ink TUI shows session last active time in binding views", async () => {
   view.unmount();
 });
 
-test("Ink TUI manages route pairing trust and blocks untrusted binding actions", async () => {
+test("Ink TUI manages chat authorization and blocks untrusted session actions", async () => {
   const dashboard = dashboardFixture();
   let manuallyTrusted = "";
   let revoked: { routeKey: string; unbindSession: boolean | undefined } | undefined;
@@ -664,32 +739,32 @@ test("Ink TUI manages route pairing trust and blocks untrusted binding actions",
 
   view.stdin.write("b");
   await waitForInk();
-  assert.match(cleanFrame(view), /待配对，暂不能绑定/);
+  assert.match(cleanFrame(view), /待本机确认，暂不能绑定/);
 
   view.stdin.write("\u001B[B");
   await waitForInk();
   view.stdin.write("n");
   await waitForInk();
-  assert.match(cleanFrame(view), /还没有完成配对/);
+  assert.match(cleanFrame(view), /还没有完成本机确认/);
 
   view.stdin.write("\u001B");
   await waitForInk();
   view.stdin.write("t");
   await waitForInk();
-  assert.match(cleanFrame(view), /配对管理/);
+  assert.match(cleanFrame(view), /聊天权限/);
   assert.match(cleanFrame(view), /飞书 \/ default \/ oc_pending/);
 
   view.stdin.write("m");
   await waitForInk();
-  assert.match(cleanFrame(view), /确认手动信任/);
+  assert.match(cleanFrame(view), /确认本机授权/);
   view.stdin.write("y");
   await waitForInk();
   assert.equal(manuallyTrusted, "feishu-default:default:direct:oc_pending");
-  assert.match(cleanFrame(view), /本机手动信任/);
+  assert.match(cleanFrame(view), /本机手动授权/);
 
   view.stdin.write("r");
   await waitForInk();
-  assert.match(cleanFrame(view), /(确认撤销|撤销信任，保留 session 绑定)/);
+  assert.match(cleanFrame(view), /(确认撤销授权|撤销授权，保留 session 绑定)/);
   view.stdin.write("1");
   await waitForInk();
   view.stdin.write("y");
@@ -793,6 +868,7 @@ function mockActions(
     listSessionChoices?: () => { selectable: unknown[]; unavailable: unknown[] };
     listWeixinPrimaryChoices?: () => { selectable: unknown[]; unavailable: unknown[] };
     bindExistingSession?: (routeKey: string, sessionId: string) => unknown;
+    setChannelEnabled?: (channelId: string, enabled: boolean) => Promise<unknown>;
     setChannelGroupEnabled?: (channelId: string, enabled: boolean) => Promise<unknown>;
     setWeixinPrimaryNew?: (channel: unknown) => unknown;
     trustRouteManually?: (routeKey: string) => unknown;
@@ -827,6 +903,12 @@ function mockActions(
     addFeishuBot: overrides.addFeishuBot ?? (async () => ({ ok: true, message: "飞书机器人已添加。" })),
     listSessionChoices: overrides.listSessionChoices ?? (() => ({ selectable: [], unavailable: [] })),
     bindExistingSession: overrides.bindExistingSession ?? (() => ({ ok: true, binding: dashboard.bindings[0], session: { id: "session", shortId: "session" } })),
+    setChannelEnabled: overrides.setChannelEnabled ?? (async (channelId: string, enabled: boolean) => {
+      const channel = dashboard.channels.find((item) => item.record.id === channelId);
+      if (!channel) return undefined;
+      channel.record.enabled = enabled;
+      return channel;
+    }),
     setChannelGroupEnabled: overrides.setChannelGroupEnabled ?? (async (channelId: string, enabled: boolean) => {
       const channel = dashboard.channels.find((item) => item.record.id === channelId);
       if (!channel) return undefined;
