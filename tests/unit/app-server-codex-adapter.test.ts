@@ -792,7 +792,8 @@ test("AppServerCodexAdapter reports interactive approval support", () => {
 
   assert.equal(status.interactiveApprovals, true);
   assert.equal(status.effectiveApprovalPolicy, "on-request");
-  assert.match(status.note ?? "", /微信/);
+  assert.match(status.note ?? "", /当前聊天/);
+  assert.doesNotMatch(status.note ?? "", /微信/);
 });
 
 test("AppServerCodexAdapter scopes run policy per session", async () => {

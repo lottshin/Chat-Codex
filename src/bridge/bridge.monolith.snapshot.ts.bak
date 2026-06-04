@@ -1195,7 +1195,7 @@ export class Bridge {
           await this.sendText(target, [
             "**Goal**",
             "- 当前没有绑定 Codex 会话，也没有 Goal。",
-            "- 发送 `/goal <目标>` 可为当前微信上下文创建/绑定会话并设置长期目标。",
+            "- 发送 `/goal <目标>` 可在当前聊天中创建/绑定会话并设置长期目标。",
           ].join("\n"));
           return;
         }
@@ -2101,9 +2101,9 @@ function formatGoalStatusForUser(status: CodexGoalStatus): string {
 
 function formatApprovalSupport(status: CodexRunPolicyStatus): string {
   if (status.interactiveApprovals) {
-    return status.effectiveApprovalPolicy ? `支持微信内审批（实际策略 ${status.effectiveApprovalPolicy}）` : "支持微信内审批";
+    return status.effectiveApprovalPolicy ? `支持聊天内审批（实际策略 ${status.effectiveApprovalPolicy}）` : "支持聊天内审批";
   }
-  return status.effectiveApprovalPolicy ? `不支持微信内审批（实际策略 ${status.effectiveApprovalPolicy}）` : "不支持微信内审批";
+  return status.effectiveApprovalPolicy ? `不支持聊天内审批（实际策略 ${status.effectiveApprovalPolicy}）` : "不支持聊天内审批";
 }
 
 function formatContextUsageLines(context: CodexSessionContextUsage | undefined): string[] {

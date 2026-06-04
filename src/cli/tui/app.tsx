@@ -124,6 +124,7 @@ export function ChatCodexTui({ actions, onDone, copyToClipboard = writeClipboard
       const page = buildSessionPage(choices?.selectable ?? [], sessionPageIndex);
       return Math.max(0, page.items.length + 3 - 1);
     }
+    if (screen.name === "startConfirm") return Math.max(0, channels.length - 1);
     if (screen.name === "pairing") return Math.max(0, pairings.length - 1);
     if (screen.name === "pairingDetail") return currentPairing?.trusted ? 2 : 1;
     if (screen.name === "bindingDetail" && currentBinding?.trusted === false) return 1;
@@ -169,7 +170,7 @@ export function ChatCodexTui({ actions, onDone, copyToClipboard = writeClipboard
     const validation = dashboard?.canStart;
     if (!validation || validation.ok) {
       setScreen({ name: "startConfirm" });
-      setFlash({ kind: "info", message: "确认无误后按 Enter 启动服务；Esc 返回修改配置。" });
+      setFlash({ kind: "info", message: "选择要启动的渠道，按 Enter 启动服务；Esc 返回修改配置。" });
       return;
     }
     if (validation.reason === "no_enabled_channels") {
@@ -333,8 +334,8 @@ export function ChatCodexTui({ actions, onDone, copyToClipboard = writeClipboard
     else if (screen.name === "permission") void handlePermissionInput(input, key.return, screen.target);
     else if (screen.name === "contextRefresh") void handleContextRefreshInput(input, key.return, screen.target);
     else if (screen.name === "workdir") void handleWorkdirInput(input, key.return);
-    else if ((screen.name === "status" || screen.name === "help") && key.return) goHome();
-    else if (screen.name === "startConfirm" && key.return) start();
+    else if ((screen.name === "status" || screen.name === "help") && key.return) back();
+    else if (screen.name === "startConfirm") void handleStartConfirmInput(input, key.return);
   });
 
   const handleHomeInput = (input: string, enter: boolean): void => {
@@ -569,7 +570,7 @@ export function ChatCodexTui({ actions, onDone, copyToClipboard = writeClipboard
       if (enter || picked !== undefined) {
         setScreen({ name: "pairingDetail", routeKey: binding.route.routeKey });
       } else if (input === "n" || input === "m" || input === "u" || input === "p") {
-        setFlash({ kind: "error", message: "这个聊天还没有完成配对，暂不能绑定或修改 session。请先到“配对管理”完成信任。" });
+        setFlash({ kind: "error", message: "这个聊天还没有完成本机确认，暂不能绑定或修改 session。请先到“聊天权限”完成本机确认。" });
       }
       return;
     }
@@ -769,6 +770,25 @@ export function ChatCodexTui({ actions, onDone, copyToClipboard = writeClipboard
     }
   };
 
+  const handleStartConfirmInput = async (input: string, enter: boolean): Promise<void> => {
+    const picked = numericPick(input, channels.length);
+    const actionIndex = picked ?? selected;
+    if (!enter && picked === undefined) return;
+    const channel = channels[actionIndex];
+    if (!channel) return;
+    if (channel.status.state !== "connected") {
+      setFlash({ kind: "error", message: `${formatManagedChannelLabel(channel)} 还不能启动。` });
+      return;
+    }
+    for (const candidate of channels) {
+      const shouldEnable = candidate.record.id === channel.record.id;
+      if (candidate.record.enabled !== shouldEnable) {
+        await actions.setChannelEnabled(candidate.record.id, shouldEnable);
+      }
+    }
+    start();
+  };
+
   const submitFeishuValue = async (value: string): Promise<void> => {
     if (!screenIs("addFeishu", screen)) return;
     const trimmed = value.trim();
@@ -911,7 +931,7 @@ export function ChatCodexTui({ actions, onDone, copyToClipboard = writeClipboard
 
   const confirmManualTrust = (pairing: PairingRouteSummary): void => {
     setConfirm({
-      message: `确认手动信任 ${pairing.label}？该聊天之后可以使用 Chat-Codex。按 y 确认，按 n 取消。`,
+      message: `确认本机授权 ${pairing.label}？该聊天之后可以使用 Codex / Claude Code 会话。按 y 确认，按 n 取消。`,
       yes: async () => {
         const result = actions.trustRouteManually(pairing.route.routeKey);
         setConfirm(undefined);
@@ -925,8 +945,8 @@ export function ChatCodexTui({ actions, onDone, copyToClipboard = writeClipboard
   const confirmRevokeTrust = (pairing: PairingRouteSummary, unbindSession: boolean): void => {
     setConfirm({
       message: unbindSession
-        ? `确认撤销 ${pairing.label} 的信任并解绑当前 session？Codex session 不会删除。按 y 确认，按 n 取消。`
-        : `确认撤销 ${pairing.label} 的信任？session 绑定会保留。按 y 确认，按 n 取消。`,
+        ? `确认撤销授权并解绑 ${pairing.label} 当前 session？Codex / Claude Code 会话不会删除。按 y 确认，按 n 取消。`
+        : `确认撤销授权 ${pairing.label}？session 绑定会保留。按 y 确认，按 n 取消。`,
       yes: async () => {
         const result = actions.revokeRouteTrust(pairing.route.routeKey, { unbindSession });
         setConfirm(undefined);
@@ -986,7 +1006,7 @@ export function ChatCodexTui({ actions, onDone, copyToClipboard = writeClipboard
       setScreen({ name: "workdir" });
     }} />;
     if (screen.name === "status") return <StatusView dashboard={dashboard} />;
-    if (screen.name === "startConfirm") return <StartConfirmView validation={dashboard.canStart} lines={dashboard.canStart.ok ? actions.startConfirmationSummary(dashboard.canStart.channels) : [dashboard.canStart.message]} />;
+    if (screen.name === "startConfirm") return <StartConfirmView dashboard={dashboard} selected={selected} lines={dashboard.canStart.ok ? actions.startConfirmationSummary(dashboard.canStart.channels) : [dashboard.canStart.message]} />;
     return <HelpView />;
   }, [actions, bindings, channelCursor, channels, currentBinding, currentChannel, currentPairing, dashboard, loading, manualValue, screen, selected, sessionPageIndex]);
   const footerContext = screen.name === "home" && channels.length === 0
@@ -1014,6 +1034,7 @@ function maxSelectableIndex(screen: Screen, channels: LauncherDashboard["channel
   if (screen.name === "channels") return channels.length > 0 ? channels.length + 6 : 1;
   if (screen.name === "bindings") return Math.max(0, bindingItemCount - 1);
   if (screen.name === "home") return channels.length === 0 ? 5 : 7;
+  if (screen.name === "startConfirm") return Math.max(0, channels.length - 1);
   if (screen.name === "channelDetail") {
     const channel = channels.find((item) => item.record.id === screen.channelId);
     return channel?.record.type === "feishu" || channel?.record.type === "lark" ? 5 : 4;

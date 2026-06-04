@@ -60,12 +60,12 @@ export function HomeView({ dashboard, selected }: { dashboard: LauncherDashboard
   const enabledChannels = dashboard.channels.filter((channel) => channel.record.enabled).length;
   const rows = [
     ["1. 管理渠道", `${dashboard.channels.length} 个渠道`],
-    ["2. 聊天绑定", `${dashboard.routes.bound}/${dashboard.routes.known} 已绑定，${dashboard.routes.pending ?? 0} 个待生效`],
-    ["3. 配对管理", `${dashboard.pairing.trusted} 个已配对，${dashboard.pairing.pending} 个待配对`],
+    ["2. 会话管理", `${dashboard.routes.bound}/${dashboard.routes.known} 已绑定，${dashboard.routes.pending ?? 0} 个待生效`],
+    ["3. 聊天权限", `${dashboard.pairing.trusted} 个已授权，${dashboard.pairing.pending} 个待本机确认`],
     ["4. 权限设置", formatPermission(dashboard.startup.policy)],
     ["5. 默认上下文刷新", formatContextRefreshMode(dashboard.contextRefreshDefault)],
     ["6. 工作目录", dashboard.startup.cwd],
-    ["7. 状态详情", "查看渠道和绑定明细"],
+    ["7. 状态详情", "查看渠道、权限和会话明细"],
     ["8. 启动服务", dashboard.canStart.ok ? "启动并进入运行日志" : "需处理配置"],
   ];
   return (
@@ -73,8 +73,8 @@ export function HomeView({ dashboard, selected }: { dashboard: LauncherDashboard
       <Section title="信息展示">
         <CodexCliStatusBlock status={dashboard.startup.codexStatus} />
         <KeyValue label="渠道" value={`${enabledChannels}/${dashboard.channels.length} 已启用`} />
-        <KeyValue label="聊天绑定" value={`${dashboard.routes.bound}/${dashboard.routes.known} 已绑定，${dashboard.routes.pending ?? 0} 个待生效`} />
-        <KeyValue label="配对信任" value={`${dashboard.pairing.trusted} 个已信任，${dashboard.pairing.pending} 个待配对`} />
+        <KeyValue label="会话管理" value={`${dashboard.routes.bound}/${dashboard.routes.known} 已绑定，${dashboard.routes.pending ?? 0} 个待生效`} />
+        <KeyValue label="聊天权限" value={`${dashboard.pairing.trusted} 个已授权，${dashboard.pairing.pending} 个待本机确认`} />
         <KeyValue label="上下文刷新默认" value={formatContextRefreshDefaultPolicyForUser(dashboard.contextRefreshDefault)} />
         <KeyValue label="新 session 工作目录" value={dashboard.startup.cwd} />
         <Text color={dashboard.canStart.ok ? THEME.success : THEME.warning} bold>
@@ -299,7 +299,7 @@ export function BindingsView({ bindings, pendingBindings, selected }: { bindings
     ...bindings.map((b, i) => ({
       key: b.route.routeKey,
       label: `${i + 1}. ${b.label}`,
-      right: b.trusted === false ? "待配对，暂不能绑定" : b.activeSession ? formatSessionWithActivity(b.activeSession) : "未绑定",
+      right: b.trusted === false ? "待本机确认，暂不能绑定" : b.activeSession ? formatSessionWithActivity(b.activeSession) : "未绑定",
       tone: b.trusted === false ? "warning" as const : undefined,
     })),
     ...pendingBindings.map((p, i) => ({
@@ -311,7 +311,7 @@ export function BindingsView({ bindings, pendingBindings, selected }: { bindings
   ];
   const bw = visibleWindow(allItems, selected, viewportRows);
   return (
-    <Frame title="聊天绑定" subtitle="Enter 详情  n 新建  m 手动绑定  u 解绑  p 权限">
+    <Frame title="会话管理" subtitle="Enter 详情  n 新建  m 手动绑定  u 解绑  p 权限">
       {allItems.length === 0
         ? <Muted text="还没有发现任何聊天。启动服务后，微信私聊或飞书用户私聊机器人会自动记录在这里。" />
         : (
@@ -328,18 +328,18 @@ export function BindingsView({ bindings, pendingBindings, selected }: { bindings
 }
 
 export function BindingDetailView({ binding, selected }: { binding?: BindingSummary; selected: number }): React.JSX.Element {
-  if (!binding) return <Frame title="绑定详情"><Muted text="这个聊天记录已经不存在。" /></Frame>;
+  if (!binding) return <Frame title="会话详情"><Muted text="这个聊天记录已经不存在。" /></Frame>;
   if (binding.trusted === false) {
     return (
-      <Frame title="绑定详情" subtitle="Enter 前往配对详情  Esc 返回" borderColor={THEME.warning}>
+      <Frame title="会话详情" subtitle="Enter 前往聊天权限详情  Esc 返回" borderColor={THEME.warning}>
         <KeyValue label="聊天" value={binding.label} />
-        <KeyValue label="配对状态" value="待配对" />
+        <KeyValue label="授权状态" value="待本机确认" />
         <KeyValue label="当前 session" value={binding.activeSession ? formatSession(binding.activeSession) : "未绑定"} />
         <Section title="说明">
-          <Muted text="这个聊天还没有完成 Chat-Codex 配对，暂不能绑定、切换或新建 session。" />
+          <Muted text="这个聊天还没有完成本机确认，暂不能绑定、切换或新建 session。" />
         </Section>
         <Section title="操作">
-          <ListRow active={selected === 0} left="1. 前往配对详情" right="本机确认信任或等待聊天发送配对码" tone="warning" />
+          <ListRow active={selected === 0} left="1. 前往聊天权限详情" right="本机确认授权或等待聊天发送确认码" tone="warning" />
           <ListRow active={selected === 1} left="2. 返回" />
         </Section>
       </Frame>
@@ -353,7 +353,7 @@ export function BindingDetailView({ binding, selected }: { binding?: BindingSumm
     binding.activeSession ? "解绑当前 session" : "解绑当前 session（当前未绑定）",
   ];
   return (
-    <Frame title="绑定详情" subtitle="Enter 执行  Esc 返回">
+    <Frame title="会话详情" subtitle="Enter 执行  Esc 返回">
       <KeyValue label="聊天" value={binding.label} />
       <KeyValue label="当前 session" value={binding.activeSession ? formatSession(binding.activeSession) : "未绑定"} />
       <KeyValue label="当前权限" value={binding.permission ? formatPermission(binding.permission) : "使用默认权限"} />
@@ -413,9 +413,9 @@ export function PairingView({ pairing, selected }: { pairing: PairingDashboardSu
   const routes = pairing.routes;
   const pw = visibleWindow(routes, selected, viewportRows);
   return (
-    <Frame title="配对管理" subtitle="Enter 详情  m 手动信任  r 撤销信任  u 撤销并解绑">
+    <Frame title="聊天权限" subtitle="Enter 详情  m 本机授权  r 撤销授权  u 撤销并解绑">
       <Section title="概览">
-        <Text>已信任 {pairing.trusted} 个聊天，待配对 {pairing.pending} 个聊天。</Text>
+        <Text>已授权 {pairing.trusted} 个聊天，待本机确认 {pairing.pending} 个聊天。</Text>
       </Section>
       <Section title="聊天">
         {routes.length === 0 ? <Muted text="还没有发现任何聊天。启动服务后，微信或飞书私聊发来消息才会出现在这里。" /> : (
@@ -427,7 +427,7 @@ export function PairingView({ pairing, selected }: { pairing: PairingDashboardSu
                 <ListRow
                   key={route.route.routeKey}
                   active={selected === index}
-                  left={`${index + 1}. ${route.trusted ? "已信任" : "待配对"}   ${route.label}`}
+                  left={`${index + 1}. ${route.trusted ? "已授权" : "待本机确认"}   ${route.label}`}
                   right={pairingRouteRight(route)}
                   tone={route.trusted ? "success" : "warning"}
                 />
@@ -438,39 +438,39 @@ export function PairingView({ pairing, selected }: { pairing: PairingDashboardSu
         )}
       </Section>
       <Section title="说明">
-        <Muted text="配对码只会在运行日志里显示，不会发送到微信或飞书；启动前 TUI 只管理已发现 route 的信任记录。" />
+        <Muted text="确认码只会在运行日志里显示，不会发送到微信或飞书；启动前 TUI 只管理已发现聊天的授权记录。" />
       </Section>
     </Frame>
   );
 }
 
 export function PairingDetailView({ pairing, selected }: { pairing?: PairingRouteSummary; selected: number }): React.JSX.Element {
-  if (!pairing) return <Frame title="配对详情"><Muted text="这个聊天 route 已不存在。" /></Frame>;
+  if (!pairing) return <Frame title="聊天权限详情"><Muted text="这个聊天记录已经不存在。" /></Frame>;
   const trusted = pairing.trustedRecord;
   const items = pairing.trusted
     ? [
-        "撤销信任，保留 session 绑定",
-        pairing.activeSession ? "撤销信任，并解绑 session" : "撤销信任，并解绑 session（当前未绑定）",
-        "返回配对管理",
+        "撤销授权，保留 session 绑定",
+        pairing.activeSession ? "撤销授权，并解绑 session" : "撤销授权，并解绑 session（当前未绑定）",
+        "返回聊天权限",
       ]
     : [
-        "本机确认并信任",
-        "返回配对管理",
+        "本机确认并授权",
+        "返回聊天权限",
       ];
   return (
-    <Frame title="配对详情" subtitle={pairing.trusted ? "r 撤销信任  u 撤销并解绑  Esc 返回" : "m 手动信任  Esc 返回"} borderColor={pairing.trusted ? THEME.success : THEME.warning}>
+    <Frame title="聊天权限详情" subtitle={pairing.trusted ? "r 撤销授权  u 撤销并解绑  Esc 返回" : "m 本机授权  Esc 返回"} borderColor={pairing.trusted ? THEME.success : THEME.warning}>
       <KeyValue label="聊天" value={pairing.label} />
-      <KeyValue label="状态" value={pairing.trusted ? "已信任" : "待配对"} />
+      <KeyValue label="状态" value={pairing.trusted ? "已授权" : "待本机确认"} />
       <KeyValue label="Route" value={pairing.route.routeKey} />
       <KeyValue label="渠道" value={`${pairing.route.channelId} / ${pairing.route.accountId}`} />
       <KeyValue label="最近活跃" value={formatFullDateTime(pairing.route.lastSeenAt ?? pairing.route.updatedAt)} />
       <KeyValue label="当前绑定" value={pairing.activeSession ? formatSession(pairing.activeSession) : "未绑定"} />
       {trusted ? (
-        <Section title="信任记录">
-          <KeyValue label="信任时间" value={formatFullDateTime(trusted.trustedAt)} />
-          <KeyValue label="信任方式" value={trusted.trustMethod === "manual" ? "本机手动信任" : "配对码"} />
+        <Section title="授权记录">
+          <KeyValue label="授权时间" value={formatFullDateTime(trusted.trustedAt)} />
+          <KeyValue label="授权方式" value={trusted.trustMethod === "manual" ? "本机手动授权" : "确认码"} />
           <KeyValue
-            label="信任人"
+            label="授权人"
             value={[
               trusted.trustedBySenderId,
               feishuDirectRoute(pairing.route) ? undefined : trusted.trustedBySenderDisplayName,
@@ -479,7 +479,7 @@ export function PairingDetailView({ pairing, selected }: { pairing?: PairingRout
         </Section>
       ) : (
         <Section title="说明">
-          <Muted text="待配对聊天不能创建、绑定或切换 Codex session；可以等待对方发送 /pair 配对码，或在本机手动确认信任。" />
+          <Muted text="待本机确认的聊天不能创建、绑定或切换 Codex / Claude Code 会话；可以等待对方发送 /pair 确认码，或在本机手动确认授权。" />
         </Section>
       )}
       <Section title="操作">
@@ -588,14 +588,14 @@ export function StatusView({ dashboard }: { dashboard: LauncherDashboard }): Rea
           </Box>
         )) : <Muted text="暂无渠道。" />}
       </Section>
-      <Section title="绑定">
+      <Section title="会话管理">
         <Text>已发现聊天：{dashboard.routes.known}  已绑定：{dashboard.routes.bound}  待生效：{dashboard.routes.pending ?? 0}</Text>
       </Section>
       <Section title="上下文刷新">
         <Text>默认策略：{formatContextRefreshDefaultPolicyForUser(dashboard.contextRefreshDefault)}</Text>
       </Section>
-      <Section title="配对信任">
-        <Text>已信任：{dashboard.pairing.trusted}  待配对：{dashboard.pairing.pending}</Text>
+      <Section title="聊天权限">
+        <Text>已授权：{dashboard.pairing.trusted}  待本机确认：{dashboard.pairing.pending}</Text>
       </Section>
       <Section title="运行">
         <Text>服务未启动。</Text>
@@ -618,16 +618,28 @@ function CodexCliStatusBlock({ status }: { status?: CodexCliStatus }): React.JSX
   );
 }
 
-export function StartConfirmView({ validation, lines }: { validation: StartValidation; lines: string[] }): React.JSX.Element {
-  const rows = parseStartSummaryRows(lines);
+export function StartConfirmView({ dashboard, lines, selected }: { dashboard: LauncherDashboard; lines: string[]; selected: number }): React.JSX.Element {
+  const validation: StartValidation = dashboard.canStart;
+  const rows = parseStartSummaryRows(lines).filter((row) => row.label !== "渠道" && !row.label.startsWith("渠道 / "));
   return (
-    <Frame title="启动服务" subtitle={validation.ok ? "Enter 启动并进入运行日志  Esc 返回" : "Esc 返回"} borderColor={validation.ok ? THEME.success : THEME.warning}>
+    <Frame title="启动服务" subtitle="Enter 启动所选渠道  Esc 返回" borderColor={validation.ok ? THEME.success : THEME.warning}>
       <Section title="信息展示">
-        <Text color={validation.ok ? THEME.success : THEME.warning} bold>{validation.ok ? "▶ 确认后会启动 Bridge，并进入 Chat Codex 运行中面板。" : `⚠ ${lines[0]}`}</Text>
+        <Text color={validation.ok ? THEME.success : THEME.warning} bold>{validation.ok ? "▶ 选择一个渠道后会启动 Bridge，并进入 Chat Codex 运行中面板。" : `⚠ ${lines[0]}`}</Text>
         {validation.ok ? <KeyValue label="运行中面板" value="展示已启动渠道、工作目录、默认权限、聊天日志和 Ctrl+C 停止方式" /> : null}
         {validation.ok ? rows.map((row) => (
           <KeyValue key={`${row.label}-${row.value}`} label={row.label} value={row.value} />
         )) : <KeyValue label="提示" value={lines[0] ?? "当前配置还不能启动服务。"} />}
+      </Section>
+      <Section title="启动渠道">
+        {dashboard.channels.length > 0 ? dashboard.channels.map((channel, index) => (
+          <ListRow
+            key={channel.record.id}
+            active={selected === index}
+            left={`${index + 1}. ${formatManagedChannelLabel(channel)}`}
+            right={`${channel.status.state === "connected" ? "启动此渠道" : "暂不能启动"}   ${channelStatus(channel.status.state)}`}
+            tone={channel.status.state === "connected" ? "success" : "warning"}
+          />
+        )) : <Muted text="暂无渠道。请先返回首页添加微信账号或飞书机器人。" />}
       </Section>
     </Frame>
   );
@@ -638,10 +650,10 @@ export function HelpView(): React.JSX.Element {
     <Frame title="快捷键" subtitle="Enter/Esc 返回">
       {[
         "全局: ↑↓ 选择，Enter 执行，Esc/q 返回，r 刷新，? 帮助。",
-        "首页: c 渠道，b 绑定，t 配对，p 权限，x 默认刷新，d 工作目录，s 状态，w 添加微信，f 添加飞书。",
+        "首页: c 渠道，b 会话，t 聊天权限，p 权限，x 默认刷新，d 工作目录，s 状态，w 添加微信，f 添加飞书。",
         "渠道: w 添加微信，f 添加飞书，e 启停。",
-        "绑定: n 新建并绑定，m 手动绑定，u 解绑，p 权限。",
-        "配对: m 手动信任，r 撤销信任，u 撤销信任并解绑。",
+        "会话: n 新建并绑定，m 手动绑定，u 解绑，p 权限。",
+        "聊天权限: m 本机授权，r 撤销授权，u 撤销授权并解绑。",
       ].map((line) => <Text key={line}>{line}</Text>)}
     </Frame>
   );
@@ -694,11 +706,18 @@ function parseStartSummary(lines: string[]): Array<{ title: string; items: strin
 function parseStartSummaryRows(lines: string[]): Array<{ label: string; value: string }> {
   return parseStartSummary(lines).flatMap((group) => group.items.map((item) => {
     const [itemLabel, itemValue] = splitSummaryItem(item);
+    const title = formatStartSummaryGroupTitle(group.title);
     return {
-      label: itemValue ? `${group.title} / ${itemLabel}` : group.title,
+      label: itemValue ? `${title} / ${itemLabel}` : title,
       value: itemValue ?? item,
     };
   }));
+}
+
+function formatStartSummaryGroupTitle(title: string): string {
+  if (title === "聊天绑定") return "会话管理";
+  if (title === "配对信任" || title === "配对管理") return "聊天权限";
+  return title;
 }
 
 function splitSummaryItem(item: string): [string, string | undefined] {
@@ -708,7 +727,7 @@ function splitSummaryItem(item: string): [string, string | undefined] {
 }
 
 function pairingRouteRight(route: PairingRouteSummary): string {
-  if (route.trustedRecord) return `配对 ${formatShortDateTime(route.trustedRecord.trustedAt)}`;
+  if (route.trustedRecord) return `授权 ${formatShortDateTime(route.trustedRecord.trustedAt)}`;
   return `最近 ${formatShortDateTime(route.route.lastSeenAt ?? route.route.updatedAt)}`;
 }
 

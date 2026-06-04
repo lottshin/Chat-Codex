@@ -604,7 +604,7 @@ function printHelp(): void {
     "    --cwd <dir>, --workdir <dir>     设置新会话工作目录；目录不存在会自动创建",
     "    --permission approval|full       设置安全沙箱或完全权限",
     "    --command-profile codex|claude   选择聊天命令入口；claude 下已知 Chat-Codex 命令优先本地处理",
-    "    --codex-adapter app-server|exec  设置 Codex 接入方式；默认 app-server，支持微信审批",
+    "    --codex-adapter app-server|exec  设置 Codex 接入方式；默认 app-server，支持聊天内审批",
     "    --claude-adapter exec|sdk       设置 Claude Code 接入方式；默认 exec，sdk 为实验模式",
     "    --yes-dangerously-full           非交互确认完全权限",
     "    --progress brief|detailed|silent 设置默认进度投递模式（微信渠道固定禁用）",

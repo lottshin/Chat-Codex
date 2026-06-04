@@ -1576,6 +1576,21 @@ test("Bridge manages experimental goal commands for the current session", async 
   assert.ok(channel.sentMessages.at(-1)?.text.includes("当前没有 Goal"));
 });
 
+test("Bridge goal empty prompt labels unbound Feishu context correctly", async () => {
+  const channel = new MockChannelAdapter({ id: "feishu", accountId: "work" });
+  const codex = new MockCodexAdapter();
+  const bridge = new Bridge({ channel, codex, cwd: process.cwd() });
+
+  await bridge.start();
+  await channel.emitText("/goal", { conversationId: "oc_user" });
+  await bridge.stop();
+
+  const message = channel.sentMessages.at(-1)?.text ?? "";
+  assert.ok(message.includes("当前没有绑定 Codex 会话，也没有 Goal"));
+  assert.ok(message.includes("当前飞书聊天"));
+  assert.doesNotMatch(message, /微信上下文/);
+});
+
 test("Bridge status renders Goal updated time in the local machine timezone", async () => {
   const channel = new MockChannelAdapter();
   const codex = new FixedGoalTimeCodexAdapter();

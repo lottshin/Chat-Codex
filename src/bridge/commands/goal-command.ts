@@ -37,7 +37,7 @@ export async function handleGoalCommand(
         await options.delivery.sendText(target, [
           "**Goal**",
           "- 当前没有绑定 Codex 会话，也没有 Goal。",
-          "- 发送 `/goal <目标>` 可为当前微信上下文创建/绑定会话并设置长期目标。",
+          `- 发送 \`/goal <目标>\` 可在${goalContextLabel(message)}中创建/绑定会话并设置长期目标。`,
         ].join("\n"));
         return;
       }
@@ -92,4 +92,28 @@ export function goalText(goal: CodexGoal | null, title = "**Goal**"): string {
     "- `/goal resume`：恢复追踪，让 Codex 继续按该目标推进。",
     "- `/goal clear`：清除目标，也就是退出当前 Goal 追踪。",
   ].filter(Boolean).join("\n");
+}
+
+function goalContextLabel(message: ChannelMessage): string {
+  if (isFeishuChannelId(message.channelId)) {
+    if (message.conversation.kind === "group") return "当前飞书群聊";
+    if (message.conversation.kind === "direct") return "当前飞书聊天";
+    return "当前飞书会话";
+  }
+  if (isWeixinChannelId(message.channelId)) {
+    if (message.conversation.kind === "group") return "当前微信群聊";
+    if (message.conversation.kind === "direct") return "当前微信聊天";
+    return "当前微信会话";
+  }
+  if (message.conversation.kind === "group") return "当前群聊";
+  if (message.conversation.kind === "direct") return "当前聊天";
+  return "当前会话";
+}
+
+function isFeishuChannelId(channelId: string): boolean {
+  return channelId === "feishu" || channelId.startsWith("feishu-") || channelId === "lark" || channelId.startsWith("lark-");
+}
+
+function isWeixinChannelId(channelId: string): boolean {
+  return channelId === "weixin" || channelId.startsWith("weixin-");
 }

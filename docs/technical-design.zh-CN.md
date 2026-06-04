@@ -110,7 +110,7 @@ Terminal / Weixin / future channels
 - 真实微信启动入口统一为 `chat-codex`：先检查 Codex，再在“管理渠道”里添加或检查本地微信凭证；已登录时跳过二维码，未登录时发起二维码登录，用户回到首页选择“启动服务”后启动长轮询。
 - 真实微信扫码登录、`getupdates` 长轮询闭环和真实微信收发需要用户后续协助测试。
 - `MockCodexAdapter` 用于稳定测试审批、阶段性事件和命令。
-- `AppServerCodexAdapter` 已具备 stdio JSON-RPC 接入能力，默认用于真实 Codex：支持 `initialize`、`thread/start`、`thread/resume`、`turn/start`、`turn/interrupt`，并把 app-server server request 审批转成微信审批。
+- `AppServerCodexAdapter` 已具备 stdio JSON-RPC 接入能力，默认用于真实 Codex：支持 `initialize`、`thread/start`、`thread/resume`、`turn/start`、`turn/interrupt`，并把 app-server server request 审批转成当前聊天内审批。
 - `ExecCodexAdapter` 已具备解析 `codex exec --json` 的基础能力，并已通过中间件终端通道完成真实 Codex CLI 联调；它保留为非交互回退模式。
 - 中间件启动真实 Codex 模式时会先检测 `codex --version`，不可用则停止启动。
 - 真实 Codex 模式支持启动时选择历史 Codex 会话或创建新会话。
@@ -715,7 +715,7 @@ src/channels/<channel-id>/
 - 支持 `turn/start.collaborationMode`，可用 true Plan mode 而不是通过 prompt 伪装规划模式。
 - 能监听 `thread/status/changed`、`turn/*`、`item/*` 等事件。
 - 支持审批请求和更完整的客户端状态同步。
-- 支持 `item/commandExecution/requestApproval`、`item/fileChange/requestApproval`、`item/permissions/requestApproval` 等 server request，可映射到微信审批命令。
+- 支持 `item/commandExecution/requestApproval`、`item/fileChange/requestApproval`、`item/permissions/requestApproval` 等 server request，可映射到聊天内审批命令。
 - 可用 `codex app-server generate-ts` 或 `generate-json-schema` 生成与当前 Codex 版本匹配的协议 schema。
 
 缺点：

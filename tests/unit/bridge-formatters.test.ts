@@ -6,6 +6,7 @@ import {
   composeFinalAnswer,
   composeSteerBatchInput,
   formatApprovalKindForUser,
+  formatApprovalSupport,
   formatGoalTimestamp,
   formatModelPolicy,
   formatRunPolicy,
@@ -62,6 +63,23 @@ test("bridge formatters preserve status labels and local goal time", () => {
   assert.equal(formatGoalTimestamp(1700000000, { timeZone: "Asia/Shanghai" }), "2023-11-15 06:13:20（Asia/Shanghai）");
   assert.equal(formatGoalTimestamp(1700000000, { timeZone: "UTC" }), "2023-11-14 22:13:20（UTC）");
   assert.equal(formatGoalTimestamp(0, { timeZone: "UTC" }), "未知");
+});
+
+test("bridge formatters keep approval support wording channel-neutral", () => {
+  const supported = formatApprovalSupport({
+    policy: { permissionMode: "approval", sandbox: "workspace-write" },
+    interactiveApprovals: true,
+    effectiveApprovalPolicy: "on-request",
+  });
+  const unsupported = formatApprovalSupport({
+    policy: { permissionMode: "approval", sandbox: "workspace-write" },
+    interactiveApprovals: false,
+    effectiveApprovalPolicy: "never",
+  });
+
+  assert.match(supported, /聊天内审批/);
+  assert.match(unsupported, /不支持聊天内审批/);
+  assert.doesNotMatch(`${supported}\n${unsupported}`, /微信/);
 });
 
 test("bridge formatters render session choices and final answers", () => {

@@ -41,7 +41,7 @@ Codex <-> Codex Adapter <-> Middleware Core <-> Weixin Adapter <-> WeChat
 - `TerminalChannelAdapter`，用于本地终端模拟微信消息。
 - `Bridge Core`、命令处理、审批管理、内存状态存储、日志。
 - `MockCodexAdapter`。
-- `AppServerCodexAdapter` 初版，默认通过 `codex app-server --listen stdio://` 驱动真实 Codex，并把审批请求回调给微信。
+- `AppServerCodexAdapter` 初版，默认通过 `codex app-server --listen stdio://` 驱动真实 Codex，并把审批请求回调给中间件，由当前聊天处理审批。
 - `ExecCodexAdapter` 已完成真实 Codex CLI 中间件调用验证，并保留为非交互回退模式。
 - 真实 Codex 模式启动时必须检测 Codex 是否可用，并允许选择历史会话或创建新会话。
 - 真实 Codex 模式启动时必须先选择新会话或历史会话，再选择权限模式：安全沙箱模式或完全权限；完全权限必须明确提示危险并要求确认。默认 app-server 接入下，安全沙箱模式必须支持把 Codex 审批请求推送到微信，并保持与本机 Codex CLI `workspace-write` 一致的网络访问能力。
@@ -144,7 +144,7 @@ Git 管理要求：
 
 当前实现约束：
 
-- 默认真实接入走 `codex app-server`，用于创建、恢复、中断 Codex thread/turn，并支持微信交互审批。
+- 默认真实接入走 `codex app-server`，用于创建、恢复、中断 Codex thread/turn，并支持聊天内交互审批。
 - `codex exec --json` 只作为非交互回退模式，不承担完整审批体验。
 - Codex 会话的外部创建、恢复和中断已具备初版能力；后续仍需补充 app-server 重连、事件背压和更多协议版本兼容。
 
@@ -522,7 +522,7 @@ Codex 状态：
 - 把 Codex 最终回复和阶段性状态发回微信。
 - 持久化微信上下文与 Codex 会话绑定。
 - 支持 `/sessions`、`/use`、`/resume`。
-- 支持微信审批命令处理 Codex approval request。
+- 支持聊天内审批命令处理 Codex approval request。
 - 处理重启恢复。
 - 每个命令和关键状态流都要有测试报告。
 

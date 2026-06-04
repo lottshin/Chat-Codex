@@ -52,7 +52,7 @@ export async function configureAdapterMode(rl: Interface, startup: PreparedServe
     "Codex 接入方式",
     `当前: ${formatAdapterModeForUser(startup.adapterMode)}`,
     "",
-    "1. Codex app-server（推荐，支持微信审批）",
+    "1. Codex app-server（推荐，支持聊天内审批）",
     "2. Codex exec（备用模式）",
     "0. 返回",
   ].join("\n"));
