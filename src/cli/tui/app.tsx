@@ -876,12 +876,12 @@ export function ChatCodexTui({ actions, onDone, copyToClipboard = writeClipboard
       message: next
         ? [
             `确认开启 ${formatManagedChannelLabel(channel)} 的群聊接收？`,
-            "开启后，飞书群聊 @机器人 会进入 Chat-Codex 配对流程；每个群仍需单独配对。",
+            "开启后，飞书群聊 @机器人 会进入 Local Agent Bridge 配对流程；每个群仍需单独配对。",
             "按 y 确认，按 n 取消。",
           ].join(" ")
         : [
             `确认关闭 ${formatManagedChannelLabel(channel)} 的群聊接收？`,
-            "关闭后，Chat-Codex 将忽略飞书群聊消息；已有群 route、配对、权限和 session 绑定会保留。",
+            "关闭后，Local Agent Bridge 将忽略飞书群聊消息；已有群 route、配对、权限和 session 绑定会保留。",
             "按 y 确认，按 n 取消。",
           ].join(" "),
       yes: async () => {

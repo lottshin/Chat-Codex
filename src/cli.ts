@@ -535,7 +535,7 @@ function printRuntimeSummary(
   if ((startup.backend ?? "codex") === "claude") console.log(`- Claude Code 接入: ${formatClaudeAdapterForCli(startup.claudeAdapterMode)}`);
   if (startup.policy) console.log(`- 权限模式: ${formatPolicyForCli(startup.policy)}`);
   console.log(`- 阶段进度: ${formatProgressForCli(progressMode, display.progressDisabled)}`);
-  console.log(`- 命令空间: ${(startup.commandProfile ?? "codex") === "claude" ? "Chat-Codex 根命令优先；/bridge-* 兼容别名；未知 slash 可转发 Claude Code" : "Chat-Codex root slash"}`);
+  console.log(`- 命令空间: ${(startup.commandProfile ?? "codex") === "claude" ? "Local Agent Bridge 根命令优先；/bridge-* 兼容别名；未知 slash 可转发 Claude Code" : "Local Agent Bridge root slash"}`);
   console.log("- 退出: Ctrl+C");
 }
 
@@ -590,8 +590,8 @@ function printHelp(): void {
     "",
     "Commands:",
     "  chat-codex                         启动 Codex 入口",
-    "  chat-claude                        启动 Claude Code 入口，已知 Chat-Codex 命令本地处理",
-    "  chat-codex version                 查看 Chat-Codex 和 Node.js 版本",
+    "  chat-claude                        启动 Claude Code 入口，已知 Local Agent Bridge 命令本地处理",
+    "  chat-codex version                 查看 Local Agent Bridge 和 Node.js 版本",
     "  chat-codex test                    运行本地 mock Codex/Channel 流程",
     "  chat-codex terminal mock           启动本地终端通道 + MockCodex",
     "  chat-codex terminal codex          启动本地终端通道 + Codex",
@@ -603,7 +603,7 @@ function printHelp(): void {
     "    --session new|last|<id>          设置启动时首个微信私聊预设；不会绑定整个微信账号",
     "    --cwd <dir>, --workdir <dir>     设置新会话工作目录；目录不存在会自动创建",
     "    --permission approval|full       设置安全沙箱或完全权限",
-    "    --command-profile codex|claude   选择聊天命令入口；claude 下已知 Chat-Codex 命令优先本地处理",
+    "    --command-profile codex|claude   选择聊天命令入口；claude 下已知 Local Agent Bridge 命令优先本地处理",
     "    --codex-adapter app-server|exec  设置 Codex 接入方式；默认 app-server，支持聊天内审批",
     "    --claude-adapter exec|sdk       设置 Claude Code 接入方式；默认 exec，sdk 为实验模式",
     "    --yes-dangerously-full           非交互确认完全权限",

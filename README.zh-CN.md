@@ -1,4 +1,4 @@
-# Codex Chat Bridge
+# Local Agent Bridge
 
 默认简体中文 README 已迁移到根目录 [README.md](README.md)。
 

@@ -659,7 +659,7 @@ function expectedChatCodexTitle(): string {
   const packageJson = JSON.parse(fs.readFileSync(path.join(process.cwd(), "package.json"), "utf8")) as {
     version?: string;
   };
-  return `Chat-Codex v${packageJson.version ?? "0.0.0"}`;
+  return `Local Agent Bridge v${packageJson.version ?? "0.0.0"}`;
 }
 
 function escapeRegExp(value: string): string {

@@ -1,4 +1,4 @@
-<h1 align="center">Chat-Codex</h1>
+<h1 align="center">Local Agent Bridge</h1>
 
 <p align="center">
 把本机 Codex 或 Claude Code 接入微信和飞书的轻量聊天中间件。
@@ -43,12 +43,12 @@
 
 ## 项目介绍
 
-Chat-Codex 是一个轻量的聊天渠道中间件，用来把微信和飞书里的私聊消息接入本机 Codex 或 Claude Code。它负责把不同聊天平台的消息转换为统一协议，按聊天 route 绑定独立 session，并把 Codex/Claude Code 的回复、审批、进度和文件发送回对应聊天。
+Local Agent Bridge 是一个轻量的聊天渠道中间件，用来把微信和飞书里的私聊消息接入本机 Codex 或 Claude Code。它负责把不同聊天平台的消息转换为统一协议，按聊天 route 绑定独立 session，并把 Codex/Claude Code 的回复、审批、进度和文件发送回对应聊天。
 
 项目核心目标是让本机 Codex/Claude Code 可以自然地在聊天窗口里工作，同时避免多渠道、多聊天、多 session 之间的上下文串线。
 
 <p align="center">
-  <img src="docs/chat-codex-tui-screenshot.png" alt="Chat-Codex TUI 运行截图" width="900">
+  <img src="docs/chat-codex-tui-screenshot.png" alt="Local Agent Bridge TUI 运行截图" width="900">
 </p>
 
 ## 能力概览
@@ -66,8 +66,8 @@ Chat-Codex 是一个轻量的聊天渠道中间件，用来把微信和飞书里
 ## 安装使用
 
 ```bash
-# 全局安装 Chat-Codex
-npm install -g chat-codex
+# 全局安装 Local Agent Bridge
+npm install -g local-agent-bridge
 
 # 启动 TUI
 chat-codex
@@ -77,7 +77,7 @@ chat-codex
 
 ### Codex 入口
 
-Chat-Codex 默认使用本机 `codex` CLI 启动 `codex app-server` 或 `codex exec` 子进程来接入 Codex；只安装 Codex 桌面 App 不等于已满足这个前置要求。
+Local Agent Bridge 默认使用本机 `codex` CLI 启动 `codex app-server` 或 `codex exec` 子进程来接入 Codex；只安装 Codex 桌面 App 不等于已满足这个前置要求。
 
 Codex CLI 官方安装指引：<https://developers.openai.com/codex/quickstart>
 
@@ -102,7 +102,7 @@ codex --version
 codex
 ```
 
-Windows 用户如果 PowerShell 里 `codex --version` 正常，但 Chat-Codex 首页显示 Codex CLI 不可用或报 `spawn codex ENOENT`，请参考 [Windows Codex CLI 排障指南](docs/windows-codex-cli-troubleshooting.zh-CN.md)。
+Windows 用户如果 PowerShell 里 `codex --version` 正常，但 Local Agent Bridge 首页显示 Codex CLI 不可用或报 `spawn codex ENOENT`，请参考 [Windows Codex CLI 排障指南](docs/windows-codex-cli-troubleshooting.zh-CN.md)。
 
 ### Claude Code 入口
 
@@ -139,7 +139,7 @@ $env:CLAUDE_CODE_GIT_BASH_PATH="D:\Program Files\Git\usr\bin\bash.exe"
 
 ### 首次配对
 
-Chat-Codex 对真实微信/飞书聊天默认启用配对保护。第一次从某个微信联系人或飞书私聊使用时，聊天里会收到配对提示；请回到运行 `chat-codex` 的终端/TUI 查看配对码，然后在原聊天里发送：
+Local Agent Bridge 对真实微信/飞书聊天默认启用配对保护。第一次从某个微信联系人或飞书私聊使用时，聊天里会收到配对提示；请回到运行 `chat-codex` 的终端/TUI 查看配对码，然后在原聊天里发送：
 
 ```text
 /pair <配对码>
@@ -187,8 +187,8 @@ node dist/src/cli.js --backend claude
 ## 开发快速开始
 
 ```bash
-git clone git@github.com:uluckyXH/Chat-Codex.git
-cd Chat-Codex
+git clone git@github.com:lottshin/Local-Agent-Bridge.git
+cd Local-Agent-Bridge
 npm install
 npm run build
 npm test
@@ -212,10 +212,10 @@ TUI 会引导完成 Codex 检查、渠道管理、聊天绑定和启动服务。
 | `npm run test:integration` | 运行集成测试 |
 | `npm run smoke:claude-sdk` | 运行确定性的本地 Claude SDK 审批 smoke；不属于默认 `npm test` |
 | `npm run smoke:claude-sdk:real` | 运行真实 Claude Agent SDK / provider smoke；失败时输出诊断码，可加 `-- --debug-sdk` 收集 Claude Code 子进程日志 |
-| `npm run chat-codex` | 启动开发版 Chat-Codex TUI |
+| `npm run chat-codex` | 启动开发版 Local Agent Bridge TUI |
 | `npm run cli:chat-codex` | `chat-codex` 的等价开发入口 |
-| `chat-codex --version` | 查看已安装 Chat-Codex 版本 |
-| `chat-codex version` | 查看 Chat-Codex 和 Node.js 版本 |
+| `chat-codex --version` | 查看已安装 Local Agent Bridge 版本 |
+| `chat-codex version` | 查看 Local Agent Bridge 和 Node.js 版本 |
 | `npm run cli:mock` | Mock 通道闭环验证 |
 | `npm run cli:terminal:mock` | 终端通道 + MockCodex |
 | `npm run cli:terminal:codex` | 终端通道 + 真实 Codex |

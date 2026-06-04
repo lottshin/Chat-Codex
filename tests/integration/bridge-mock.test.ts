@@ -1286,7 +1286,7 @@ test("Bridge switches persistent collaboration mode with /plan and /code", async
   await bridge.stop();
 
   const help = channel.sentMessages.find((message) => message.text.startsWith("**可用命令**"))?.text ?? "";
-  assert.ok(help.includes("- `/plan [任务]`: 进入 Chat-Codex 计划模式；带任务时立即用计划模式处理"));
+  assert.ok(help.includes("- `/plan [任务]`: 进入 Local Agent Bridge 计划模式；带任务时立即用计划模式处理"));
   assert.ok(help.includes("- `/code [任务]`: 切回默认执行模式，或用默认模式处理任务。"));
   assert.ok(help.includes("  - 别名：`/default [任务]`"));
   assert.ok(help.includes("- `/plan-execute`: 接受待处理计划并使用 Claude Code auto mode 执行。"));
@@ -1318,7 +1318,7 @@ test("Bridge /plan with inline prompt keeps later prompts in plan mode", async (
   assert.deepEqual(codex.runs.map((run) => run.prompt), ["先给我方案", "继续细化这个方案"]);
 });
 
-test("Bridge shows Chat-Codex plan workflow choices and executes accepted plan", async () => {
+test("Bridge shows Local Agent Bridge plan workflow choices and executes accepted plan", async () => {
   const channel = new MockChannelAdapter();
   const codex = new PlanWorkflowCodexAdapter();
   const bridge = new Bridge({ channel, codex, cwd: process.cwd() });
@@ -1361,7 +1361,7 @@ test("Bridge sends plan workflow action buttons when channel supports buttons", 
   assert.ok(planActions.text.includes("实现小功能"));
   assert.deepEqual(planActions.buttonGroups.map((group) => group.map((button) => button.action)), [["cmd:/plan-execute"], ["cmd:/plan-edit"], ["cmd:/replan"]]);
   assert.deepEqual(planActions.buttonGroups.map((group) => group.map((button) => button.text)), [["执行：自动模式"], ["执行：逐项审批"], ["修改计划"]]);
-  assert.equal(channel.sentMessages.some((message) => message.text.includes("Chat-Codex 计划快捷回复")), false);
+  assert.equal(channel.sentMessages.some((message) => message.text.includes("Local Agent Bridge 计划快捷回复")), false);
 
   await channel.emitText("/plan-execute");
   await bridge.waitForIdle();
@@ -1961,7 +1961,7 @@ test("Bridge stores image-only messages as pending media without running Codex",
   await bridge.stop();
 
   assert.deepEqual(codex.prompts, []);
-  assert.ok(channel.sentMessages.some((message) => message.text.includes("【Chat-Codex中间件提醒】")));
+  assert.ok(channel.sentMessages.some((message) => message.text.includes("【Local Agent Bridge 中间件提醒】")));
   const status = channel.sentMessages.at(-1)?.text ?? "";
   assert.match(status, /待处理附件: `1`/);
 });

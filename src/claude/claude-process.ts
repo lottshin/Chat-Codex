@@ -100,7 +100,7 @@ export function formatClaudeUnavailableError(command: ClaudeCommandResolution, e
   if (command.platform === "win32") {
     lines.push(
       "Windows 排查: 请执行 where.exe claude 和 claude --version。",
-      `如 PowerShell 可用但 Chat-Codex 不可用，可设置 ${CHAT_CLAUDE_BIN_ENV}=D:\\env\\nvm\\nodejs\\claude.cmd 后重试。`,
+      `如 PowerShell 可用但 Local Agent Bridge 不可用，可设置 ${CHAT_CLAUDE_BIN_ENV}=D:\\env\\nvm\\nodejs\\claude.cmd 后重试。`,
     );
   }
   return lines.join("\n");

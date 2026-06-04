@@ -1,10 +1,10 @@
 # Windows Codex CLI 排障指南
 
-本文档面向 Windows 用户。它只处理 Chat-Codex 找不到或无法启动本机 Codex CLI 的问题，不涉及微信、飞书、TUI 交互或业务命令。
+本文档面向 Windows 用户。它只处理 Local Agent Bridge 找不到或无法启动本机 Codex CLI 的问题，不涉及微信、飞书、TUI 交互或业务命令。
 
 ## 1. 先确认前置条件
 
-Chat-Codex 需要本机安装 Codex CLI。只安装 Codex 桌面 App 不等于已经安装 CLI。
+Local Agent Bridge 需要本机安装 Codex CLI。只安装 Codex 桌面 App 不等于已经安装 CLI。
 
 先在 PowerShell 中执行：
 
@@ -28,7 +28,7 @@ D:\env\nvm\nodejs\codex.cmd
 
 如果 PowerShell 自己也无法运行 `codex --version`，请先按 Codex 官方安装指引安装或修复 Codex CLI。
 
-## 2. 看 Chat-Codex 首页
+## 2. 看 Local Agent Bridge 首页
 
 启动：
 
@@ -36,17 +36,17 @@ D:\env\nvm\nodejs\codex.cmd
 chat-codex
 ```
 
-Chat-Codex 首页会显示 Codex CLI 接入状态：
+Local Agent Bridge 首页会显示 Codex CLI 接入状态：
 
 - 平台：例如 `win32 x64`。
 - 状态：`已找到` 或 `不可用`。
 - 版本：来自 `codex --version`。
-- 路径：Chat-Codex 实际准备用来启动的 Codex CLI 路径。
+- 路径：Local Agent Bridge 实际准备用来启动的 Codex CLI 路径。
 - 来源：默认 `codex`、`PATH/PATHEXT`，或 `CHAT_CODEX_BIN`。
 
 如果这里显示 `不可用`，先看错误文本里的路径和来源。
 
-## 3. PowerShell 能运行，但 Chat-Codex 报 `spawn codex ENOENT`
+## 3. PowerShell 能运行，但 Local Agent Bridge 报 `spawn codex ENOENT`
 
 这通常是 Windows 下 Node.js 子进程解析 npm shim 的差异导致的。PowerShell 能找到 `codex`，不代表 Node.js 的 `spawn("codex")` 一定能用同样规则找到 `codex.cmd`。
 
@@ -56,7 +56,7 @@ Chat-Codex 首页会显示 Codex CLI 接入状态：
 where.exe codex
 ```
 
-找到 `codex.cmd` 后，临时指定给 Chat-Codex：
+找到 `codex.cmd` 后，临时指定给 Local Agent Bridge：
 
 ```powershell
 $env:CHAT_CODEX_BIN="D:\env\nvm\nodejs\codex.cmd"
@@ -117,11 +117,11 @@ echo $env:CHAT_CODEX_BIN
 
 - Windows 版本。
 - Node.js 版本：`node --version`。
-- Chat-Codex 版本：`chat-codex --version`。
+- Local Agent Bridge 版本：`chat-codex --version`。
 - Codex CLI 版本：`codex --version`。
 - `where.exe codex` 输出。
 - `where.exe chat-codex` 输出。
-- Chat-Codex 首页显示的平台、状态、版本、路径和来源。
+- Local Agent Bridge 首页显示的平台、状态、版本、路径和来源。
 - 是否设置了 `CHAT_CODEX_BIN`。
 
 不要粘贴真实 token、cookie、App Secret 或其它密钥。

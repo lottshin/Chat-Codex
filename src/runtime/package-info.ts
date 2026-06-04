@@ -6,13 +6,13 @@ export interface ChatCodexPackageInfo {
   version: string;
 }
 
-export const CHAT_CODEX_DISPLAY_NAME = "Chat-Codex";
+export const CHAT_CODEX_DISPLAY_NAME = "Local Agent Bridge";
 
 let cachedPackageInfo: ChatCodexPackageInfo | undefined;
 
 export function readChatCodexPackageInfo(): ChatCodexPackageInfo {
   if (cachedPackageInfo) return cachedPackageInfo;
-  cachedPackageInfo = readPackageJson() ?? { name: "chat-codex", version: "0.0.0" };
+  cachedPackageInfo = readPackageJson() ?? { name: "local-agent-bridge", version: "0.0.0" };
   return cachedPackageInfo;
 }
 
@@ -35,7 +35,7 @@ function readPackageJson(): ChatCodexPackageInfo | undefined {
   try {
     const packageJsonPath = fileURLToPath(new URL("../../../package.json", import.meta.url));
     const raw = JSON.parse(fs.readFileSync(packageJsonPath, "utf8")) as Record<string, unknown>;
-    const name = typeof raw.name === "string" && raw.name.trim() ? raw.name.trim() : "chat-codex";
+    const name = typeof raw.name === "string" && raw.name.trim() ? raw.name.trim() : "local-agent-bridge";
     const version = typeof raw.version === "string" && raw.version.trim() ? raw.version.trim() : "0.0.0";
     return { name, version };
   } catch {

@@ -487,7 +487,7 @@ export class BridgeStatusText {
       { command: "/cancel", description: "取消当前等待中的交互，例如会话选择、压缩确认或待发送文件。" },
       ...(isFeishuGroupMessage(message) ? [] : [{ command: "/whoami", description: "查看当前通道身份。" }]),
       { command: "/debug", description: "查看调试状态。" },
-      { command: "/plan [任务]", description: "进入 Chat-Codex 计划模式；带任务时立即用计划模式处理，计划完成后会显示 Chat-Codex 快捷回复。", feature: "collaborationMode" },
+      { command: "/plan [任务]", description: "进入 Local Agent Bridge 计划模式；带任务时立即用计划模式处理，计划完成后会显示 Local Agent Bridge 快捷回复。", feature: "collaborationMode" },
       { command: "/code [任务]", description: "切回默认执行模式，或用默认模式处理任务。", aliases: ["/default [任务]"], feature: "collaborationMode" },
       { command: "/plan-execute", description: "接受待处理计划并使用 Claude Code auto mode 执行。", aliases: ["/1"], feature: "collaborationMode" },
       { command: "/plan-edit", description: "接受待处理计划并手动审批编辑。", aliases: ["/2"], feature: "collaborationMode" },
@@ -588,7 +588,7 @@ export class BridgeStatusText {
     }));
     return [
       "**可用命令**",
-      this.commandProfile === "claude" ? "Claude profile：已知 Chat-Codex 命令可直接使用根 `/...`；旧 `/bridge-*` 别名仍兼容；未知 slash 命令会在 Claude Code 支持时转发。" : undefined,
+      this.commandProfile === "claude" ? "Claude profile：已知 Local Agent Bridge 命令可直接使用根 `/...`；旧 `/bridge-*` 别名仍兼容；未知 slash 命令会在 Claude Code 支持时转发。" : undefined,
       "",
       "**常用下一步**",
       ...formatHelpNextStepLines(this.commandProfile),

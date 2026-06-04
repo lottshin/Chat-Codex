@@ -13,7 +13,7 @@ const DEFAULT_TIMEOUT_MS = 90_000;
 
 const help = `Claude SDK approval smoke
 
-Runs a deterministic local harness through the Chat-Codex Bridge and verifies:
+Runs a deterministic local harness through Local Agent Bridge and verifies:
 - Claude asks for tool approval
 - /1 approves the request through the bridge
 - the approved command resumes and creates a local marker file

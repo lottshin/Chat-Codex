@@ -79,7 +79,7 @@ test("BridgeCommandRouter sends unknown command help text", async () => {
 test("BridgeCommandRouter points Claude profile bridge errors to root help", async () => {
   const fixture = routerFixture({ backend: "claude", commandProfile: "claude" });
   await fixture.router.handle(message(), target(), "bridge-missing", [], "/bridge-missing");
-  assert.equal(fixture.sent.at(-1), "未知 Chat-Codex 命令: /bridge-missing\n下一步：发送 /help 查看 Chat-Codex 可用命令；未知根 slash 命令会在 Claude Code 支持时转发。");
+  assert.equal(fixture.sent.at(-1), "未知 Local Agent Bridge 命令: /bridge-missing\n下一步：发送 /help 查看 Local Agent Bridge 可用命令；未知根 slash 命令会在 Claude Code 支持时转发。");
 });
 
 test("BridgeCommandRouter handles refresh commands before normal dispatch", async () => {

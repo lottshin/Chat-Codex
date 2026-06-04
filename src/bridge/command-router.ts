@@ -437,8 +437,8 @@ export class BridgeCommandRouter {
 function unknownCommandMessage(name: string, commandProfile: CommandNamespaceProfile): string {
   if (commandProfile === "claude") {
     return [
-      `未知 Chat-Codex 命令: /${name}`,
-      "下一步：发送 /help 查看 Chat-Codex 可用命令；未知根 slash 命令会在 Claude Code 支持时转发。",
+      `未知 Local Agent Bridge 命令: /${name}`,
+      "下一步：发送 /help 查看 Local Agent Bridge 可用命令；未知根 slash 命令会在 Claude Code 支持时转发。",
     ].join("\n");
   }
   return `未知命令: /${name}\n下一步：发送 /help 查看可用命令。`;

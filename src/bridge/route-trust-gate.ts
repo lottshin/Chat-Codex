@@ -8,7 +8,7 @@ import { PairingCodeManager, parsePairingCodeInput } from "./pairing-code-manage
 import type { RouteTrustMode } from "./bridge-types.js";
 
 export const ROUTE_PAIRING_REQUIRED_CHANNEL_TEXT = [
-  "当前聊天还没有完成 Chat-Codex 配对。",
+  "当前聊天还没有完成 Local Agent Bridge 配对。",
   "请查看运行 chat-codex 的终端/TUI 日志中的配对码，然后在当前聊天发送 /pair <配对码> 完成配对。",
 ].join("\n");
 
@@ -65,7 +65,7 @@ export class RouteTrustGate {
           channel: message.channelId,
           conversationKind: message.conversation.kind,
         });
-        await this.delivery.sendText(target, "Chat-Codex 配对成功，当前聊天已信任。");
+        await this.delivery.sendText(target, "Local Agent Bridge 配对成功，当前聊天已信任。");
         return { action: "handled", reason: "paired", trustedRoute: trusted };
       }
       this.logSecurity(target, pairingFailedText(message, verified.reason));
@@ -113,7 +113,7 @@ export class RouteTrustGate {
   }
 
   private logSecurity(target: ChannelTarget, text: string): void {
-    this.transcript?.localProgress?.(target, `Chat-Codex 安全:\n${text}`);
+    this.transcript?.localProgress?.(target, `Local Agent Bridge 安全:\n${text}`);
   }
 }
 
@@ -180,7 +180,7 @@ function formatPairingFailureReason(reason: string): string {
 function pairingFailedChannelText(reason: string): string {
   if (reason === "missing") return ROUTE_PAIRING_REQUIRED_CHANNEL_TEXT;
   return [
-    `Chat-Codex 配对失败：${formatPairingFailureReason(reason)}。`,
+    `Local Agent Bridge 配对失败：${formatPairingFailureReason(reason)}。`,
     "请查看运行 chat-codex 的终端/TUI 日志，确认最新配对码后重新发送 /pair <配对码>。",
   ].join("\n");
 }
