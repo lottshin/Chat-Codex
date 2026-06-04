@@ -46,7 +46,7 @@ export async function handleClaudePermissionMcpRequest(
     return response(id, {
       tools: [{
         name: "approval_prompt",
-        description: "Ask Chat-Codex remote channels to approve or deny a Claude Code tool request.",
+        description: "Ask Local Agent Bridge remote channels to approve or deny a Claude Code tool request.",
         inputSchema: {
           type: "object",
           properties: {
@@ -94,7 +94,7 @@ export async function handleClaudePermissionMcpRequest(
 export async function runClaudePermissionMcpStdio(): Promise<void> {
   const ipcUrl = process.env.CHAT_CODEX_PERMISSION_IPC_URL;
   const secret = process.env.CHAT_CODEX_PERMISSION_IPC_SECRET;
-  if (!ipcUrl || !secret) throw new Error("missing Chat-Codex permission IPC config");
+  if (!ipcUrl || !secret) throw new Error("missing Local Agent Bridge permission IPC config");
 
   const lines = createInterface({ input: process.stdin });
   for await (const line of lines) {

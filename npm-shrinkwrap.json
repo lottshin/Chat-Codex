@@ -1,12 +1,12 @@
 {
-  "name": "chat-codex",
-  "version": "0.4.5",
+  "name": "local-agent-bridge",
+  "version": "0.5.0",
   "lockfileVersion": 3,
   "requires": true,
   "packages": {
     "": {
-      "name": "chat-codex",
-      "version": "0.4.5",
+      "name": "local-agent-bridge",
+      "version": "0.5.0",
       "bundleDependencies": [
         "@larksuiteoapi/node-sdk"
       ],

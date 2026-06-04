@@ -1,6 +1,6 @@
 # 项目文档索引
 
-这个目录存放 Chat-Codex 的设计和执行依据。后续开发时先读本文档，再进入具体需求或技术设计。
+这个目录存放 Local Agent Bridge 的设计和执行依据。后续开发时先读本文档，再进入具体需求或技术设计。
 
 ## 文档用途
 
@@ -14,7 +14,7 @@
   中文渠道投递策略设计。说明 `ChannelDeliveryPolicy` 如何按渠道控制 task-start、progress、`/progress` 和 refresh 命令，避免 Bridge Core 写具体平台分支。
 
 - `inbound-media-design.zh-CN.md`
-  入站图片和文件适配设计。说明微信/飞书图片如何下载保存到用户目录 `~/.chat-codex/uploads/`、图片-only 如何由 `【Chat-Codex中间件提醒】` 询问用户意图、图文消息如何投递给 Codex、执行中收到图片时如何通过结构化 steer 或 pending media 处理，以及 Codex app-server `localImage` 的结构化输入边界。
+  入站图片和文件适配设计。说明微信/飞书图片如何下载保存到用户目录 `~/.chat-codex/uploads/`、图片-only 如何由 `【Local Agent Bridge 中间件提醒】` 询问用户意图、图文消息如何投递给 Codex、执行中收到图片时如何通过结构化 steer 或 pending media 处理，以及 Codex app-server `localImage` 的结构化输入边界。
 
 - `development-and-test.zh-CN.md`
   中文开发与测试规范。说明代码分层、质量要求、每个功能的自测要求、测试报告目录和报告格式。
@@ -65,7 +65,7 @@
   `/new chat` Codex App 对话会话设计。该能力当前保留为隐藏实现，不在聊天 `/help` 或 README 中公开展示；文档记录此前的技术验证、route/session 绑定语义、`thread/name/set` 标题同步和 preview 补齐方案。
 
 - `session-context-refresh-design.zh-CN.md`
-  Session 上下文外部更新检测与发送前刷新设计。说明独立模式下 Chat-Codex 如何在用户发消息前检测电脑端 Codex CLI 是否更新了同一 session，并在开关启用时重新加载后再投递消息；该方案是懒刷新，不是实时共享 app-server 模式，并要求兼容 macOS/Windows。
+  Session 上下文外部更新检测与发送前刷新设计。说明独立模式下 Local Agent Bridge 如何在用户发消息前检测电脑端 Codex CLI 是否更新了同一 session，并在开关启用时重新加载后再投递消息；该方案是懒刷新，不是实时共享 app-server 模式，并要求兼容 macOS/Windows。
 
 - `session-list-pagination-design.zh-CN.md`
   Session 列表展示与分页设计。说明 `/sessions`、`/session`、`/sessions all`、`/resume` 和 `/use` 如何统一列表格式、排序、分页和编号选择交互，避免历史 session 很多时刷屏。
@@ -80,7 +80,7 @@
   Windows Codex 接入兼容性设计。说明 Windows 下 Codex CLI 子进程解析、npm shim、`spawn codex ENOENT` 已知问题、`CHAT_CODEX_BIN` 覆盖入口，以及传给 Codex 的本地路径边界。
 
 - `windows-codex-cli-troubleshooting.zh-CN.md`
-  Windows Codex CLI 用户排障指南。说明如何检查 `codex --version`、`where.exe codex`、Chat-Codex 首页的 Codex CLI 状态，以及如何用 `CHAT_CODEX_BIN` 指定 `codex.cmd`。
+  Windows Codex CLI 用户排障指南。说明如何检查 `codex --version`、`where.exe codex`、Local Agent Bridge 首页的 Codex CLI 状态，以及如何用 `CHAT_CODEX_BIN` 指定 `codex.cmd`。
 
 - `bridge-modularization-design.zh-CN.md`
   Bridge 模块化拆分设计。说明如何在保留现有全部功能的前提下，把当前单体 `bridge.ts` 拆成 command router、session flow、route queue、steering、delivery、status 文案和格式化工具等模块，并要求拆分前保留旧文件对照备份。

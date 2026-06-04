@@ -1,17 +1,17 @@
 {
-  "name": "chat-codex",
-  "version": "0.4.5",
+  "name": "local-agent-bridge",
+  "version": "0.5.0",
   "description": "Connect local Codex or Claude Code to Weixin and Feishu through a terminal TUI.",
   "author": "小黄 and Codex",
   "license": "MIT",
   "type": "module",
-  "homepage": "https://github.com/uluckyXH/Chat-Codex#readme",
+  "homepage": "https://github.com/lottshin/Local-Agent-Bridge#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/uluckyXH/Chat-Codex.git"
+    "url": "git+https://github.com/lottshin/Local-Agent-Bridge.git"
   },
   "bugs": {
-    "url": "https://github.com/uluckyXH/Chat-Codex/issues"
+    "url": "https://github.com/lottshin/Local-Agent-Bridge/issues"
   },
   "keywords": [
     "codex",

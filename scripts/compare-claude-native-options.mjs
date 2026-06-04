@@ -7,7 +7,7 @@ function usage() {
   return [
     "Usage: npm run smoke:claude-options:compare -- --evidence <path>",
     "",
-    "Reads manual native-option evidence and reports current Chat-Codex normalized approval choices.",
+    "Reads manual native-option evidence and reports current Local Agent Bridge normalized approval choices.",
     "Run npm run build first, or use the npm script which does it for you.",
   ].join("\n");
 }

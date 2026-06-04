@@ -1,4 +1,4 @@
-<h1 align="center">Chat-Codex</h1>
+<h1 align="center">Local Agent Bridge</h1>
 
 <p align="center">
 A lightweight chat middleware that connects local Codex or Claude Code to Weixin and Feishu.
@@ -42,7 +42,7 @@ A lightweight chat middleware that connects local Codex or Claude Code to Weixin
 
 ## Overview
 
-Chat-Codex is a lightweight middleware for connecting Weixin and Feishu private chats to a local Codex or Claude Code runtime. It normalizes messages from different chat platforms, binds each chat route to an independent session, and sends Codex/Claude Code replies, approvals, progress, and files back to the correct conversation.
+Local Agent Bridge is a lightweight middleware for connecting Weixin and Feishu private chats to a local Codex or Claude Code runtime. It normalizes messages from different chat platforms, binds each chat route to an independent session, and sends Codex/Claude Code replies, approvals, progress, and files back to the correct conversation.
 
 The core goal is to make Codex/Claude Code usable from chat windows while keeping routes, sessions, approvals, and files isolated across channels and users.
 
@@ -61,14 +61,14 @@ The core goal is to make Codex/Claude Code usable from chat windows while keepin
 ## Installation
 
 ```bash
-# Install Chat-Codex globally
-npm install -g chat-codex
+# Install Local Agent Bridge globally
+npm install -g local-agent-bridge
 
 # Start the TUI
 chat-codex
 ```
 
-Before first launch, set up the local Codex CLI or Claude Code CLI. Chat-Codex talks to Codex by launching the local `codex` CLI as a child process, using either `codex app-server` or `codex exec`. Installing only the Codex desktop app does not necessarily make the `codex` command available.
+Before first launch, set up the local Codex CLI or Claude Code CLI. Local Agent Bridge talks to Codex by launching the local `codex` CLI as a child process, using either `codex app-server` or `codex exec`. Installing only the Codex desktop app does not necessarily make the `codex` command available.
 
 Official Codex CLI setup guide: <https://developers.openai.com/codex/quickstart>
 
@@ -99,7 +99,7 @@ On first launch, follow the TUI to check Codex/Claude Code, manage channels, bin
 
 ### First-time Pairing
 
-Chat-Codex enables pairing protection for real Weixin and Feishu chats by default. When a Weixin contact or Feishu private chat uses it for the first time, the chat receives a pairing prompt. Go back to the terminal/TUI running `chat-codex`, copy the pairing code, then send this in the original chat:
+Local Agent Bridge enables pairing protection for real Weixin and Feishu chats by default. When a Weixin contact or Feishu private chat uses it for the first time, the chat receives a pairing prompt. Go back to the terminal/TUI running `chat-codex`, copy the pairing code, then send this in the original chat:
 
 ```text
 /pair <code>
@@ -123,8 +123,8 @@ After pairing succeeds, that chat is stored as a trusted route and remains usabl
 ## Development Quick Start
 
 ```bash
-git clone git@github.com:uluckyXH/Chat-Codex.git
-cd Chat-Codex
+git clone git@github.com:lottshin/Local-Agent-Bridge.git
+cd Local-Agent-Bridge
 npm install
 npm run build
 npm test
@@ -148,10 +148,10 @@ The TUI guides Codex checks, channel management, chat bindings, and service star
 | `npm run test:integration` | Run integration tests |
 | `npm run smoke:claude-sdk` | Run the deterministic local Claude SDK approval smoke; not part of default `npm test` |
 | `npm run smoke:claude-sdk:real` | Run the live Claude Agent SDK / provider smoke; on failure, add `-- --debug-sdk` to collect Claude Code subprocess logs |
-| `npm run chat-codex` | Start the development Chat-Codex TUI |
+| `npm run chat-codex` | Start the development Local Agent Bridge TUI |
 | `npm run cli:chat-codex` | Equivalent development entry |
-| `chat-codex --version` | Show the installed Chat-Codex version |
-| `chat-codex version` | Show Chat-Codex and Node.js versions |
+| `chat-codex --version` | Show the installed Local Agent Bridge version |
+| `chat-codex version` | Show Local Agent Bridge and Node.js versions |
 | `npm run cli:mock` | Mock channel loop |
 | `npm run cli:terminal:mock` | Terminal channel + MockCodex |
 | `npm run cli:terminal:codex` | Terminal channel + real Codex |

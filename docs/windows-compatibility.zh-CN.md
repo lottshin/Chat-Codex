@@ -1,15 +1,15 @@
 # Windows Codex 接入兼容性设计
 
-本文档记录 Chat-Codex 在 Windows 环境下对接本机 Codex CLI 的底层兼容性设计、已知问题、修复策略和验收要求。主线是“如何可靠找到并启动 Codex”，不是把 TUI、渠道和业务功能全部做成按平台分叉的适配层。
+本文档记录 Local Agent Bridge 在 Windows 环境下对接本机 Codex CLI 的底层兼容性设计、已知问题、修复策略和验收要求。主线是“如何可靠找到并启动 Codex”，不是把 TUI、渠道和业务功能全部做成按平台分叉的适配层。
 
 其它 Windows 问题只有在影响 Codex 对接边界时才写入本文档，例如：Codex 可执行文件路径、Codex 工作目录、传给 Codex 的本地文件路径、Codex 子进程终止。微信/飞书业务逻辑、TUI 交互和媒体下载流程仍归各自设计文档负责。
 
 ## 1. 目标
 
-- Windows 用户安装 Chat-Codex 后，应能稳定解析并启动本机 Codex CLI。
+- Windows 用户安装 Local Agent Bridge 后，应能稳定解析并启动本机 Codex CLI。
 - Windows 兼容性问题应优先通过 Codex 接入边界的跨平台抽象修复，不在 Bridge Core、渠道 adapter 或命令业务流程中散落 `process.platform === "win32"` 分支。
 - 与 Codex 子进程、Codex 可执行文件路径、Codex 工作目录、传给 Codex 的本地文件路径和子进程终止相关的行为必须有明确测试或人工验收记录。
-- 发现 Windows 专属问题时，先判断是用户环境问题、Node.js/平台差异，还是 Chat-Codex 代码假设不成立。
+- 发现 Windows 专属问题时，先判断是用户环境问题、Node.js/平台差异，还是 Local Agent Bridge 代码假设不成立。
 
 ## 2. 当前兼容性范围
 
@@ -20,7 +20,7 @@
 - app-server 模式通过子进程启动 `codex app-server --listen stdio://`。
 - exec 模式通过子进程启动 `codex exec ...`。
 - `CHAT_CODEX_BIN` 覆盖 Codex CLI 路径并贯穿检测、app-server 和 exec。
-- Chat-Codex 首页/TUI 展示当前平台、Codex CLI 是否找到、Codex CLI 版本、解析到的 Codex 可执行文件和来源。
+- Local Agent Bridge 首页/TUI 展示当前平台、Codex CLI 是否找到、Codex CLI 版本、解析到的 Codex 可执行文件和来源。
 - Codex 工作目录和传给 Codex 的本地文件路径能在 Windows 下正确表达。
 
 以下内容不作为本文档第一阶段验收主线：
@@ -45,7 +45,7 @@
 - 错误信息必须可诊断。涉及子进程启动失败时，应输出平台、尝试启动的可执行文件、PATH 相关提示和推荐修复方式。
 - Windows 专属差异尽量集中在 Codex process resolver 这类底层边界模块，不进入 Bridge Core、渠道 adapter 或命令业务逻辑。
 
-## 4. 已知问题：Windows 已安装 Codex CLI 但 Chat-Codex 报 `spawn codex ENOENT`
+## 4. 已知问题：Windows 已安装 Codex CLI 但 Local Agent Bridge 报 `spawn codex ENOENT`
 
 ### 4.1 现象
 
@@ -53,7 +53,7 @@
 
 - Windows
 - Node.js `v22.22.0`
-- Chat-Codex `0.1.1`
+- Local Agent Bridge `0.1.1`
 - Codex CLI `codex-cli 0.130.0`
 - npm 全局 prefix: `D:\env\nvm\nodejs`
 
@@ -86,7 +86,7 @@ p.on("error", e => console.error("ERROR", e.code, e.message));
 ERROR ENOENT spawn codex ENOENT
 ```
 
-Chat-Codex 因此启动时报：
+Local Agent Bridge 因此启动时报：
 
 ```text
 Codex 不可用: spawn codex ENOENT
@@ -96,7 +96,7 @@ Codex 不可用: spawn codex ENOENT
 
 从现有信息看，这不是普通用户误操作。
 
-PowerShell 能找到 `codex`，说明 Codex CLI 和 npm 全局 shim 大概率已安装；但 Node.js `spawn("codex")` 在 Windows 下没有可靠解析 npm 生成的无扩展 shim 或 `.cmd` shim，导致 Chat-Codex 当前“直接 spawn 裸命令名”的假设不成立。
+PowerShell 能找到 `codex`，说明 Codex CLI 和 npm 全局 shim 大概率已安装；但 Node.js `spawn("codex")` 在 Windows 下没有可靠解析 npm 生成的无扩展 shim 或 `.cmd` shim，导致 Local Agent Bridge 当前“直接 spawn 裸命令名”的假设不成立。
 
 官方 Codex 源码也印证了这个方向：
 
@@ -223,9 +223,9 @@ chat-codex
 - exec 模式真实启动 `codex exec ...` 时使用同一路径。
 - TUI、非 TUI fallback、测试入口和 CLI 入口不能各自维护一套默认值。
 
-### 5.6 Chat-Codex 首页和运行页展示要求
+### 5.6 Local Agent Bridge 首页和运行页展示要求
 
-Chat-Codex 的启动前首页/TUI 必须把 Codex CLI 接入状态展示出来，让用户能直接判断底层对接是否正常。
+Local Agent Bridge 的启动前首页/TUI 必须把 Codex CLI 接入状态展示出来，让用户能直接判断底层对接是否正常。
 
 至少展示：
 
@@ -323,6 +323,6 @@ reports/tests/YYYY-MM-DD-windows-codex-bin-resolution.md
 
 ## 9. 结论
 
-当前 `spawn codex ENOENT` 问题应作为 Chat-Codex 的 Windows 兼容性 bug 处理。用户能在 PowerShell 中执行 `codex --version`，但 Chat-Codex 内部 Node.js `spawn("codex")` 失败，说明中间件不应继续依赖裸命令名解析。
+当前 `spawn codex ENOENT` 问题应作为 Local Agent Bridge 的 Windows 兼容性 bug 处理。用户能在 PowerShell 中执行 `codex --version`，但 Local Agent Bridge 内部 Node.js `spawn("codex")` 失败，说明中间件不应继续依赖裸命令名解析。
 
 优先落地方案是：新增统一 Codex 子进程解析模块，支持 `CHAT_CODEX_BIN` 覆盖，并在 Windows 下解析 `.cmd`、`.exe` 等可执行入口。这样可以同时修复检测、app-server 模式和 exec 模式，避免后续继续出现同类问题。

@@ -31,7 +31,7 @@ test("handleGroupReceiveCommand rejects untrusted or non-direct routes", async (
   await handleGroupReceiveCommand(untrusted.deps, untrusted.message, untrusted.target, ["on"], "group");
 
   assert.deepEqual(untrusted.setCalls, []);
-  assert.match(untrusted.sent.at(-1) ?? "", /还没有完成 Chat-Codex 配对/);
+  assert.match(untrusted.sent.at(-1) ?? "", /还没有完成 Local Agent Bridge 配对/);
 
   const group = commandFixture({
     routeKey: "feishu-default:default:group:oc_group",

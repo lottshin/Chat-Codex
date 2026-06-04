@@ -5,14 +5,14 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-test("package exposes chat-codex and chat-claude startup commands", () => {
+test("package exposes Local Agent Bridge package with chat-codex and chat-claude startup commands", () => {
   const packageJson = JSON.parse(fs.readFileSync(path.join(process.cwd(), "package.json"), "utf8")) as {
     name?: string;
     bin?: Record<string, string>;
     scripts?: Record<string, string>;
   };
 
-  assert.equal(packageJson.name, "chat-codex");
+  assert.equal(packageJson.name, "local-agent-bridge");
   assert.equal(packageJson.bin?.["chat-codex"], "dist/src/cli.js");
   assert.equal(packageJson.bin?.["chat-claude"], "dist/src/cli-claude.js");
   assert.equal(packageJson.bin?.["codex-wechat-bridge"], undefined);
@@ -36,11 +36,11 @@ test("chat-claude mock terminal starts in Claude profile without double boot", (
     timeout: 15000,
   });
 
-  assert.match(output, /Claude profile：已知 Chat-Codex 命令可直接使用根 `\/\.\.\.`/);
+  assert.match(output, /Claude profile：已知 Local Agent Bridge 命令可直接使用根 `\/\.\.\.`/);
   assert.match(output, /旧 `\/bridge-\*` 别名仍兼容/);
   assert.match(output, /\/help/);
   assert.equal((output.match(/本地终端通道已启动/g) ?? []).length, 1);
-  assert.doesNotMatch(output, /命令空间: Chat-Codex root slash/);
+  assert.doesNotMatch(output, /命令空间: Local Agent Bridge root slash/);
 });
 
 test("CLI help documents the chat-codex main entry", () => {
@@ -52,12 +52,12 @@ test("CLI help documents the chat-codex main entry", () => {
     encoding: "utf8",
   });
 
-  assert.match(help, new RegExp(`Chat-Codex v${escapeRegExp(packageJson.version ?? "")}`));
+  assert.match(help, new RegExp(`Local Agent Bridge v${escapeRegExp(packageJson.version ?? "")}`));
   assert.match(help, /chat-codex\s+启动 Codex 入口/);
-  assert.match(help, /chat-claude\s+启动 Claude Code 入口，已知 Chat-Codex 命令本地处理/);
-  assert.match(help, /--command-profile codex\|claude\s+选择聊天命令入口；claude 下已知 Chat-Codex 命令优先本地处理/);
+  assert.match(help, /chat-claude\s+启动 Claude Code 入口，已知 Local Agent Bridge 命令本地处理/);
+  assert.match(help, /--command-profile codex\|claude\s+选择聊天命令入口；claude 下已知 Local Agent Bridge 命令优先本地处理/);
   assert.doesNotMatch(help, /桥命令使用 \/bridge-\*/);
-  assert.match(help, /chat-codex version\s+查看 Chat-Codex 和 Node\.js 版本/);
+  assert.match(help, /chat-codex version\s+查看 Local Agent Bridge 和 Node\.js 版本/);
   assert.match(help, /-v, --version\s+输出版本号/);
   assert.doesNotMatch(help, /codex-wechat-bridge codex/);
 });
@@ -83,7 +83,7 @@ test("CLI version commands print package version", () => {
 
   assert.equal(longVersion, version);
   assert.equal(shortVersion, version);
-  assert.match(detail, new RegExp(`Chat-Codex ${escapeRegExp(version)}`));
+  assert.match(detail, new RegExp(`Local Agent Bridge ${escapeRegExp(version)}`));
   assert.match(detail, new RegExp(`Node\\.js ${escapeRegExp(process.version)}`));
 });
 

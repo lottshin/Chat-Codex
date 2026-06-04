@@ -73,7 +73,7 @@ test("BridgeStatusText uses root help commands in Claude profile", () => {
     planWorkflowForRoute: () => undefined,
   }).helpText(message());
 
-  assert.match(text, /已知 Chat-Codex 命令可直接使用根 `\/\.\.\.`/);
+  assert.match(text, /已知 Local Agent Bridge 命令可直接使用根 `\/\.\.\.`/);
   assert.match(text, /旧 `\/bridge-\*` 别名仍兼容/);
   assert.match(text, /\/help/);
   assert.match(text, /\/status/);

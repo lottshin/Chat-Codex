@@ -55,7 +55,7 @@ test("Bridge blocks an untrusted Feishu direct chat until it sends the pairing c
 
   assert.equal(codex.runs.length, 0);
   assert.equal(channel.sentMessages.length, 1);
-  assert.match(channel.sentMessages[0].text, /还没有完成 Chat-Codex 配对/);
+  assert.match(channel.sentMessages[0].text, /还没有完成 Local Agent Bridge 配对/);
   assert.doesNotMatch(channel.sentMessages[0].text, /ABC-123/);
   assert.equal(state.isRouteTrusted("feishu:default:direct:oc_a"), false);
   assert.ok(transcript.localProgressEvents.some((event) => event.text.includes("配对码: ABC-123")));
@@ -110,7 +110,7 @@ test("Bridge keeps Feishu pairing trust isolated by chat_id", async () => {
   assert.equal(state.isRouteTrusted("feishu:default:direct:oc_b"), false);
   assert.deepEqual(codex.runs.map((run) => run.prompt), ["A 可以执行"]);
   assert.equal(channel.sentMessages.some((message) => message.text.includes("B 还不能执行")), false);
-  assert.ok(channel.sentMessages.some((message) => message.target.conversation.id === "oc_b" && message.text.includes("还没有完成 Chat-Codex 配对")));
+  assert.ok(channel.sentMessages.some((message) => message.target.conversation.id === "oc_b" && message.text.includes("还没有完成 Local Agent Bridge 配对")));
 });
 
 test("Bridge lets Feishu group members register before route pairing but blocks prompts until paired", async () => {
@@ -142,7 +142,7 @@ test("Bridge lets Feishu group members register before route pairing but blocks 
   assert.equal(codex.runs.length, 0);
   assert.equal(state.isRouteTrusted("feishu:default:group:oc_group"), false);
   assert.ok(channel.sentMessages.some((message) => message.text.includes("已记录你在当前群的展示名：小黄")));
-  assert.ok(channel.sentMessages.some((message) => message.text.includes("还没有完成 Chat-Codex 配对")));
+  assert.ok(channel.sentMessages.some((message) => message.text.includes("还没有完成 Local Agent Bridge 配对")));
 
   await channel.emitText("/pair GRP-123", {
     conversationKind: "group",
@@ -276,7 +276,7 @@ test("Bridge does not consume Weixin pending primary binding before route pairin
   assert.equal(state.isRouteTrusted(routeKey), false);
   assert.equal(state.listPendingBindings().length, 1);
   assert.equal(state.getSessionOwner(session.id)?.ownerRouteKey, "pending:weixin-primary-weixin-main-wx");
-  assert.ok(channel.sentMessages.some((message) => message.text.includes("还没有完成 Chat-Codex 配对")));
+  assert.ok(channel.sentMessages.some((message) => message.text.includes("还没有完成 Local Agent Bridge 配对")));
 
   await channel.emitText("/pair WXA-234", { senderId: "wx_user", conversationId: "wx_user" });
   assert.equal(state.isRouteTrusted(routeKey), true);

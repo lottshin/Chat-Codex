@@ -10,18 +10,18 @@ import {
   readChatCodexPackageInfo,
 } from "../../src/runtime/package-info.js";
 
-test("package info reads Chat-Codex package metadata", () => {
+test("package info reads Local Agent Bridge package metadata", () => {
   const packageJson = JSON.parse(fs.readFileSync(path.join(process.cwd(), "package.json"), "utf8")) as {
     name?: string;
     version?: string;
   };
 
-  assert.equal(CHAT_CODEX_DISPLAY_NAME, "Chat-Codex");
+  assert.equal(CHAT_CODEX_DISPLAY_NAME, "Local Agent Bridge");
   assert.deepEqual(readChatCodexPackageInfo(), {
     name: packageJson.name,
     version: packageJson.version,
   });
   assert.equal(chatCodexVersion(), packageJson.version);
-  assert.equal(chatCodexTitle(), `Chat-Codex v${packageJson.version}`);
-  assert.equal(chatCodexVersionSummary(), `Chat-Codex ${packageJson.version}\nNode.js ${process.version}`);
+  assert.equal(chatCodexTitle(), `Local Agent Bridge v${packageJson.version}`);
+  assert.equal(chatCodexVersionSummary(), `Local Agent Bridge ${packageJson.version}\nNode.js ${process.version}`);
 });

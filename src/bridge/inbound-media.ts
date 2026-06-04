@@ -154,14 +154,14 @@ export function codexInputFromTextAndAttachments(text: string, attachments: read
 export function pendingMediaPromptText(count: number, assistantName = "Codex"): string {
   if (count <= 1) {
     return [
-      "【Chat-Codex中间件提醒】",
+      "【Local Agent Bridge 中间件提醒】",
       `已收到 1 个附件。你想让 ${assistantName} 如何处理这个附件？`,
       "请直接回复你的要求，例如：解释图片、提取文字、总结文件、检查 UI 问题、根据截图定位代码问题。",
       "发送 /cancel 可取消本次附件。",
     ].join("\n");
   }
   return [
-    "【Chat-Codex中间件提醒】",
+    "【Local Agent Bridge 中间件提醒】",
     `已收到 ${count} 个附件。你想让 ${assistantName} 如何处理这些附件？`,
     `请直接回复你的要求；我会把这些附件和你的说明一起交给 ${assistantName}。`,
     "发送 /cancel 可取消本次附件。",
@@ -170,7 +170,7 @@ export function pendingMediaPromptText(count: number, assistantName = "Codex"): 
 
 export function pendingMediaOverflowText(rejectedCount: number, total: number): string {
   return [
-    "【Chat-Codex中间件提醒】",
+    "【Local Agent Bridge 中间件提醒】",
     `待处理附件最多保留 ${PENDING_MEDIA_MAX_ATTACHMENTS} 个，已暂存 ${total} 个。`,
     `本次有 ${rejectedCount} 个未加入待处理附件，请先回复说明或发送 /cancel 后再重发。`,
   ].join("\n");
@@ -178,7 +178,7 @@ export function pendingMediaOverflowText(rejectedCount: number, total: number): 
 
 export function inboundMediaTurnOverflowText(rejectedCount: number, assistantName = "Codex"): string {
   return [
-    "【Chat-Codex中间件提醒】",
+    "【Local Agent Bridge 中间件提醒】",
     `本次最多投递 ${PENDING_MEDIA_MAX_ATTACHMENTS} 个附件给 ${assistantName}。`,
     `有 ${rejectedCount} 个附件未交给 ${assistantName}，请等本轮处理完后再重发。`,
   ].join("\n");
@@ -186,14 +186,14 @@ export function inboundMediaTurnOverflowText(rejectedCount: number, assistantNam
 
 export function inboundMediaSaveFailedText(assistantName = "Codex"): string {
   return [
-    "【Chat-Codex中间件提醒】",
+    "【Local Agent Bridge 中间件提醒】",
     `附件保存失败，暂时不能交给 ${assistantName} 处理。请稍后重发。`,
   ].join("\n");
 }
 
 export function inboundMediaUnsupportedText(): string {
   return [
-    "【Chat-Codex中间件提醒】",
+    "【Local Agent Bridge 中间件提醒】",
     "已收到附件，但当前只能处理已成功保存到本地的图片或文件。请稍后重发，或换成图片/文件重新发送。",
   ].join("\n");
 }

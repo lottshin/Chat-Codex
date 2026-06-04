@@ -25,7 +25,7 @@ export async function handleGroupReceiveCommand(
     return;
   }
   if (!deps.state.isRouteTrusted(message.routeKey)) {
-    await deps.delivery.sendText(target, "当前飞书私聊还没有完成 Chat-Codex 配对，请先完成 /pair。");
+    await deps.delivery.sendText(target, "当前飞书私聊还没有完成 Local Agent Bridge 配对，请先完成 /pair。");
     return;
   }
   const next = parseGroupReceiveMode(args[0]);
@@ -65,14 +65,14 @@ function groupReceiveUsageText(commandName: string): string {
 function groupReceiveEnabledText(): string {
   return [
     "已开启飞书群聊接收。",
-    "群里 @机器人 会进入 Chat-Codex 配对流程；每个群仍需单独配对。",
+    "群里 @机器人 会进入 Local Agent Bridge 配对流程；每个群仍需单独配对。",
   ].join("\n");
 }
 
 function groupReceiveDisabledText(): string {
   return [
     "已关闭飞书群聊接收。",
-    "Chat-Codex 会忽略飞书群聊消息；已有群 route、配对、权限和 session 绑定会保留。",
+    "Local Agent Bridge 会忽略飞书群聊消息；已有群 route、配对、权限和 session 绑定会保留。",
   ].join("\n");
 }
 

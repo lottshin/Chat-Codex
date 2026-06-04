@@ -100,7 +100,7 @@ export function formatCodexUnavailableError(command: CodexCommandResolution, err
   if (command.platform === "win32") {
     lines.push(
       "Windows 排查: 请执行 where.exe codex 和 codex --version。",
-      `如 PowerShell 可用但 Chat-Codex 不可用，可设置 ${CHAT_CODEX_BIN_ENV}=D:\\env\\nvm\\nodejs\\codex.cmd 后重试。`,
+      `如 PowerShell 可用但 Local Agent Bridge 不可用，可设置 ${CHAT_CODEX_BIN_ENV}=D:\\env\\nvm\\nodejs\\codex.cmd 后重试。`,
     );
   }
   return lines.join("\n");
